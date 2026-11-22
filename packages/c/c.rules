@@ -1114,3 +1114,7 @@ end
 rule policy_return_buffer_bytes
 text 256
 end
+
+rule escape_literal_boundary
+text ""
+end

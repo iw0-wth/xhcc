@@ -183,6 +183,26 @@ return consume(a)==18 && consume(b)==26 && consume(c)==44 && packed(p)==36 && si
     obj=OUT/(target+'_abi_missing.o')
     if obj.exists():obj.unlink()
     self.invoke(root,'variant-gcc',source,obj,ok=False)
+ def test_finite_abi_decision_table_equivalence_and_rejection(self):
+  import re
+  before=hashlib.sha256(self.compiler.read_bytes()).digest();source=OUT/'abi_decisions.c';source.write_text('double add(double a,int b){return a+b;} int entry(void){return (int)add(5.5,3);}\n')
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-abi-table-') as tmp:
+    root=Path(tmp);pkg=self.package(root,target);path=pkg/'x86.rules';base=path.read_text();records=list(re.finditer(r'rule abi.decision\.(\d+)\ntext ([^\n]+)\nend\n',base));self.assertGreater(len(records),10)
+    # Reorder disjoint first-match records: actual code generation must remain
+    # equivalent while using the same parser and compiler image.
+    values=[m[2] for m in records];reordered=base
+    reordered=re.sub(r'(rule abi.decision\.)(\d+)(\ntext )([^\n]+)',lambda m:m[1]+m[2]+m[3]+values[-1-int(m[2])],base)
+    for idx,text in enumerate([base,reordered]):
+     path.write_text(text);obj=OUT/(target+f'_decision_eq{idx}.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),8)
+    fp=next(m for m in records if m[2].split()[0:3]==['0','2','5']);fields=fp[2].split();fields[10]='0' if target=='x86_64' else '1';bad=base[:fp.start(2)]+' '.join(fields)+base[fp.end(2):]
+    path.write_text(bad);obj=OUT/(target+'_decision_bad.o')
+    if obj.exists():obj.unlink()
+    self.invoke(root,'variant-gcc',source,obj,ok=False)
+    path.write_text(base.replace('rule abi.decision.count\n','rule missing.abi.decision.count\n'));obj=OUT/(target+'_decision_missing.o')
+    if obj.exists():obj.unlink()
+    self.invoke(root,'variant-gcc',source,obj,ok=False)
+  self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

@@ -1857,6 +1857,12 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
         }
     }
 
+#ifdef XHCC
+    /* Apply user actions only after CPU, standard and package predefinitions.
+     * opts owns these arrays through the synchronous frontend invocation. */
+    preproc_set_command_macros(opts->macro_actions, opts->macro_action_count,
+                               opts->pre_defines, opts->pre_define_count);
+#else
     /* -DNAME[=VALUE]: register command-line macro defines before preprocessing.
      * Each entry is parsed: optional '=VALUE' suffix becomes the macro body;
      * without '=', the macro body is "1". */
@@ -1891,6 +1897,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
             preproc_define(e, "1");
         }
     }
+#endif
 
     /* Variadic functions: which va-region convention the target uses.
      * <stdarg.h> has two ways to walk an argument list and they are not

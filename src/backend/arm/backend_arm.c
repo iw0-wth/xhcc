@@ -19,6 +19,7 @@
 #include "codegen.h"
 #include "xh_arm_rules.h"
 #include "xh_rules.h"
+#include "xh_template.h"
 #include "xh_relocation.h"
 #include "memory.h"
 #include "platform.h"
@@ -10202,6 +10203,14 @@ static int arm_patch_narrow_a(ArmAsm*a,int site,const char*key,int target){
     }return 0;
 }
 
+static void arm_mapped_key_a(const char *mn,const char *suffix,char *key,int cap){
+    char lookup[64],stem[32];int i,n;
+    for(i=0;mn[i]&&i<48;i++)lookup[4+i]=(char)((mn[i]>='a'&&mn[i]<='z')?mn[i]-'a'+'A':mn[i]);
+    memcpy(lookup,"map.",4);lookup[4+i]=0;
+    n=xh_template_emit("arm",lookup,0,0,stem,sizeof stem);
+    if(n<0){key[0]=0;return;}snprintf(key,(size_t)cap,"%s%s",stem,suffix);
+}
+
 static void add_label_a(ArmAsm *a, const char *name, int addr) {
     if (a->label_count >= a->label_cap) {
         int nc = a->label_cap == 0 ? 32 : a->label_cap * 2;
@@ -12427,22 +12436,18 @@ static void pass2_a(ArmAsm *a) {
             }
             if (imm >= 0) {
                 if (rd == 13 && rn == 13) {
-                    out16(a, (is_sub ? 0xB080u : 0xB000u) | (((imm + 3) / 4) & 0x7F));
+                    arm_encode16(a,is_sub?"SUB_SP":"ADD_SP",((imm+3)/4)&127,0,0,0,1);
                 } else if (rd == rn && imm >= 0 && imm <= 255) {
-                    out16(a, (is_sub ? 0x3800u : 0x3000u) | ((rd & 7) << 8) | (imm & 0xFF));
+                    arm_encode16(a,is_sub?"SUB_IMM8":"ADD_IMM8",rd,imm&255,0,0,2);
                 } else if (imm >= 0 && imm <= 7 && rd <= 7 && rn <= 7) {
-                    out16(a, (is_sub ? 0x1E00u : 0x1C00u) | ((imm & 7) << 6) |
-                             ((rn & 7) << 3) | (rd & 7));
+                    arm_encode16(a,is_sub?"SUB_IMM3":"ADD_IMM3",rd,rn,imm&7,0,3);
                 } else {
-                    int i = (imm >> 11) & 1;
-                    int imm3 = (imm >> 8) & 7;
-                    unsigned base = is_sub ? 0xF1B0u : 0xF110u;  /* op=1101/1000, S=1 */
-                    out16(a, base | (unsigned)(i << 10) | (unsigned)(rn & 0xF));
-                    out16(a, (unsigned)((imm3 << 12) | ((rd & 0xF) << 8) | (imm & 0xFF)));
+                    unsigned i,imm3,imm8;
+                    if(!thumb_imm12_a((unsigned)imm,&i,&imm3,&imm8)){a->hard_errors++;arm_encode16(a,"FIXED_BF00",0,0,0,0,0);arm_encode16(a,"FIXED_BF00",0,0,0,0,0);}
+                    else arm_encode32(a,is_sub?"SUBS_IMM_W":"ADDS_IMM_W",rd,rn,(int)((i<<11)|(imm3<<8)|imm8),0,3);
                 }
             } else {
-                out16(a, (is_sub ? 0x1A00u : 0x1800u) | ((rm & 7) << 6) |
-                         ((rn & 7) << 3) | (rd & 7));
+                arm_encode16(a,is_sub?"SUB_REG3":"ADD_REG3",rd,rn,rm,0,3);
             }
         }
         else if (strieq_a(first, "ANDS") || strieq_a(first, "ORRS") ||
@@ -12454,13 +12459,8 @@ static void pass2_a(ArmAsm *a) {
             int rd = parse_reg_a(&p); int rm;
             eat_comma_a(&p); rm = parse_reg_a(&p);
             {
-                unsigned base;
-                if (strieq_a(first, "ANDS"))      base = 0x4000u;
-                else if (strieq_a(first, "EORS")) base = 0x4040u;
-                else if (strieq_a(first, "ORRS")) base = 0x4300u;
-                else if (strieq_a(first, "BICS")) base = 0x4380u;
-                else                              base = 0x43C0u;   /* MVNS */
-                out16(a, base | ((rm & 7) << 3) | (rd & 7));
+                char key[32];arm_mapped_key_a(first,"_REG_T1",key,sizeof key);
+                arm_encode16(a,key,rd,rm,0,0,2);
             }
         }
         else if (strieq_a(first, "MULS")) {
@@ -12482,7 +12482,7 @@ static void pass2_a(ArmAsm *a) {
                           "which this assembler does not emit", 0,0,0,0,0,0);
                 a->hard_errors++;
             }
-            out16(a, 0x4340u | ((rm & 7) << 3) | (rd & 7));
+            arm_encode16(a,"MUL",rd,rm,0,0,2);
         }
         else if (strieq_a(first, "LSLS") || strieq_a(first, "LSRS") ||
                  strieq_a(first, "ASRS")) {
@@ -12510,13 +12510,11 @@ static void pass2_a(ArmAsm *a) {
             if (imm >= 0) {
                 unsigned imm5 = (unsigned)(imm & 0x1F);
                 if (imm >= 32) imm5 = 0;             /* encoded as 32 */
-                out16(a, (type << 11) | (imm5 << 6) | ((rn & 7) << 3) | (rd & 7));
+                arm_encode16(a,type==0?"LSL_IMM":type==1?"LSR_IMM":"ASR_IMM",rd,rn,(int)imm5,0,3);
             } else if (rm >= 0) {
-                out16(a, 0xFA00u | (type << 5) | (1u << 4) |
-                         (unsigned)(rn & 0xF));
-                out16(a, 0xF000u | (unsigned)((rd & 0xF) << 8) | (unsigned)(rm & 0xF));
+                arm_encode32(a,type==0?"LSLS_REG_W":type==1?"LSRS_REG_W":"ASRS_REG_W",rd,rn,rm,0,3);
             } else {
-                out16(a, 0x4080u | (type << 6) | ((rn & 7) << 3) | (rd & 7));
+                arm_encode16(a,type==0?"LSL_REG":type==1?"LSR_REG":"ASR_REG",rd,rn,0,0,2);
             }
         }
         else if(strieq_a(first,"ADR")||strieq_a(first,"CBZ")||strieq_a(first,"CBNZ")){
@@ -12585,22 +12583,15 @@ static void pass2_a(ArmAsm *a) {
             if (!is_db && has_bang && !has_lr && !has_pc && rn <= 7 &&
                 list != 0 && (list & ~0xFF) == 0) {
                 /* T1 */
-                out16(a, (is_stm ? 0xC000u : 0xC800u) | ((rn & 7) << 8) | (list & 0xFF));
+                arm_encode16(a,is_stm?"STM_T1":"LDM_T1",rn,list&255,0,0,2);
             } else {
                 /* T2 */
                 /* 0xE880 is the increment-after form; decrement-before clears
                  * U (bit 7) and sets P (bit 8) -> 0xE900.  Writing it as a
                  * base choice rather than an OR matters: bit 7 is already
                  * set in 0xE880, so "| 0x80" would encode IA. */
-                unsigned hw1 = (unsigned)(is_db ? 0xE900 : 0xE880) |
-                               (unsigned)(has_bang ? 0x20 : 0) |
-                               (unsigned)(is_stm ? 0 : 0x10) |
-                               (unsigned)(rn & 0xF);
-                unsigned hw2 = (unsigned)(list & 0x1FFF) |
-                               (unsigned)(has_lr ? 0x4000 : 0) |
-                               (unsigned)(has_pc ? 0x8000 : 0);
-                out16(a, hw1);
-                out16(a, hw2);
+                int args[5];args[0]=rn;args[1]=list&0x1fff;args[2]=has_lr;args[3]=has_pc;args[4]=has_bang;
+                arm_encode32_args(a,is_stm?(is_db?"STM_DB":"STM_IA"):(is_db?"LDM_DB":"LDM_IA"),args,5);
             }
         }
         else if (strieq_a(first, "TBB") || strieq_a(first, "TBH")) {
@@ -12647,8 +12638,7 @@ static void pass2_a(ArmAsm *a) {
                           "UNPREDICTABLE here)", 0,0,0,0,0,0);
                 a->hard_errors++;
             }
-            out16(a, 0xE8D0u | (unsigned)(rn & 0xF));
-            out16(a, (unsigned)(is_tbh ? 0xF010 : 0xF000) | (unsigned)(rm & 0xF));
+            arm_encode32(a,is_tbh?"TBH":"TBB",rn,rm,0,0,2);
         }
         else if (strieq_a(first, "LDRD") || strieq_a(first, "STRD")) {
             /* --asm-extra: LDRD/STRD Rt, Rt2, [Rn, #imm] -- 32-bit T1.
@@ -12719,24 +12709,17 @@ static void pass2_a(ArmAsm *a) {
                  * U is 1 for a positive offset and 0 for a negative one;
                  * like LDM/STM above, the two bases differ in a bit that is
                  * set in both, so pick the base, do not OR a flag into it. */
-                out16(a, (unsigned)(is_load ? (imm < 0 ? 0xE950 : 0xE9D0)
-                                             : (imm < 0 ? 0xE940 : 0xE9C0)) |
-                          (unsigned)(rn & 0xF));
-                out16(a, (unsigned)((rt & 0xF) << 12) |
-                          (unsigned)((rt2 & 0xF) << 8) |
-                          (unsigned)((mag >> 2) & 0xFF));
+                arm_encode32(a,is_load?(imm<0?"LDRD_NEG":"LDRD_POS"):(imm<0?"STRD_NEG":"STRD_POS"),rt,rt2,rn,mag>>2,4);
             }
         }
         else if (strieq_a(first, "MLA") || strieq_a(first, "MLS")) {
             /* --asm-extra: MLA/MLS Rd, Rn, Rm, Ra -- 32-bit, hi=11111011000x Rn */
-            int is_mls = strieq_a(first, "MLS");
+            char key[32];
             int rd = parse_reg_a(&p); int rn, rm, ra;
             eat_comma_a(&p); rn = parse_reg_a(&p);
             eat_comma_a(&p); rm = parse_reg_a(&p);
             eat_comma_a(&p); ra = parse_reg_a(&p);
-            out16(a, 0xFB00u | (unsigned)(rn & 0xF));
-            out16(a, ((unsigned)(ra & 0xF) << 12) | ((unsigned)(rd & 0xF) << 8) |
-                     ((unsigned)(is_mls ? 1 : 0) << 4) | (unsigned)(rm & 0xF));
+            arm_mapped_key_a(first,"",key,sizeof key);arm_encode32(a,key,rd,rn,rm,ra,4);
         }
         else if (strieq_a(first, "SMULL") || strieq_a(first, "SMLAL")) {
             /* --asm-extra: SMULL/SMLAL RdLo, RdHi, Rn, Rm -- 32-bit */
@@ -12745,9 +12728,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p); rdhi = parse_reg_a(&p);
             eat_comma_a(&p); rn = parse_reg_a(&p);
             eat_comma_a(&p); rm = parse_reg_a(&p);
-            out16(a, (is_smlal ? 0xFBC0u : 0xFB80u) | (unsigned)(rn & 0xF));
-            out16(a, ((unsigned)(rdlo & 0xF) << 12) | ((unsigned)(rdhi & 0xF) << 8) |
-                     (unsigned)(rm & 0xF));
+            arm_encode32(a,is_smlal?"SMLAL":"SMULL",rdlo,rdhi,rn,rm,4);
         }
 #endif
         else if (strieq_a(first, "NEG") || strieq_a(first, "RSB")) {
@@ -12783,8 +12764,7 @@ static void pass2_a(ArmAsm *a) {
                         arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                         arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                     } else {
-                        out16(a, 0xF1B0u | ((i & 1) << 10) | (unsigned)(rn & 0xF));
-                        out16(a, ((imm3 & 7) << 12) | 0x0F00u | imm8);
+                        arm_encode32(a,"CMP_IMM_W",rn,(int)((i<<11)|(imm3<<8)|imm8),0,0,2);
                     }
                 }
             } else {
@@ -13505,18 +13485,13 @@ static void pass2_a(ArmAsm *a) {
              *           SXTB r0,r8 = 0xFA4FF088, UXTH r9,r3 = 0xFA1FF983. */
             int rd = parse_reg_a(&p);
             int rm;
-            unsigned lo_base = 0xB200u;
-            unsigned hi_base = 0xFA0Fu;
-            if (strieq_a(first, "SXTB")) { lo_base = 0xB240u; hi_base = 0xFA4Fu; }
-            else if (strieq_a(first, "UXTB")) { lo_base = 0xB2C0u; hi_base = 0xFA5Fu; }
-            else if (strieq_a(first, "UXTH")) { lo_base = 0xB280u; hi_base = 0xFA1Fu; }
+            char key[32];
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
             if (rd >= 0 && rd <= 7 && rm >= 0 && rm <= 7) {
-                out16(a, lo_base | ((rm & 7) << 3) | (rd & 7));
+                arm_mapped_key_a(first,"_T1",key,sizeof key);arm_encode16(a,key,rd,rm,0,0,2);
             } else if (rd >= 0 && rm >= 0) {
-                out16(a, hi_base | (rm & 0xF));
-                out16(a, 0xF080 | ((rd & 0xF) << 8) | (rm & 0xF));
+                arm_mapped_key_a(first,"_W",key,sizeof key);arm_encode32(a,key,rd,rm,0,0,2);
             } else {
                 {
                     char mn[9];
@@ -13609,17 +13584,15 @@ static void pass2_a(ArmAsm *a) {
                         arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                         arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                     } else {
-                        out16(a, 0xF05F | ((i & 1) << 10));
-                        out16(a, ((imm3 & 7) << 12) | ((rd & 0xF) << 8) | imm8);
+                        arm_encode32(a,"MOVS_IMM_W",rd,(int)((i<<11)|(imm3<<8)|imm8),0,0,2);
                     }
                 }
             } else {
                 int rm = parse_reg_a(&p);
                 if (rd >= 0 && rd <= 7 && rm >= 0 && rm <= 7) {
-                    out16(a, 0x0000 | ((rm & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"LSL_IMM",rd,rm,0,0,3);
                 } else if (rd >= 0 && rm >= 0) {
-                    arm_encode16(a,"FIXED_EA5F",0,0,0,0,0);
-                    out16(a, ((rd & 0xF) << 8) | (rm & 0xF));
+                    arm_encode32(a,"MOVS_REG_W",rd,rm,0,0,2);
                 } else {
                     diag_tool(DIAG_SEV_ERROR, "arkcc",
                               "bad register operand for MOVS", 0,0,0,0,0,0);
@@ -13639,8 +13612,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
             if (rd >= 0 && rn >= 0 && rm >= 0) {
-                out16(a, 0xFA90 | (rn & 0xF));
-                out16(a, 0xF000 | ((rd & 0xF) << 8) | (rm & 0xF));
+                arm_encode32(a,"SADD16",rd,rn,rm,0,3);
             } else {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for SADD16", 0,0,0,0,0,0);
@@ -13685,7 +13657,7 @@ static const char  *g_arm_unresolved_first = 0;
 
 /* Defined below (near arm_patch_movw_movt); resolve_refs_a needs it to
  * rewrite a MOVW/MOVT pair once a cross-object symbol becomes known. */
-static void mov_imm_encode_a(int is_movt, int rd, unsigned imm,
+static int mov_imm_encode_a(int is_movt, int rd, unsigned imm,
                             unsigned *hi, unsigned *lo);
 
 int arm_patch_branch(unsigned char*,int,int,int,int,int);
@@ -13730,8 +13702,10 @@ static void resolve_refs_a(ArmAsm *a) {
             unsigned hi, lo, hi2, lo2;
             int rd = (int)((a->out[r->pc + 3] >> 0) & 0x0F);
             if (r->type == 11) imm |= 1u;
-            mov_imm_encode_a(0, rd, imm & 0xFFFFu, &hi, &lo);
-            mov_imm_encode_a(1, rd, (imm >> 16) & 0xFFFFu, &hi2, &lo2);
+            if(mov_imm_encode_a(0, rd, imm & 0xFFFFu, &hi, &lo)||
+               mov_imm_encode_a(1, rd, (imm >> 16) & 0xFFFFu, &hi2, &lo2)){
+                a->hard_errors++;a->error_count++;continue;
+            }
             a->out[r->pc]     = (unsigned char)(hi & 0xFF);
             a->out[r->pc + 1] = (unsigned char)((hi >> 8) & 0xFF);
             a->out[r->pc + 2] = (unsigned char)(lo & 0xFF);
@@ -14032,14 +14006,11 @@ static void arm_save_relocs(ArmAsm *a) {
 /* Encode imm16 into a MOVW (is_movt=0) or MOVT (is_movt=1) halfword pair.
  * Same fields the pass-2 encoders above use; kept in one place so the linker's
  * relocation cannot drift from the assembler's encoding. */
-static void mov_imm_encode_a(int is_movt, int rd, unsigned imm,
+static int mov_imm_encode_a(int is_movt, int rd, unsigned imm,
                             unsigned *hi, unsigned *lo) {
-    unsigned ii   = (imm >> 11) & 1u;
-    unsigned imm4 = (imm >> 12) & 0xFu;
-    unsigned imm3 = (imm >> 8) & 7u;
-    unsigned imm8 = imm & 0xFFu;
-    *hi = (is_movt ? 0xF2C0u : 0xF240u) | (ii << 10) | imm4;
-    *lo = (imm3 << 12) | ((unsigned)(rd & 0xF) << 8) | imm8;
+    int args[2];unsigned word=0;args[0]=rd;args[1]=(int)(imm&65535u);
+    if(xh_encoding_encode("arm",is_movt?"MOVT":"MOVW",args,2,&word))return -1;
+    *hi=word>>16;*lo=word&65535u;return 0;
 }
 
 /* Target patch validation, old-immediate gather and atomic scatter live in

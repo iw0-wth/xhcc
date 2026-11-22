@@ -51,6 +51,12 @@ static void emit_str_literal(AsmBuffer *b, const char *data, int len) {
                     }
                     buf[n] = 0;
                     asmbuf_puts(b, buf);
+                    /* A C hexadecimal escape consumes every following hex
+                     * digit. End this token before a literal hex character. */
+                    if (i + 1 < len && ((data[i+1] >= '0' && data[i+1] <= '9') ||
+                        (data[i+1] >= 'a' && data[i+1] <= 'f') ||
+                        (data[i+1] >= 'A' && data[i+1] <= 'F')))
+                        asmbuf_puts(b, xh_c_rule_text("escape_literal_boundary"));
                 } else {
                     asmbuf_putc(b, (char)c);
                 }
@@ -108,7 +114,7 @@ static void emit_binop(AsmBuffer *b, int op, int is64) {
             if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_ge"));
             else             asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_2"));
             break;
-        default:             asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_3")); break;
+        default:             xh_c_rules_error("unsupported C binary operation"); break;
     }
 }
 
@@ -271,7 +277,11 @@ static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
             char namebuf[256];
             int i = 0;
             namebuf[i++] = '*';
-            if (name) { const char *p = name; while (*p && i < 250) namebuf[i++] = *p++; }
+            if (name) {
+                const char *p = name;
+                while (*p && i < (int)sizeof(namebuf) - 1) namebuf[i++] = *p++;
+                if (*p) { xh_c_rules_error("C declarator name exceeds capacity"); return; }
+            }
             namebuf[i] = 0;
             /* For pointer to struct/union, emit "struct Tag *name" without recursing
              * into the struct body. This prevents infinite recursion on self-referential
@@ -326,6 +336,10 @@ static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
             while (cur && cur->kind == TYPE_ARRAY && n < 16) {
                 dims[n++] = cur->size;
                 cur = cur->base;
+            }
+            if (cur && cur->kind == TYPE_ARRAY) {
+                xh_c_rules_error("C array declarator exceeds dimension capacity");
+                return;
             }
             emit_c_type(b, cur, name);
             {
@@ -1322,7 +1336,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         case (int)TOK_GT: cop = xh_c_rule_text("tok_gt_3");  break;
                         case (int)TOK_LE: cop = xh_c_rule_text("tok_le_3"); break;
                         case (int)TOK_GE: cop = xh_c_rule_text("abi_tok_ge_38"); break;
-                        default: break;
+                        default: xh_c_rules_error("unsupported C comparison operation"); break;
                     }
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* C99 6.5.9: the only comparison operators defined for
@@ -1443,7 +1457,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         if (op == (int)TOK_MINUS) asmbuf_puts(&buf, xh_c_rule_text("ir_unary_4"));
                         else if (op == (int)TOK_BNOT) asmbuf_puts(&buf, xh_c_rule_text("ir_unary_5"));
                         else if (op == (int)TOK_NOT)  asmbuf_puts(&buf, xh_c_rule_text("ir_unary_6"));
-                        else asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_3"));
+                        else xh_c_rules_error("unsupported C unary operation");
                         asmbuf_putc(&buf, ';');
                     }
                     break;
@@ -1726,7 +1740,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         case (int)TOK_GT: cop = xh_c_rule_text("tok_gt_3");  break;
                         case (int)TOK_LE: cop = xh_c_rule_text("tok_le_3"); break;
                         case (int)TOK_GE: cop = xh_c_rule_text("abi_tok_ge_38"); break;
-                        default: break;
+                        default: xh_c_rules_error("unsupported C comparison operation"); break;
                     }
                     asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
                     asmbuf_puts(&buf, lcast);
@@ -1821,7 +1835,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub8"));
                     break;
                 default:
-                    xh_c_rule_ints(&buf, "ir_simd_sub8_value", (int)I->op, 0);
+                    xh_c_rules_error("unsupported C IR instruction");
                     break;
             }
             asmbuf_putc(&buf, '\n');

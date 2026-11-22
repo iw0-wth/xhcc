@@ -114,3 +114,35 @@ int xh_x86_aggregate_wire(int bytes) {
     }
     failed=1;return wide_mode?8:4;
 }
+
+/* Finite first-match decision records. No expressions, jumps or executable
+ * templates. Every lookup is bounded by 32 records and 16 numeric fields. */
+int xh_x86_classify(int result,int kind,int size,int alignment,int variadic,int index,XhX86AbiClass *out){
+    int count=xh_x86_number("abi.decision.count"),i,j,matched=0;char key[64];
+    if(!out || count<1 || count>32 || kind<0 || kind>4 || size<0 || size>65535 || alignment<1 || alignment>4096 || index<0 || index>120)goto bad;
+    for(i=0;i<count;i++){
+        int v[16];const char *text;char *end;
+        snprintf(key,sizeof(key),"abi.decision.%d",i);text=xh_x86_rule(key);
+        for(j=0;j<16;j++){long n;while(*text==' ')text++;n=strtol(text,&end,10);if(end==text || n<0 || n>65535)goto bad;v[j]=(int)n;text=end;}
+        while(*text==' ')text++;if(*text || v[0]>1 || v[1]>4 || v[2]>v[3] || v[4]>v[5] || v[6]>v[7] || v[8]>v[9] || v[10]>2 || v[11]>2 || v[12]>8 || v[13]>16 || v[14]>1 || v[15])goto bad;
+        if(v[0]!=result || v[1]!=kind || size<v[2] || size>v[3] || alignment<v[4] || alignment>v[5] || variadic<v[6] || variadic>v[7] || index<v[8] || index>v[9])continue;
+        if(!matched){out->bank=v[10];out->words=v[11];out->width=v[12];out->alignment=v[13];out->indirect=v[14];matched=1;}
+    }
+    if(!matched)goto bad;
+    /* Validate the supported IR/private-wire contract independently of the
+     * external selector; incompatible class changes must not produce objects. */
+    {
+        int indirect=kind==XH_ABI_AGGREGATE && size>8;
+        int words=kind==XH_ABI_VOID?0:indirect || kind==XH_ABI_POINTER?1:size>4?2:1;
+        int width=kind==XH_ABI_VOID?0:indirect || kind==XH_ABI_POINTER?(wide_mode?8:4):size>4?8:4;
+        int bank=kind==XH_ABI_VOID?2:kind==XH_ABI_FLOAT && (wide_mode || result)?1:wide_mode || result?0:2;
+        if(out->indirect!=indirect || out->words!=words || out->width!=width || out->bank!=bank || out->alignment!=(kind==XH_ABI_VOID?1:wide_mode?8:4))goto bad;
+    }
+    return 0;
+bad:failed=1;diag_tool(DIAG_SEV_ERROR,target,"ABI decision table is invalid, unmatched or incompatible with the supported private wire",0,0,0,0,0,0);if(out)memset(out,0,sizeof(*out));return -1;
+}
+int xh_x86_allocate(const XhX86AbiClass *value,int *integer_used,int *vector_used,int *stack_used,int *where){
+    if(value->bank==0 && *integer_used<xh_x86_number("abi.integer.count")){*where=(*integer_used)++;return 0;}
+    if(value->bank==1 && *vector_used<xh_x86_number("abi.vector.count")){*where=(*vector_used)++;return 1;}
+    *where=(*stack_used)++;return 2;
+}

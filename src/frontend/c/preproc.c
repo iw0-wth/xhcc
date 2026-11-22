@@ -151,6 +151,13 @@ static int    g_inc_dir_count;
 static const char *xh_quote_dirs[PP_MAX_INC_DIRS], *xh_system_dirs[PP_MAX_INC_DIRS];
 static int xh_quote_count, xh_system_count, xh_forced_lookup;
 static int xh_gcc_mode, xh_c11_mode, xh_hosted_mode, xh_undef_mode;
+static const char *const *xh_macro_actions, *const *xh_macro_defines;
+static int xh_macro_action_count, xh_macro_define_count;
+void preproc_set_command_macros(const char *const *actions, int action_count,
+                                const char *const *defines, int define_count) {
+    xh_macro_actions = actions; xh_macro_action_count = action_count;
+    xh_macro_defines = defines; xh_macro_define_count = define_count;
+}
 void preproc_set_compiler_mode(int gcc_mode, int c11, int hosted, int undefines) {
     xh_gcc_mode=gcc_mode; xh_c11_mode=c11; xh_hosted_mode=hosted; xh_undef_mode=undefines;
 }
@@ -511,6 +518,10 @@ static void emit_int(char *buf, int *plen, int cap, int v) {
 
 void preproc_reset(void) {
     g_macros = 0;
+#ifdef XHCC
+    xh_macro_actions = 0; xh_macro_defines = 0;
+    xh_macro_action_count = 0; xh_macro_define_count = 0;
+#endif
     g_inc_depth = 0;
     g_inc_dir_count = 0;
 #ifdef XHCC
@@ -1917,14 +1928,8 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                 buf_putc(out, out_len, out_cap, '"');
                 continue;
             }
-            if (ark_streq(name, "__STDC__")) {
-                buf_putc(out, out_len, out_cap, '1');
-                continue;
-            }
-            if (ark_streq(name, "__ARK_CC__")) {
-                buf_putc(out, out_len, out_cap, '1');
-                continue;
-            }
+            /* Constant predefined macros use the ordinary table so command
+             * -D/-U and -undef affect expansion as well as #if/defined. */
             /* C99 6.10.8: __DATE__ is "Mmm dd yyyy"; __TIME__ is "hh:mm:ss". */
             if (ark_streq(name, "__DATE__")) {
                 buf_putc(out, out_len, out_cap, '"');
@@ -2281,14 +2286,6 @@ char *preproc_process(const char *src) {
         }
     }
     preproc_define("__SIZEOF_INT__", "4"); preproc_define("__SIZEOF_LONG_LONG__", "8");
-    if (xh_undef_mode) {
-        const char *names[] = {"__GNUC__","__GNUC_MINOR__","__GNUC_PATCHLEVEL__",
-          "__arm__","__thumb__","__arm","__thumb","__ARMCC_VERSION","__CC_ARM",
-          "__EDG__","__APCS_INTERWORK","__x86_64__","__amd64__","__i386__",
-          "__LP64__","_LP64","__riscv","__riscv_xlen","__riscv_float_abi_soft",
-          "__SIZEOF_POINTER__","__SIZEOF_LONG__","__SIZEOF_INT__","__SIZEOF_LONG_LONG__",0};
-        int ui; for (ui=0; names[ui]; ++ui) preproc_undef(names[ui]);
-    }
 #endif
 #if ARKCC_FEATURE_EOF_NL_WARN
     /* The translation unit's own last line, before anything is expanded:
@@ -2305,6 +2302,42 @@ char *preproc_process(const char *src) {
         if(!td){out[0]=0;return out;}
         {char identity[68];identity[0]='"';for(mi=0;td->id[mi]&&mi<64;mi++)identity[mi+1]=td->id[mi];identity[mi+1]='"';identity[mi+2]=0;preproc_define("__XHCC_TARGET_ID__",identity);}
         for(mi=0;mi<td->macro_count;mi++)preproc_define(td->macros[mi].name,td->macros[mi].value);
+    }
+    /* -undef removes compiler/package presets, not language-standard macros
+     * or required target/va internal protocol markers. User actions come last. */
+    if (xh_undef_mode) {
+        Macro **link = &g_macros;
+        while (*link) {
+            const char *name = (*link)->name;
+            const char *keep[] = {"__STDC__", "__STDC_VERSION__", "__STDC_HOSTED__",
+                "__FILE__", "__LINE__", "__DATE__", "__TIME__", "__XHCC_TARGET_ID__",
+                "__ARKCC_TARGET_ARM", "__ARKCC_TARGET_X86", "__ARKCC_TARGET_X86_64",
+                "__ARKCC_TARGET_RISCV32", "__ARKCC_TARGET_C", "__ARKCC_TARGET_NAME",
+                "__ARK_VA_WORD_SLOTS", "__ARK_VA_PACKED_WORDS", "__ARK_VA_SYSV", 0};
+            int k, retained = 0;
+            for (k = 0; keep[k]; ++k) if (ark_streq(name, keep[k])) { retained = 1; break; }
+            if (retained) link = &(*link)->next;
+            else *link = (*link)->next;
+        }
+    }
+    {
+        int ai, count = xh_macro_action_count ? xh_macro_action_count : xh_macro_define_count;
+        for (ai = 0; ai < count; ++ai) {
+            const char *entry = xh_macro_action_count ? xh_macro_actions[ai] : xh_macro_defines[ai];
+            const char *eq = 0;
+            int j;
+            if (xh_macro_action_count) {
+                if (entry[0] == '-' && entry[1] == 'U') { preproc_undef(entry + 2); continue; }
+                if (entry[0] == '-' && entry[1] == 'D') entry += 2;
+            }
+            for (j = 0; entry[j]; ++j) if (entry[j] == '=') { eq = entry + j; break; }
+            if (eq) {
+                char name[256]; int len = (int)(eq - entry), k;
+                if (len >= (int)sizeof name) { pp_diag_msg(1, 1, DIAG_SEV_ERROR, "command macro name too long", 0, 0); out[0]=0; return out; }
+                for (k = 0; k < len; ++k) name[k] = entry[k];
+                name[len] = 0; preproc_define(name, eq + 1);
+            } else preproc_define(entry, "1");
+        }
     }
     {
         int fi;

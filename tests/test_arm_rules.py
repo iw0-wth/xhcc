@@ -131,6 +131,42 @@ class ArmRules(unittest.TestCase):
                 expected=section(ref)
                 self.assertEqual(section(obj)[:len(expected)],expected,'short='+str(short))
 
+    def test_extended_encoding_formulas_gnu_bytes(self):
+        cases=[('stm16','stmia r3!, {r0-r2}',2),('ldm16','ldmia r3!, {r0-r2}',2),('stmwide','stmia r8!, {r0-r3,r9,lr}',4),('ldmwide','ldmia r8!, {r0-r3,r9,lr}',4),('stmdb','stmdb r8!, {r0-r3,r9,lr}',4),('ldmdb','ldmdb r8!, {r0-r3,r9,lr}',4),('tbb','tbb [r3,r4]',4),('tbh','tbh [r3,r4,lsl #1]',4),('mla','mla r0,r1,r2,r3',4),('mls','mls r0,r1,r2,r3',4),('smull','smull r0,r1,r2,r3',4),('smlal','smlal r0,r1,r2,r3',4),('sadd','sadd16 r3,r7,r5',4),('movshi','movs r12,r3',4),('movsim','movs r9,#0x80000000',4),('addsim','adds r8,r9,#0x100',4),('subsim','subs r8,r9,#0x100',4),('lsls','lsls r8,r9,r10',4),('lsrs','lsrs r8,r9,r10',4),('asrs','asrs r8,r9,r10',4),('ands','ands r3,r4',2),('orrs','orrs r3,r4',2),('eors','eors r3,r4',2),('bics','bics r3,r4',2),('mvns','mvns r3,r4',2)]
+        for op in ['sxtb','sxth','uxtb','uxth']:cases += [(op+'lo',op+' r3,r4',2),(op+'hi',op+' r8,r9',4)]
+        for op in ['ldrd','strd']:
+            for i,offset in enumerate([-1020,-4,0,4,1020]):cases.append((op+str(i),op+' r2,r3,[r8,#'+str(offset)+']',4))
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-extra-bytes-') as tmp:
+            work=Path(tmp);source=work/'cases.c';gas=work/'cases.s';obj=work/'xh.o';ref=work/'gnu.o'
+            source.write_text(''.join('__asm int case_'+name+'(void){\n'+asm+'\nBX lr\n}\n' for name,asm,_ in cases))
+            gas.write_text('.syntax unified\n.thumb\n'+''.join('.global case_'+name+'\n.thumb_func\ncase_'+name+':\n'+asm+'\nbx lr\n' for name,asm,_ in cases))
+            self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','--asm-extra','-mcpu=cortex-m7','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+            self.command(GNU/'arm-none-eabi-as.exe','-mcpu=cortex-m7','-mthumb',gas,'-o',ref)
+            def code(path):
+                with path.open('rb') as f:
+                    elf=ELFFile(f);out={}
+                    for name,_,size in cases:
+                        sym=elf.get_section_by_name('.symtab').get_symbol_by_name('case_'+name)[0];sec=elf.get_section(sym['st_shndx']);start=(sym['st_value']&~1)-sec['sh_addr'];out[name]=sec.data()[start:start+size]
+                    return out
+            actual=code(obj);expected=code(ref)
+            for name,asm,_ in cases:self.assertEqual(actual[name],expected[name],asm)
+            for asm in ['ldrd r2,r3,[r8,#1024]','strd r2,r3,[r8,#2]','ldrd r3,r4,[r8,#4]','tbb [r3,r4,lsl #1]','tbh [r3,r4,lsl #2]']:
+                source.write_text('__asm int entry(void){\n'+asm+'\nBX lr\n}\n');self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','--asm-extra','-O0','-c',source.relative_to(ROOT),'-o',(work/'bad.o').relative_to(ROOT),ok=False)
+
+    def test_mnemonic_map_changes_actual_execution_same_sha(self):
+        compiler=ROOT/'build/wasm/xhcc.wasm';before=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-map-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'source.c';source.write_text('__asm int entry(void){\nMOV r1,#3\nMOV r2,#4\nMOV r3,#20\nMLA r0,r1,r2,r3\nBX lr\n}\n')
+            path=pkg/'arm.rules';base=path.read_text();values=[]
+            for i,text in enumerate([base,base.replace('rule map.MLA\ntext MLA\n','rule map.MLA\ntext MLS\n',1)]):
+                path.write_text(text);obj=work/(str(i)+'.o');exe=work/(str(i)+'.elf')
+                self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','--asm-extra','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+                self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e','entry','-o',exe,obj);values.append(self.execute(exe))
+            self.assertEqual(values,[32,8])
+        self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

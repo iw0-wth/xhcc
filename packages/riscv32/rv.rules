@@ -1,0 +1,1043 @@
+XHTEMPLATE 1
+# RV32 finite emission sequences; ABI/control selection remains native.
+rule cast.trunc.s8
+text     lw t0, 0(sp)\n    slli t0, t0, 24\n    srai t0, t0, 24\n    sw t0, 0(sp)\n
+end
+rule cast.trunc.u8
+text     lw t0, 0(sp)\n    slli t0, t0, 24\n    srli t0, t0, 24\n    sw t0, 0(sp)\n
+end
+rule cast.trunc.s16
+text     lw t0, 0(sp)\n    slli t0, t0, 16\n    srai t0, t0, 16\n    sw t0, 0(sp)\n
+end
+rule cast.trunc.u16
+text     lw t0, 0(sp)\n    slli t0, t0, 16\n    srli t0, t0, 16\n    sw t0, 0(sp)\n
+end
+rule cast.trunc.32
+text     lw t0, 0(sp)\n    sw t0, 0(sp)\n
+end
+rule unary.neg.i32
+text     lw t0, 0(sp)\n    neg t0, t0\n    sw t0, 0(sp)\n
+end
+rule unary.not.i32
+text     lw t0, 0(sp)\n    not t0, t0\n    sw t0, 0(sp)\n
+end
+rule unary.lnot.i32
+text     lw t0, 0(sp)\n    seqz t0, t0\n    sw t0, 0(sp)\n
+end
+rule unary.identity.i32
+text     lw t0, 0(sp)\n    sw t0, 0(sp)\n
+end
+rule address.frame.negative
+text     li t2, ${0}\n    sub t2, s0, t2\n
+end
+rule address.frame.positive
+text     li t2, ${0}\n    add t2, s0, t2\n
+end
+rule emit.fixed.0000
+text     li t0,\x20
+end
+rule emit.fixed.0001
+text \n    sub sp, s0, t0\n
+end
+rule emit.fixed.0002
+text \n    add t0, sp, t0\n    lw s0, 0(t0)\n    li t0,\x20
+end
+rule emit.fixed.0003
+text \n    add t0, sp, t0\n    lw ra, 0(t0)\n
+end
+rule emit.fixed.0004
+text     ret\n
+end
+rule emit.fixed.0005
+text ,\x20
+end
+rule emit.fixed.0006
+text     .word\x20
+end
+rule emit.fixed.0007
+text .Lgstr_
+end
+rule emit.fixed.0008
+text  +\x20
+end
+rule emit.fixed.0009
+text  -\x20
+end
+rule emit.fixed.0010
+text \\n
+end
+rule emit.fixed.0011
+text \\t
+end
+rule emit.fixed.0012
+text \\r
+end
+rule emit.fixed.0013
+text \\\\
+end
+rule emit.fixed.0014
+text \\"
+end
+rule emit.fixed.0015
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n
+end
+rule emit.fixed.0016
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n
+end
+rule emit.fixed.0017
+text     addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule emit.fixed.0018
+text     addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule emit.fixed.0019
+text     addi sp, sp, -4\n    sw a2, 0(sp)\n    addi sp, sp, -4\n    sw a3, 0(sp)\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule emit.fixed.0020
+text     mv a2, a0\n    mv a3, a1\n
+end
+rule emit.fixed.0021
+text     addi sp, sp, -8\n
+end
+rule emit.fixed.0022
+text     call\x20
+end
+rule emit.fixed.0023
+text     mv t0, a0\n    mv t1, a1\n
+end
+rule emit.fixed.0024
+text     addi sp, sp, 40\n
+end
+rule emit.fixed.0025
+text     addi sp, sp, -4\n    sw a2, 0(sp)\n    addi sp, sp, -4\n    sw a3, 0(sp)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n
+end
+rule emit.fixed.0026
+text     addi sp, sp, -32\n
+end
+rule emit.fixed.0027
+text     call __muldf3\n
+end
+rule emit.fixed.0028
+text     call __subdf3\n
+end
+rule emit.fixed.0029
+text     call __adddf3\n
+end
+rule emit.fixed.0030
+text     lw t0, 16(sp)\n    lw t1, 20(sp)\n    addi sp, sp, 64\n
+end
+rule emit.fixed.0031
+text     addi sp, sp, -48\n
+end
+rule emit.fixed.0032
+text     call __divdf3\n
+end
+rule emit.fixed.0033
+text     lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 80\n
+end
+rule emit.fixed.0034
+text     call __eqdf2\n    sw a0, 0(sp)\n
+end
+rule emit.fixed.0035
+text     call __eqdf2\n    lw t0, 0(sp)\n    addi sp, sp, 40\n    or t0, t0, a0\n
+end
+rule emit.fixed.0036
+text     addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0037
+text     call __adddf3\n    addi sp, sp, 24\n    call sqrt\n
+end
+rule emit.fixed.0038
+text     call exp\n
+end
+rule emit.fixed.0039
+text     call cos\n
+end
+rule emit.fixed.0040
+text     call sin\n
+end
+rule emit.fixed.0041
+text     mv a2, t0\n    mv a3, t1\n    addi sp, sp, 48\n
+end
+rule emit.fixed.0042
+text     addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n
+end
+rule emit.fixed.0043
+text # Ark C Compiler - generated RV32I assembly\n
+end
+rule emit.fixed.0044
+text     .option nopic\n    .option norelax\n    .text\n
+end
+rule emit.fixed.0045
+text     .section .rodata\n
+end
+rule emit.fixed.0046
+text ark_str_
+end
+rule emit.fixed.0047
+text :\n    .asciz "
+end
+rule emit.fixed.0048
+text "\n
+end
+rule emit.fixed.0049
+text     .text\n
+end
+rule emit.fixed.0050
+text     .balign 4\n.L_flt_
+end
+rule emit.fixed.0051
+text :\n    .word 0x
+end
+rule emit.fixed.0052
+text \n    .balign 4\n.L_dbl_
+end
+rule emit.fixed.0053
+text \n    .word 0x
+end
+rule emit.fixed.0054
+text     .balign 4\n.L_cplx_
+end
+rule emit.fixed.0055
+text     .section .rodata\n.Lgstr_
+end
+rule emit.fixed.0056
+text "\n    .text\n
+end
+rule emit.fixed.0057
+text     .data\n
+end
+rule emit.fixed.0058
+text     .globl\x20
+end
+rule emit.fixed.0059
+text     .balign\x20
+end
+rule emit.fixed.0060
+text :\n
+end
+rule emit.fixed.0061
+text     .space\x20
+end
+rule emit.fixed.0062
+text     .word .Lgstr_
+end
+rule emit.fixed.0063
+text     .word 0\n
+end
+rule emit.fixed.0064
+text \n    .word\x20
+end
+rule emit.fixed.0065
+text     .short\x20
+end
+rule emit.fixed.0066
+text     .byte\x20
+end
+rule emit.fixed.0067
+text \n    add t0, sp, t0\n    sw ra, 0(t0)\n    li t0,\x20
+end
+rule emit.fixed.0068
+text \n    add t0, sp, t0\n    sw s0, 0(t0)\n    li t0,\x20
+end
+rule emit.fixed.0069
+text \n    add s0, sp, t0\n
+end
+rule emit.fixed.0070
+text     sw a0, 0(t2)\n
+end
+rule emit.fixed.0071
+text     li t2,\x20
+end
+rule emit.fixed.0072
+text \n    sub t2, s0, t2\n
+end
+rule emit.fixed.0073
+text     sw\x20
+end
+rule emit.fixed.0074
+text (t2)\n
+end
+rule emit.fixed.0075
+text     mv t4,\x20
+end
+rule emit.fixed.0076
+text     lw t4,\x20
+end
+rule emit.fixed.0077
+text (s0)\n
+end
+rule emit.fixed.0078
+text     lw t0,\x20
+end
+rule emit.fixed.0079
+text (t4)\n    sw t0,\x20
+end
+rule emit.fixed.0080
+text \x20\x20\x20\x20
+end
+rule emit.fixed.0081
+text sw\x20
+end
+rule emit.fixed.0082
+text lw t3,\x20
+end
+rule emit.fixed.0083
+text (s0)\n    sw t3
+end
+rule emit.fixed.0084
+text \n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0085
+text     la t0, ark_str_
+end
+rule emit.fixed.0086
+text     lw a0, 4(t2)\n    call __extendsfdf2\n
+end
+rule emit.fixed.0087
+text     lw a0, 0(t2)\n    call __extendsfdf2\n
+end
+rule emit.fixed.0088
+text     lw t0, 8(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    lw t0, 12(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    lw t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    lw t0, 4(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0089
+text     lw t0, 0(t2)\n    lw t1, 4(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n
+end
+rule emit.fixed.0090
+text     lw t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0091
+text     addi sp, sp, -4\n    sw t2, 0(sp)\n
+end
+rule emit.fixed.0092
+text     la t0,\x20
+end
+rule emit.fixed.0093
+text \n    sub t2, s0, t2\n    addi t2, t2,\x20
+end
+rule emit.fixed.0094
+text \n    addi sp, sp, -4\n    sw t2, 0(sp)\n
+end
+rule emit.fixed.0095
+text     la t1,\x20
+end
+rule emit.fixed.0096
+text \n    lw a0, 4(t1)\n    call __extendsfdf2\n
+end
+rule emit.fixed.0097
+text \n    lw a0, 0(t1)\n    call __extendsfdf2\n
+end
+rule emit.fixed.0098
+text \n    lw t0, 8(t1)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    lw t0, 12(t1)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    lw t0, 0(t1)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    lw t0, 4(t1)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0099
+text \n    lw t0, 0(t1)\n    lw t2, 4(t1)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n    addi sp, sp, -4\n    sw t2, 0(sp)\n
+end
+rule emit.fixed.0100
+text \n    lw t0, 0(t1)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0101
+text     lw t0, 4(sp)\n    lw t1, 0(sp)\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n    la t2,\x20
+end
+rule emit.fixed.0102
+text \n    sw a0, 0(t2)\n
+end
+rule emit.fixed.0103
+text     lw t0, 12(sp)\n    lw t1, 8(sp)\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n    la t2,\x20
+end
+rule emit.fixed.0104
+text \n    sw a0, 4(t2)\n    addi sp, sp, 16\n
+end
+rule emit.fixed.0105
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    lw t3, 8(sp)\n    lw t4, 12(sp)\n    addi sp, sp, 16\n    la t2,\x20
+end
+rule emit.fixed.0106
+text \n    sw t1, 0(t2)\n    sw t0, 4(t2)\n    sw t4, 8(t2)\n    sw t3, 12(t2)\n
+end
+rule emit.fixed.0107
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    addi sp, sp, 8\n    la t2,\x20
+end
+rule emit.fixed.0108
+text \n    sw t1, 0(t2)\n    sw t0, 4(t2)\n
+end
+rule emit.fixed.0109
+text     lw t0, 0(sp)\n    addi sp, sp, 4\n    la t1,\x20
+end
+rule emit.fixed.0110
+text     addi sp, sp, 4\n
+end
+rule emit.fixed.0111
+text     addi sp, sp, -
+end
+rule emit.fixed.0112
+text     lw t0, 0(sp)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0113
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    sw t1, 0(sp)\n    sw t0, 4(sp)\n
+end
+rule emit.fixed.0114
+text     lw t0, 4(sp)\n    lw t1, 0(sp)\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n
+end
+rule emit.fixed.0115
+text     lw t0, 12(sp)\n    lw t1, 8(sp)\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n
+end
+rule emit.fixed.0116
+text     sw a0, 4(t2)\n    addi sp, sp, 16\n
+end
+rule emit.fixed.0117
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    lw t3, 8(sp)\n    lw t4, 12(sp)\n    addi sp, sp, 16\n
+end
+rule emit.fixed.0118
+text     sw t1, 0(t2)\n    sw t0, 4(t2)\n    sw t4, 8(t2)\n    sw t3, 12(t2)\n
+end
+rule emit.fixed.0119
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    addi sp, sp, 8\n
+end
+rule emit.fixed.0120
+text     sw t1, 0(t2)\n    sw t0, 4(t2)\n
+end
+rule emit.fixed.0121
+text     lw t0, 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0122
+text     sb t0, 0(t2)\n
+end
+rule emit.fixed.0123
+text     sh t0, 0(t2)\n
+end
+rule emit.fixed.0124
+text     sw t0, 0(t2)\n
+end
+rule emit.fixed.0125
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n
+end
+rule emit.fixed.0126
+text     slli t1, t1, 1\n
+end
+rule emit.fixed.0127
+text     slli t1, t1, 2\n
+end
+rule emit.fixed.0128
+text     slli t1, t1, 3\n
+end
+rule emit.fixed.0129
+text     slli t1, t1, 4\n
+end
+rule emit.fixed.0130
+text     add t0, t0, t1\n
+end
+rule emit.fixed.0131
+text     addi sp, sp, -4\n    sw t0, 0(sp)\n    lw a0, 4(t0)\n    call __extendsfdf2\n    lw t0, 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0132
+text     lw a0, 0(t0)\n    call __extendsfdf2\n
+end
+rule emit.fixed.0133
+text     lw t1, 8(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    lw t1, 12(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    lw t1, 0(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    lw t1, 4(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n
+end
+rule emit.fixed.0134
+text     lbu t1, 0(t0)\n    lbu t2, 1(t0)\n    slli t2, t2, 8\n    or t0, t1, t2\n    slli t0, t0, 16\n    srai t0, t0, 16\n
+end
+rule emit.fixed.0135
+text     lbu t1, 0(t0)\n    lbu t2, 1(t0)\n    slli t2, t2, 8\n    or t1, t1, t2\n    lbu t2, 2(t0)\n    slli t2, t2, 16\n    or t1, t1, t2\n    lbu t2, 3(t0)\n    slli t2, t2, 24\n    or t0, t1, t2\n
+end
+rule emit.fixed.0136
+text     lbu t1, 0(t0)\n    lbu t3, 1(t0)\n    slli t3, t3, 8\n    or t1, t1, t3\n    lbu t3, 2(t0)\n    slli t3, t3, 16\n    or t1, t1, t3\n    lbu t3, 3(t0)\n    slli t3, t3, 24\n    or t1, t1, t3\n
+end
+rule emit.fixed.0137
+text     lbu t2, 4(t0)\n    lbu t3, 5(t0)\n    slli t3, t3, 8\n    or t2, t2, t3\n    lbu t3, 6(t0)\n    slli t3, t3, 16\n    or t2, t2, t3\n    lbu t3, 7(t0)\n    slli t3, t3, 24\n    or t2, t2, t3\n
+end
+rule emit.fixed.0138
+text     addi sp, sp, -4\n    sw t1, 0(sp)\n    addi sp, sp, -4\n    sw t2, 0(sp)\n
+end
+rule emit.fixed.0139
+text     lw t1, 0(t0)\n    lw t2, 4(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    addi sp, sp, -4\n    sw t2, 0(sp)\n
+end
+rule emit.fixed.0140
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    lw t2, 8(sp)\n    addi sp, sp, 12\n
+end
+rule emit.fixed.0141
+text     sb t1, 0(t2)\n    srli t3, t1, 8\n    sb t3, 1(t2)\n    srli t3, t1, 16\n    sb t3, 2(t2)\n    srli t3, t1, 24\n    sb t3, 3(t2)\n
+end
+rule emit.fixed.0142
+text     sb t0, 4(t2)\n    srli t3, t0, 8\n    sb t3, 5(t2)\n    srli t3, t0, 16\n    sb t3, 6(t2)\n    srli t3, t0, 24\n    sb t3, 7(t2)\n
+end
+rule emit.fixed.0143
+text     addi sp, sp, -4\n    sw t1, 0(sp)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0144
+text     lw t0, 4(sp)\n    lw t1, 0(sp)\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n    lw t2, 16(sp)\n    sw a0, 0(t2)\n
+end
+rule emit.fixed.0145
+text     lw t0, 12(sp)\n    lw t1, 8(sp)\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n    lw t2, 16(sp)\n    sw a0, 4(t2)\n
+end
+rule emit.fixed.0146
+text     lw t2, 16(sp)\n    addi sp, sp, 20\n    addi sp, sp, -4\n    sw t2, 0(sp)\n    lw a0, 4(t2)\n    call __extendsfdf2\n    lw t2, 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0147
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    lw t3, 8(sp)\n    lw t4, 12(sp)\n    lw t2, 16(sp)\n    addi sp, sp, 20\n
+end
+rule emit.fixed.0148
+text     addi sp, sp, -4\n    sw t4, 0(sp)\n    addi sp, sp, -4\n    sw t3, 0(sp)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0149
+text     sb t0, 0(t1)\n    srli t2, t0, 8\n    sb t2, 1(t1)\n
+end
+rule emit.fixed.0150
+text     sb t0, 0(t1)\n    srli t2, t0, 8\n    sb t2, 1(t1)\n    srli t2, t0, 16\n    sb t2, 2(t1)\n    srli t2, t0, 24\n    sb t2, 3(t1)\n
+end
+rule emit.fixed.0151
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0152
+text     sw t0, 0(sp)\n
+end
+rule emit.fixed.0153
+text     sub t0, t0, t1\n
+end
+rule emit.fixed.0154
+text     mul t0, t0, t1\n
+end
+rule emit.fixed.0155
+text     div t0, t0, t1\n
+end
+rule emit.fixed.0156
+text     rem t0, t0, t1\n
+end
+rule emit.fixed.0157
+text     and t0, t0, t1\n
+end
+rule emit.fixed.0158
+text     or t0, t0, t1\n
+end
+rule emit.fixed.0159
+text     xor t0, t0, t1\n
+end
+rule emit.fixed.0160
+text     sll t0, t0, t1\n
+end
+rule emit.fixed.0161
+text     sub t0, t0, t1\n    seqz t0, t0\n
+end
+rule emit.fixed.0162
+text     sub t0, t0, t1\n    snez t0, t0\n
+end
+rule emit.fixed.0163
+text     la t0, .L_cplx_
+end
+rule emit.fixed.0164
+text \n    lw t1, 8(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    lw t1, 12(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    lw t1, 0(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    lw t1, 4(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n
+end
+rule emit.fixed.0165
+text     la t0, .L_dbl_
+end
+rule emit.fixed.0166
+text \n    lw t1, 0(t0)\n    lw t2, 4(t0)\n    addi sp, sp, -4\n    sw t1, 0(sp)\n    addi sp, sp, -4\n    sw t2, 0(sp)\n
+end
+rule emit.fixed.0167
+text     la t0, .L_flt_
+end
+rule emit.fixed.0168
+text \n    lw t0, 0(t0)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0169
+text     seqz a0, a0\n
+end
+rule emit.fixed.0170
+text     snez a0, a0\n
+end
+rule emit.fixed.0171
+text     slti a0, a0, 0\n
+end
+rule emit.fixed.0172
+text     slt a0, x0, a0\n
+end
+rule emit.fixed.0173
+text     slti a0, a0, 1\n
+end
+rule emit.fixed.0174
+text     slti a0, a0, 0\n    xori a0, a0, 1\n
+end
+rule emit.fixed.0175
+text     addi sp, sp, 16\n    call atan2\n
+end
+rule emit.fixed.0176
+text     lw a0, 12(sp)\n    lw a1, 8(sp)\n    addi sp, sp, 16\n
+end
+rule emit.fixed.0177
+text     lw a0, 4(sp)\n    lw a1, 0(sp)\n    addi sp, sp, 16\n
+end
+rule emit.fixed.0178
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0179
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call\x20
+end
+rule emit.fixed.0180
+text     lw a0, 4(sp)\n    lw a1, 0(sp)\n    addi sp, sp, 8\n
+end
+rule emit.fixed.0181
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __extendsfdf2\n
+end
+rule emit.fixed.0182
+text     li a2, 0\n    li a3, 0\n
+end
+rule emit.fixed.0183
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call\x20
+end
+rule emit.fixed.0184
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n
+end
+rule emit.fixed.0185
+text     lw t0, 8(sp)\n    li t1, -2147483648\n    xor t0, t0, t1\n    sw t0, 8(sp)\n
+end
+rule emit.fixed.0186
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n
+end
+rule emit.fixed.0187
+text     sltu t2, x0, t1\n    sub t1, x0, t1\n    sub t0, x0, t0\n    sub t0, t0, t2\n
+end
+rule emit.fixed.0188
+text     not t0, t0\n    not t1, t1\n
+end
+rule emit.fixed.0189
+text     or t0, t0, t1\n    seqz t0, t0\n    addi sp, sp, 4\n    mv t1, x0\n
+end
+rule emit.fixed.0190
+text     sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule emit.fixed.0191
+text     lw t0, 0(sp)\n    li t1, -2147483648\n    xor t0, t0, t1\n    sw t0, 0(sp)\n
+end
+rule emit.fixed.0192
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n
+end
+rule emit.fixed.0193
+text     add t1, t1, t3\n    sltu t4, t1, t3\n    add t0, t0, t2\n    add t0, t0, t4\n
+end
+rule emit.fixed.0194
+text     sltu t4, t1, t3\n    sub t1, t1, t3\n    sub t0, t0, t2\n    sub t0, t0, t4\n
+end
+rule emit.fixed.0195
+text     and t0, t0, t2\n    and t1, t1, t3\n
+end
+rule emit.fixed.0196
+text     or t0, t0, t2\n    or t1, t1, t3\n
+end
+rule emit.fixed.0197
+text     xor t0, t0, t2\n    xor t1, t1, t3\n
+end
+rule emit.fixed.0198
+text     mulhu t4, t1, t3\n    mul t5, t1, t2\n    mul t6, t0, t3\n    add t4, t4, t5\n    add t4, t4, t6\n    mul t1, t1, t3\n    mv t0, t4\n
+end
+rule emit.fixed.0199
+text     andi t3, t3, 63\n    beqz t3, 21f\n    li t4, 32\n    bgeu t3, t4, 23f\n    li t4, 32\n    sub t4, t4, t3\n    srl t4, t1, t4\n    sll t0, t0, t3\n    or t0, t0, t4\n    sll t1, t1, t3\n    j 21f\n23:\n    addi t3, t3, -32\n    sll t0, t1, t3\n    li t1, 0\n21:\n
+end
+rule emit.fixed.0200
+text     andi t3, t3, 63\n    beqz t3, 31f\n    li t4, 32\n    bgeu t3, t4, 33f\n    li t4, 32\n    sub t4, t4, t3\n    sll t4, t0, t4\n
+end
+rule emit.fixed.0201
+text     or t1, t1, t4\n
+end
+rule emit.fixed.0202
+text     j 31f\n33:\n    addi t3, t3, -32\n
+end
+rule emit.fixed.0203
+text 31:\n
+end
+rule emit.fixed.0204
+text     addi sp, sp, -32\n    sw s0, 0(sp)\n    sw s1, 4(sp)\n    sw s2, 8(sp)\n    sw s3, 12(sp)\n    sw s4, 16(sp)\n    sw s5, 20(sp)\n    sw s6, 24(sp)\n    sw s7, 28(sp)\n    mv s0, t0\n    mv s1, t1\n    mv s2, t2\n    mv s3, t3\n    li t4, 0\n    li t5, 0\n
+end
+rule emit.fixed.0205
+text     srli t4, s0, 31\n    srli t5, s2, 31\n
+end
+rule emit.fixed.0206
+text     beqz t4, 41f\n    sltu t0, x0, s1\n    sub s1, x0, s1\n    add s0, s0, t0\n    sub s0, x0, s0\n41:\n
+end
+rule emit.fixed.0207
+text     beqz t5, 42f\n    sltu t0, x0, s3\n    sub s3, x0, s3\n    add s2, s2, t0\n    sub s2, x0, s2\n42:\n
+end
+rule emit.fixed.0208
+text     li s4, 0\n    li s5, 0\n    li s6, 0\n    li s7, 0\n    li t6, 64\n43:\n
+end
+rule emit.fixed.0209
+text     srli t0, s0, 31\n    srli t1, s1, 31\n    slli s0, s0, 1\n    or s0, s0, t1\n    slli s1, s1, 1\n
+end
+rule emit.fixed.0210
+text     srli t1, s7, 31\n    slli s6, s6, 1\n    or s6, s6, t1\n    slli s7, s7, 1\n    or s7, s7, t0\n
+end
+rule emit.fixed.0211
+text     bltu s6, s2, 44f\n    bne s6, s2, 45f\n    bltu s7, s3, 44f\n45:\n    sltu t1, s7, s3\n    sub s7, s7, s3\n    sub s6, s6, s2\n    sub s6, s6, t1\n    li t2, 1\n    j 46f\n44:\n    li t2, 0\n46:\n
+end
+rule emit.fixed.0212
+text     srli t1, s5, 31\n    slli s4, s4, 1\n    or s4, s4, t1\n    slli s5, s5, 1\n    or s5, s5, t2\n    addi t6, t6, -1\n    bnez t6, 43b\n
+end
+rule emit.fixed.0213
+text     mv t0, s6\n    mv t1, s7\n
+end
+rule emit.fixed.0214
+text     mv t0, s4\n    mv t1, s5\n
+end
+rule emit.fixed.0215
+text     beqz t4, 47f\n
+end
+rule emit.fixed.0216
+text     xor t4, t4, t5\n    beqz t4, 47f\n
+end
+rule emit.fixed.0217
+text     sltu t2, x0, t1\n    sub t1, x0, t1\n    add t0, t0, t2\n    sub t0, x0, t0\n47:\n
+end
+rule emit.fixed.0218
+text     lw s0, 0(sp)\n    lw s1, 4(sp)\n    lw s2, 8(sp)\n    lw s3, 12(sp)\n    lw s4, 16(sp)\n    lw s5, 20(sp)\n    lw s6, 24(sp)\n    lw s7, 28(sp)\n    addi sp, sp, 32\n
+end
+rule emit.fixed.0219
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n
+end
+rule emit.fixed.0220
+text     xor t0, t0, t2\n    xor t1, t1, t3\n    or t0, t0, t1\n
+end
+rule emit.fixed.0221
+text     bne t0, t2, 51f\n    sltu t4, t1, t3\n    j 52f\n51:\n
+end
+rule emit.fixed.0222
+text 52:\n    mv t0, t4\n
+end
+rule emit.fixed.0223
+text     xori t0, t0, 1\n
+end
+rule emit.fixed.0224
+text     bne t2, t0, 53f\n    sltu t4, t3, t1\n    j 54f\n53:\n
+end
+rule emit.fixed.0225
+text 54:\n    mv t0, t4\n
+end
+rule emit.fixed.0226
+text .L_
+end
+rule emit.fixed.0227
+text .LN_
+end
+rule emit.fixed.0228
+text     j .L_
+end
+rule emit.fixed.0229
+text     j .LN_
+end
+rule emit.fixed.0230
+text     lw t0, 0(sp)\n    addi sp, sp, 4\n    beq t0, x0, .L_
+end
+rule emit.fixed.0231
+text     lw t0, 0(sp)\n    addi sp, sp, 4\n    bne t0, x0, .L_
+end
+rule emit.fixed.0232
+text     lw t0, 0(sp)\n    li t1,\x20
+end
+rule emit.fixed.0233
+text \n    bne t0, t1, 1f\n    addi sp, sp, 4\n    j .L_
+end
+rule emit.fixed.0234
+text \n1:\n
+end
+rule emit.fixed.0235
+text     lw t4, 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0236
+text (sp)\n    lw t1,\x20
+end
+rule emit.fixed.0237
+text (sp)\n    sw t1,\x20
+end
+rule emit.fixed.0238
+text (sp)\n    sw t0,\x20
+end
+rule emit.fixed.0239
+text (sp)\n
+end
+rule emit.fixed.0240
+text     mv a0, t2\n
+end
+rule emit.fixed.0241
+text     lw\x20
+end
+rule emit.fixed.0242
+text     addi sp, sp,\x20
+end
+rule emit.fixed.0243
+text \n
+end
+rule emit.fixed.0244
+text     jalr ra, t4, 0\n
+end
+rule emit.fixed.0245
+text     addi sp, sp, -16\n    sw a0, 4(sp)\n    sw a1, 12(sp)\n
+end
+rule emit.fixed.0246
+text     lw a0, 4(sp)\n    call __extendsfdf2\n    sw a1, 0(sp)\n    sw a0, 4(sp)\n
+end
+rule emit.fixed.0247
+text     lw a0, 12(sp)\n    call __extendsfdf2\n    sw a1, 8(sp)\n    sw a0, 12(sp)\n
+end
+rule emit.fixed.0248
+text     lw a0, 12(sp)\n    lw a1, 8(sp)\n
+end
+rule emit.fixed.0249
+text     call __truncdfsf2\n    sw a0, 0(sp)\n
+end
+rule emit.fixed.0250
+text     lw a0, 20(sp)\n    lw a1, 16(sp)\n
+end
+rule emit.fixed.0251
+text     call __truncdfsf2\n    mv a1, a0\n
+end
+rule emit.fixed.0252
+text     lw a0, 0(sp)\n    addi sp, sp, 24\n
+end
+rule emit.fixed.0253
+text     lw a0, 4(sp)\n    lw a1, 0(sp)\n    lw a2, 12(sp)\n    lw a3, 8(sp)\n    addi sp, sp, 16\n
+end
+rule emit.fixed.0254
+text     lw t1, 0(t2)\n    li t3, 0\n    li t4,\x20
+end
+rule emit.fixed.0255
+text \n    li t5,\x20
+end
+rule emit.fixed.0256
+text \n61:\n    bgeu t3, t4, 62f\n    add t6, t0, t3\n    lw t6, 0(t6)\n    add t2, t1, t3\n    sw t6, 0(t2)\n    addi t3, t3, 4\n    j 61b\n62:\n    bgeu t3, t5, 63f\n    add t6, t0, t3\n    lb t6, 0(t6)\n    add t2, t1, t3\n    sb t6, 0(t2)\n    addi t3, t3, 1\n    j 62b\n63:\n    mv a0, t1\n
+end
+rule emit.fixed.0257
+text     lw a1, 0(sp)\n    addi sp, sp, 4\n    lw a0, 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0258
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    addi sp, sp, 8\n    li t2, 0\n    li t5,\x20
+end
+rule emit.fixed.0259
+text \n    li t6,\x20
+end
+rule emit.fixed.0260
+text \n61:\n    bgeu t2, t5, 62f\n    add t3, t1, t2\n    lw t4, 0(t3)\n    add t3, t0, t2\n    sw t4, 0(t3)\n    addi t2, t2, 4\n    j 61b\n62:\n    bgeu t2, t6, 63f\n    add t3, t1, t2\n    lb t4, 0(t3)\n    add t3, t0, t2\n    sb t4, 0(t3)\n    addi t2, t2, 1\n    j 62b\n63:\n
+end
+rule emit.fixed.0261
+text     lw t0, 0(sp)\n    lw t0, 0(t0)\n
+end
+rule emit.fixed.0262
+text     srli t0, t0,\x20
+end
+rule emit.fixed.0263
+text     slli t0, t0,\x20
+end
+rule emit.fixed.0264
+text \n\x20\x20\x20\x20
+end
+rule emit.fixed.0265
+text  t0, t0,\x20
+end
+rule emit.fixed.0266
+text \n    and t0, t0, t2\n
+end
+rule emit.fixed.0267
+text     li t3,\x20
+end
+rule emit.fixed.0268
+text \n    not t3, t3\n    lw t4, 0(t1)\n    and t4, t4, t3\n    or t4, t4, t0\n    sw t4, 0(t1)\n
+end
+rule emit.fixed.0269
+text     lw t0, 0(sp)\n    addi t0, t0, 15\n    andi t0, t0, -16\n    sub sp, sp, t0\n    addi sp, sp, -4\n    addi t1, sp, 4\n    sw t1, 0(sp)\n
+end
+rule emit.fixed.0270
+text     lw a
+end
+rule emit.fixed.0271
+text , 0(sp)\n    addi sp, sp, 4\n
+end
+rule emit.fixed.0272
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    li a7,\x20
+end
+rule emit.fixed.0273
+text \n    ecall\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule emit.fixed.0274
+text     li t4, 0x00FF00FF\n
+end
+rule emit.fixed.0275
+text     li t5, 0x01000100\n
+end
+rule emit.fixed.0276
+text     and t2, t0, t4\n
+end
+rule emit.fixed.0277
+text     or t2, t2, t5\n
+end
+rule emit.fixed.0278
+text     and t3, t1, t4\n\x20\x20\x20\x20
+end
+rule emit.fixed.0279
+text  t2, t2, t3\n    and t2, t2, t4\n    srli t3, t0, 8\n    and t3, t3, t4\n
+end
+rule emit.fixed.0280
+text     or t3, t3, t5\n
+end
+rule emit.fixed.0281
+text     srli t6, t1, 8\n    and t6, t6, t4\n\x20\x20\x20\x20
+end
+rule emit.fixed.0282
+text  t3, t3, t6\n    and t3, t3, t4\n    slli t3, t3, 8\n    or t0, t2, t3\n
+end
+rule emit.fixed.0283
+text     li t4, 0xFFFF\n    srli t2, t0, 16\n    srli t3, t1, 16\n    and t0, t0, t4\n    and t1, t1, t4\n\x20\x20\x20\x20
+end
+rule emit.fixed.0284
+text  t2, t2, t3\n    and t2, t2, t4\n    slli t2, t2, 16\n\x20\x20\x20\x20
+end
+rule emit.fixed.0285
+text  t0, t0, t1\n    and t0, t0, t4\n    or t0, t0, t2\n
+end
+rule emit.fixed.0286
+text     # unsupported IR op\n
+end
+rule emit.fixed.0287
+text     li a0, 0\n
+end
+rule emit.choice.0000
+text \n    add sp, sp, t0\n
+end
+rule emit.choice.0001
+text \n    sub sp, sp, t0\n
+end
+rule emit.choice.0002
+text \n    .byte\x20
+end
+rule emit.choice.0003
+text     lw a${0}, ${1}(sp)\n    lw a${2}, ${3}(sp)\n
+end
+rule emit.choice.0004
+text     sw a0, ${0}(sp)\n    sw a1, ${1}(sp)\n
+end
+rule emit.choice.0005
+text     lw a${0}, ${1}(sp)\n    lw a${2}, ${3}(sp)\n
+end
+rule emit.choice.0006
+text     snez t0, t0\n
+end
+rule emit.choice.0007
+text     seqz t0, t0\n
+end
+rule memory.load.u8
+text     lbu t0, 0(t2)\n
+end
+rule memory.load.s8
+text     lb t0, 0(t2)\n
+end
+rule memory.load.u16
+text     lhu t0, 0(t2)\n
+end
+rule memory.load.s16
+text     lh t0, 0(t2)\n
+end
+rule memory.global.store.8
+text \n    sb t0, 0(t1)\n
+end
+rule memory.global.store.16
+text \n    sh t0, 0(t1)\n
+end
+rule memory.global.store.32
+text \n    sw t0, 0(t1)\n
+end
+rule emit.choice.0015
+text     lw t0, ${0}(sp)\n    sw t0, ${1}(sp)\n
+end
+rule memory.index.load.s8
+text     lb t0, 0(t0)\n
+end
+rule memory.index.load.s16
+text     lh t0, 0(t0)\n
+end
+rule memory.index.load.32
+text     lw t0, 0(t0)\n
+end
+rule memory.index.store.8
+text     sb t0, 0(t1)\n
+end
+rule memory.index.store.16
+text     sh t0, 0(t1)\n
+end
+rule memory.index.store.32
+text     sw t0, 0(t1)\n
+end
+rule emit.choice.0022
+text     srl t0, t0, t1\n
+end
+rule emit.choice.0023
+text     sra t0, t0, t1\n
+end
+rule emit.choice.0024
+text     sltu t0, t0, t1\n
+end
+rule emit.choice.0025
+text     slt  t0, t0, t1\n
+end
+rule emit.choice.0026
+text     sltu t0, t1, t0\n
+end
+rule emit.choice.0027
+text     slt  t0, t1, t0\n
+end
+rule emit.choice.0028
+text     sltu t0, t1, t0\n    xori t0, t0, 1\n
+end
+rule emit.choice.0029
+text     slt  t0, t1, t0\n    xori t0, t0, 1\n
+end
+rule emit.choice.0030
+text     sltu t0, t0, t1\n    xori t0, t0, 1\n
+end
+rule emit.choice.0031
+text     slt  t0, t0, t1\n    xori t0, t0, 1\n
+end
+rule emit.choice.0032
+text     divu t0, t0, t1\n
+end
+rule emit.choice.0033
+text     div t0, t0, t1\n
+end
+rule emit.choice.0034
+text     remu t0, t0, t1\n
+end
+rule emit.choice.0035
+text     rem t0, t0, t1\n
+end
+rule emit.choice.0036
+text     srl t1, t1, t3\n
+end
+rule emit.choice.0037
+text     sra t1, t1, t3\n
+end
+rule emit.choice.0038
+text     srl t0, t0, t3\n
+end
+rule emit.choice.0039
+text     sra t0, t0, t3\n
+end
+rule emit.choice.0040
+text     srl t1, t0, t3\n    li t0, 0\n
+end
+rule emit.choice.0041
+text     sra t1, t0, t3\n    srai t0, t0, 31\n
+end
+rule emit.choice.0042
+text     seqz t0, t0\n
+end
+rule emit.choice.0043
+text     snez t0, t0\n
+end
+rule emit.choice.0044
+text     sltu t4, t0, t2\n
+end
+rule emit.choice.0045
+text     slt t4, t0, t2\n
+end
+rule emit.choice.0046
+text     sltu t4, t2, t0\n
+end
+rule emit.choice.0047
+text     slt t4, t2, t0\n
+end

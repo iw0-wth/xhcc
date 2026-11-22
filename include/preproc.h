@@ -14,6 +14,9 @@ void preproc_add_include_dir(const char *dir);
 #ifdef XHCC
 int preproc_write_macros(const char *path);
 void preproc_set_compiler_mode(int gcc_mode, int c11, int hosted, int undefines);
+/* Borrowed argv storage: applied after all builtins/packages, before includes. */
+void preproc_set_command_macros(const char *const *actions, int action_count,
+                                const char *const *defines, int define_count);
 void preproc_add_quote_include_dir(const char *dir);
 void preproc_add_system_include_dir(const char *dir);
 #endif

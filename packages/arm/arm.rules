@@ -1653,3 +1653,36 @@ end
 rule call.direct
 text     BL ${0}\n
 end
+rule map.ANDS
+text AND
+end
+rule map.ORRS
+text ORR
+end
+rule map.EORS
+text EOR
+end
+rule map.BICS
+text BIC
+end
+rule map.MVNS
+text MVN
+end
+rule map.SXTB
+text SXTB
+end
+rule map.SXTH
+text SXTH
+end
+rule map.UXTB
+text UXTB
+end
+rule map.UXTH
+text UXTH
+end
+rule map.MLA
+text MLA
+end
+rule map.MLS
+text MLS
+end

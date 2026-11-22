@@ -43,6 +43,18 @@ static int x86_abi_align(int bytes,const char *key) {
     return (bytes+alignment-1)&~(alignment-1);
 }
 
+/* Normalize language/IR facts only. Target decisions belong to the bounded
+ * package table, including aggregate thresholds and register-bank selection. */
+static XhX86AbiClass x86_type_class(Type *type,int result,int variadic,int index){
+    XhX86AbiClass value;int kind=XH_ABI_INTEGER,size=type?type_size(type):4,alignment=type?type_align(type):4;
+    if(type){if(type->kind==TYPE_VOID)kind=XH_ABI_VOID;
+        else if(type->kind==TYPE_FLOAT || type->kind==TYPE_DOUBLE)kind=XH_ABI_FLOAT;
+        else if(type->kind==TYPE_PTR || type->kind==TYPE_FUNC)kind=XH_ABI_POINTER;
+        else if(type->kind==TYPE_STRUCT || type->kind==TYPE_UNION)kind=XH_ABI_AGGREGATE;}
+    if(kind==XH_ABI_VOID)size=0;
+    xh_x86_classify(result,kind,size,alignment>0?alignment:1,variadic,index,&value);return value;
+}
+
 /* cdecl has no integer-class argument registers; all args are on the stack. */
 static const char *arg_reg(int i, int abi) {
     (void)i; (void)abi;
@@ -617,9 +629,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
         /* sret detection: if the function returns a struct/union > 8 bytes,
          * cdecl passes a hidden first arg = return buffer pointer at [ebp+8]. */
         int sret_off = 0;
-        if (f->ret_type &&
-            (f->ret_type->kind == TYPE_STRUCT || f->ret_type->kind == TYPE_UNION) &&
-            type_size(f->ret_type) > xh_x86_number("abi.aggregate.direct_limit")) {
+        if (x86_type_class(f->ret_type,1,0,0).indirect) {
             sret_off = local_size + xh_x86_number("abi.frame.locals_gap") + xh_x86_number("abi.frame.sret_pointer_offset");
         }
 
@@ -729,7 +739,8 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             int w = 4;
                             if (f->param_types && j < f->param_count) {
                                 int ps = type_size(f->param_types[j]);
-                                w = xh_x86_aggregate_wire(ps);
+                                w = x86_type_class(f->param_types[j],0,f->is_variadic,j).width;
+                                (void)ps;
                             }
                             stk += w;
                         }
@@ -1165,15 +1176,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             }
                             if (found_pt && pt && wi < ptn && pt[wi]) {
                                 Type *t = pt[wi];
-                                int ts = type_size(t);
-                                if (t->kind == TYPE_DOUBLE || type_is_64bit_integer(t))
-                                    b = 8;
-                                else if (t->kind == TYPE_FLOAT)
-                                    b = 4;
-                                else if (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION)
-                                    b = xh_x86_aggregate_wire(ts);
-                                else
-                                    b = 4;
+                                b = x86_type_class(t,0,0,wi).width;
                             }
                             if (b <= 0) b = 4;
                             if (wi < 64) {
@@ -1346,13 +1349,9 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         asmbuf_puts(&buf, xh_x86_rule("text.cf34b3c5e2d0a761"));
                     } else {
                         Type *rt = f->ret_type;
-                        int is_fp = rt && (rt->kind == TYPE_FLOAT ||
-                                           rt->kind == TYPE_DOUBLE);
-                        int two = rt && ((type_is_64bit_integer(rt) ||
-                                          rt->kind == TYPE_DOUBLE) ||
-                                         ((rt->kind == TYPE_STRUCT ||
-                                           rt->kind == TYPE_UNION) &&
-                                          type_size(rt) > xh_x86_number("abi.ir.word") && type_size(rt) <= xh_x86_number("abi.aggregate.direct_limit")));
+                        XhX86AbiClass result_class=x86_type_class(rt,1,0,0);
+                        int is_fp=result_class.bank==1;
+                        int two = result_class.words==2;
                         if (is_fp && rt->kind == TYPE_FLOAT) {
                             asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
                         } else if (is_fp) {
@@ -2553,9 +2552,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
          * read out of the registers on demand. */
         rs_off = framelo + xh_x86_number("abi.frame.spill_slots") * xh_x86_number("abi.stack.word") + xh_x86_number("abi.va.save_bytes");
 
-        if (f->ret_type &&
-            (f->ret_type->kind == TYPE_STRUCT || f->ret_type->kind == TYPE_UNION) &&
-            type_size(f->ret_type) > xh_x86_number("abi.aggregate.direct_limit"))
+        if (x86_type_class(f->ret_type,1,0,0).indirect)
             sret_used = 1;
 
         if (!f->is_static) {
@@ -2604,30 +2601,30 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
             for (j = 0; j < f->code_count; j++) {
                 IrInst *I = &f->code[j];
                 Type *pt = 0;
-                int is_sse;
+                XhX86AbiClass param_class;
+                int location,location_index,stack_used=0;
                 int tmp;
                 if (I->op != IR_GETARG || I->val >= 8000) continue;
                 if (f->param_types && pi < f->param_count) pt = f->param_types[pi];
                 pi++;
-                is_sse = (pt && (pt->kind == TYPE_FLOAT || pt->kind == TYPE_DOUBLE));
+                param_class=x86_type_class(pt,0,f->is_variadic,pi-1);
+                location=xh_x86_allocate(&param_class,&int_used,&sse_used,&stack_used,&location_index);
                 tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                 k++;
-                if (is_sse) {
-                    if (sse_used < xh_x86_number("abi.vector.count")) {
+                if (param_class.bank==1) {
+                    if (location==1) {
                         asmbuf_puts(&buf, xh_x86_rule("text.38456c9cf2daa5cd"));
-                        asmbuf_int(&buf, sse_used);
+                        asmbuf_int(&buf, location_index);
                         asmbuf_puts(&buf, xh_x86_rule("text.01ba4719c80b6fe9"));
                         amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
-                        sse_used++;
                     } else {
                         amd_mem_rd(&buf, "mov", "rax", "qword", stk);
                         amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
                         stk += xh_x86_number("abi.stack.word");
                     }
                 } else {
-                    if (int_used < xh_x86_number("abi.integer.count")) {
-                        amd_rd_mem(&buf, "mov", "qword", tmp, amd_argreg64(int_used));
-                        int_used++;
+                    if (location==0) {
+                        amd_rd_mem(&buf, "mov", "qword", tmp, amd_argreg64(location_index));
                     } else {
                         amd_mem_rd(&buf, "mov", "rax", "qword", stk);
                         amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
@@ -3095,7 +3092,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     int argmask = (int)I->aux;
                     int is_indirect = (I->name && I->name[0] == '?');
                     const int *wires = (I->aux2 > 0) ? &prog->argbytes[I->aux2 - 1] : 0;
-                    int same[64], cls[64], where[64];
+                    XhX86AbiClass argument_class[64];
+                    int cls[64], where[64];
                     int int_used = 0, sse_used = 0, nstk = 0;
                     int k;
                     /* A struct/union result wider than 8 bytes is returned
@@ -3141,7 +3139,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             slot64 = 0;
                         }
                         if (b <= 0) b = 4;
-                        w = slot64 ? 1 : (b > 4 ? 2 : 1);
+                        {
+                            int floating=((wires && (wires[k]&0x40000)) || (k<16 && ((argmask>>(2*k))&1)));
+                            xh_x86_classify(0,slot64?XH_ABI_POINTER:floating?XH_ABI_FLOAT:XH_ABI_INTEGER,b,1,0,k,&argument_class[k]);
+                            w=argument_class[k].words;
+                        }
                         tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                         if (w == 2) {
                             asmbuf_puts(&buf, xh_x86_rule("text.d0aef66727d08b37"));
@@ -3152,10 +3154,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                             amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
                         }
-                        /* New side tables preserve FP class beyond the legacy
-                         * 16-argument bitmask; old serialized IR remains valid. */
-                        same[k] = ((wires && (wires[k] & 0x40000)) ||
-                                   (k < 16 && ((argmask >> (2 * k)) & 1))) ? 1 : 0;
+
                     }
                     /* Assign each argument to a register or to a stack slot.
                      * SysV allocates the two register files independently: an
@@ -3173,13 +3172,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * stack argument was loaded into rdi/rsi/... and the real
                      * registers were overwritten. */
                     for (k = 0; k < n; k++) {
-                        if (same[k] && sse_used < xh_x86_number("abi.vector.count")) {
-                            cls[k] = 1; where[k] = sse_used++;
-                        } else if (!same[k] && int_used < xh_x86_number("abi.integer.count")) {
-                            cls[k] = 0; where[k] = int_used++;
-                        } else {
-                            cls[k] = 2; where[k] = nstk++;
-                        }
+                        cls[k]=xh_x86_allocate(&argument_class[k],&int_used,&sse_used,&nstk,&where[k]);
                     }
                     asmbuf_puts(&buf, xh_x86_rule("text.d142bbe448005ce7"));
                     if (nstk > 0) {
@@ -3304,9 +3297,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
 
                 case IR_RETURN: {
                     Type *rt = f->ret_type;
-                    int two = (rt && (type_is_64bit_integer(rt) || rt->kind == TYPE_DOUBLE)) ||
-                              (rt && (rt->kind == TYPE_STRUCT || rt->kind == TYPE_UNION) &&
-                               type_size(rt) > xh_x86_number("abi.ir.word") && type_size(rt) <= xh_x86_number("abi.aggregate.direct_limit"));
+                    XhX86AbiClass result_class=x86_type_class(rt,1,0,0);
+                    int two=result_class.words==2;
                     if (sret_used) {
                         /* SysV returns a composite wider than 8 bytes through a
                          * buffer the caller owns.  irgen pushes the *address*
@@ -3330,7 +3322,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     } else {
                         asmbuf_puts(&buf, xh_x86_rule("text.5e083d46fce61f03"));
                     }
-                    if (rt && (rt->kind == TYPE_FLOAT || rt->kind == TYPE_DOUBLE))
+                    if (result_class.bank==1)
                         asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
                     asmbuf_puts(&buf, xh_x86_rule("text.433c6caaac074862"));
                     break;

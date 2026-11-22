@@ -96,6 +96,7 @@ static const char *const required[] = {
     "escape_backslash",
     "escape_quote",
     "escape_hex_digits",
+    "escape_literal_boundary",
     "tok_plus",
     "tok_minus",
     "tok_mul",
@@ -482,5 +483,9 @@ int xh_c_rule_copy(char *out, int capacity, const char *key) {
     int n = xh_template_emit("c", key, 0, 0, out, capacity);
     if (n < 0) { c_failed = 1; if (capacity > 0) out[0] = 0; return -1; }
     return 0;
+}
+void xh_c_rules_error(const char *message) {
+    diag_tool(DIAG_SEV_ERROR, "c backend", message, 0,0,0,0,0,0);
+    c_failed = 1;
 }
 int xh_c_rules_failed(void) { return c_failed; }

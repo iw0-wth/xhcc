@@ -126,6 +126,20 @@ class CRules(unittest.TestCase):
             uc.emu_start(elf.header['e_entry'] | 1, 0x4f000, count=100000)
             return uc.reg_read(UC_ARM_REG_R0) & 0xffffffff
 
+    def test_hexadecimal_escape_preserves_following_hex_digit(self):
+        original = self.source.read_text(encoding='utf-8')
+        try:
+            # Octal in input fixes the two bytes at AB,41. The generated C uses
+            # a hexadecimal escape and must terminate it before the literal A.
+            self.source.write_text(r'int main(void) { unsigned char *s = (unsigned char*)"\253A"; return s[0] == 171 && s[1] == 65 ? 73 : 9; }' + '\n', encoding='utf-8')
+            output = self.compile(self.original, 'hex_boundary')
+            self.assertIn(r'\xab""A', output.read_text(encoding='utf-8'))
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            self.assertTrue(arm.is_file(), 'Set XH_C_ARM_CC for generated C execution')
+            self.assertEqual(self.run_arm_generated_c(arm, output), 73)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
     def test_version_malformed_and_missing_rule_rejected(self):
         invalid = [
             self.original.replace('XHTEMPLATE 1', 'XHTEMPLATE 999', 1),
@@ -170,6 +184,77 @@ class CRules(unittest.TestCase):
         bad = self.original.replace('text stk[sp++].i = ${0}LL;',
                                     'text ' + 'x' * 17000 + '${0}', 1)
         self.compile(bad, 'capacity', success=False)
+
+
+BACKEND_HARNESS = r'''
+#include "config.h"
+#include "diag.h"
+#include "xh_template.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "src/backend/c/backend_c.c"
+ArkccConfig g_config;
+int ark_strlen(const char*s){return (int)strlen(s);}
+int ark_streq(const char*a,const char*b){return a&&b&&!strcmp(a,b);}
+int type_size(Type*t){return t?t->size:0;}
+int fs_file_size(const char*p){FILE*f=fopen(p,"rb");long n;if(!f)return -1;fseek(f,0,SEEK_END);n=ftell(f);fclose(f);return(int)n;}
+int fs_read_file(const char*p,char*b,int cap){FILE*f=fopen(p,"rb");int n;if(!f)return -1;n=(int)fread(b,1,cap-1,f);b[n]=0;fclose(f);return n;}
+void diag_tool(DiagSeverity sev,const char*who,const char*msg,const char*a0,const char*a1,const char*a2,const char*a3,const char*a4,const char*a5){fprintf(stderr,"%s: %s\n",who,msg);}
+void asmbuf_init(AsmBuffer*b){b->buf=malloc(100000);b->cap=100000;b->len=0;b->buf[0]=0;}
+void asmbuf_puts(AsmBuffer*b,const char*s){int n=strlen(s);if(b->len+n+1>b->cap)abort();memcpy(b->buf+b->len,s,n+1);b->len+=n;}
+void asmbuf_putc(AsmBuffer*b,char c){char s[2]={c,0};asmbuf_puts(b,s);}
+void asmbuf_int(AsmBuffer*b,long long v){char s[32];snprintf(s,sizeof s,"%lld",v);asmbuf_puts(b,s);}
+int main(int argc,char**argv){
+ IrProgram prog={0};IrFunc f={0};IrFunc*funcs[1]={&f};IrInst inst={0};static char out[100000];int n;
+ prog.funcs=funcs;prog.func_count=1;f.name="entry";f.code=&inst;f.code_count=1;
+ inst.op=IR_PUSH_INT;inst.val=7;
+ if(!strcmp(argv[1],"ir"))inst.op=(IrOp)99999;
+ else if(!strcmp(argv[1],"binary")){inst.op=IR_BINARY;inst.aux=99999;}
+ else if(!strcmp(argv[1],"unary")){inst.op=IR_UNARY;inst.aux=99999;}
+ else if(!strcmp(argv[1],"compare")){inst.op=IR_FCMP;inst.aux=99999;}
+ else if(!strcmp(argv[1],"compare64")){inst.op=IR_64CMP;inst.aux=99999;}
+ else if(!strcmp(argv[1],"pointer")||!strcmp(argv[1],"array")){
+  Type ty[18]={{0}};IrGlobal g={0};IrGlobal*globals[1]={&g};char name[300];int i;
+  memset(name,'a',sizeof name-1);name[sizeof name-1]=0;ty[17].kind=TYPE_INT;
+  for(i=16;i>=0;i--){ty[i].kind=TYPE_ARRAY;ty[i].base=&ty[i+1];ty[i].size=1;}
+  if(!strcmp(argv[1],"pointer")){ty[0].kind=TYPE_PTR;ty[0].base=&ty[17];g.name=name;}else g.name="many_dims";
+  g.type=ty;prog.globals=globals;prog.global_count=1;out[0]='X';n=c_emit(&prog,out,sizeof out);
+  printf("%d %d\n",n,(int)out[0]);return n<0&&out[0]==0?0:1;
+ }
+ out[0]='X';n=c_emit(&prog,out,sizeof out);printf("%d %d\n",n,(int)out[0]);
+ return n<0&&out[0]==0?0:1;
+}
+'''
+
+class CBackendRejections(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        sdk = Path(os.environ.get('WASI_SDK_PATH', r'D:\wasi-sdk-34.0-x86_64-windows'))
+        cls.wasmtime = os.environ.get('WASMTIME', r'C:\Program Files\Wasmtime\bin\wasmtime.exe')
+        cls.out = ROOT / 'build/c-rules-tests'
+        cls.out.mkdir(parents=True, exist_ok=True)
+        harness = cls.out / 'backend_harness.c'
+        harness.write_text(BACKEND_HARNESS, encoding='utf-8')
+        cls.wasm = cls.out / 'backend_harness.wasm'
+        env = os.environ.copy()
+        python_dir = Path(sys.executable).parent
+        env['PATH'] = os.pathsep.join([str(python_dir), str(python_dir / 'Library/bin'), r'D:\miniconda3\Library\bin', env.get('PATH', '')])
+        process = subprocess.run([str(sdk / 'bin/clang.exe'), '--target=wasm32-wasip1', '-O1',
+                                  '-I.', '-Iinclude', '-Iconfig', '-include', 'include/xh_small.h', '-Wl,-z,stack-size=262144',
+                                  str(harness), 'src/backend/rules/c_rules.c', 'src/backend/rules/template.c',
+                                  '-o', str(cls.wasm)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
+        if process.returncode:
+            raise AssertionError(process.stderr)
+
+    def test_invalid_ir_operator_and_type_limits_reject_without_output(self):
+        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array']:
+            with self.subTest(mode=mode):
+                result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
+                                        cwd=ROOT, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.strip(), '-1 0')
+                self.assertIn('c backend:', result.stderr)
 
 
 if __name__ == '__main__':

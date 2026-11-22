@@ -16,5 +16,6 @@ int xh_c_rule_ints(AsmBuffer *out, const char *key, long long a, long long b);
 int xh_c_rule_member(const char *key, const char *name);
 const char *xh_c_rule_map(const char *key, const char *name);
 int xh_c_rule_copy(char *out, int capacity, const char *key);
+void xh_c_rules_error(const char *message);
 int xh_c_rules_failed(void);
 #endif
