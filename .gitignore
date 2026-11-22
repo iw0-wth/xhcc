@@ -1,0 +1,5 @@
+/build/
+__pycache__/
+*.pyc
+/packages/*/compiler.wasm
+/tests/output/
