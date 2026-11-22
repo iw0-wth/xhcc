@@ -36,6 +36,13 @@ class EncodingRules(unittest.TestCase):
   self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout,'    add t0, t0, t1\n')
   p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm','packages/riscv32/selection.rules','select','COMPARE'],cwd=ROOT,capture_output=True,text=True)
   self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout,'FALLBACK\n')
+ def test_selector_v1_compatibility_and_sequence_rejection(self):
+  path=OUT/'compat.selection';path.write_text('XHSELECT 1\nselect ADD scalar32 add dst lhs rhs\n')
+  def invoke():return subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm',str(path.relative_to(ROOT)),'select','ADD'],cwd=ROOT,capture_output=True,text=True)
+  p=invoke();self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout,'    add t0, t0, t1\n')
+  invalid=['XHSELECT 2\nselect ADD scalar32\nend\n','XHSELECT 2\nselect ADD scalar32\nemit add dst lhs rhs\n','XHSELECT 2\nselect ADD scalar32\n'+'emit add dst lhs rhs\n'*9+'end\n','XHSELECT 2\nselect ADD scalar32\nemit xori dst dst rhs\nend\n','XHSELECT 2\nselect ADD scalar32\nemit seqz rhs lhs\nend\n']
+  for text in invalid:
+   path.write_text(text);p=invoke();self.assertNotEqual(p.returncode,0,p.stdout);self.assertIn('invalid selection rules',p.stderr)
  def test_standard_formats(self):
   self.assertEqual(self.encode('R',[0,12,11,0,10,0x33]),0x00c58533)
   self.assertEqual(self.encode('I',[-1,11,0,10,0x13]),0xfff58513)
@@ -105,7 +112,7 @@ class EncodingRules(unittest.TestCase):
    shutil.copy2(ROOT/'packages/riscv32/encoding.rules',pkg/'encoding.rules')
    outputs=[]
    for variant in [False,True]:
-    rules=base.replace('select ADD scalar32 add','select ADD scalar32 sub',1) if variant else base
+    rules=base.replace('emit add dst lhs rhs','emit sub dst lhs rhs',1) if variant else base
     (pkg/'selection.rules').write_text(rules)
     obj=OUT/('variant.o' if variant else 'standard.o');exe=obj.with_suffix('.elf')
     p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(source.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True)
@@ -123,6 +130,47 @@ class EncodingRules(unittest.TestCase):
    p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(source.relative_to(ROOT)),'-o',str(rejected.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True)
    self.assertNotEqual(p.returncode,0);self.assertIn('invalid selection rules',p.stderr);self.assertFalse(rejected.exists())
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),original_hash)
+ def test_scalar32_sequence_boundaries(self):
+  sys.path.insert(0,str(ROOT/'build/test-deps'))
+  from elftools.elf.elffile import ELFFile
+  from unicorn import Uc,UC_ARCH_RISCV,UC_MODE_RISCV32
+  from unicorn.riscv_const import UC_RISCV_REG_SP,UC_RISCV_REG_RA,UC_RISCV_REG_A0,UC_RISCV_REG_A1
+  operations={'add':'+','sub':'-','mul':'*','band':'&','bor':'|','bxor':'^','shl':'<<','shr':'>>','eq':'==','ne':'!=','lt':'<','gt':'>','le':'<=','ge':'>=','div':'/','mod':'%'}
+  text=''.join(f'{typ} {prefix}_{name}({typ} a,{typ} b){{return a {op} b;}}\n' for prefix,typ in [('s','int'),('u','unsigned')] for name,op in operations.items())
+  source=OUT/'boundaries.c';source.write_text(text);obj=OUT/'boundaries.o';exe=OUT/'boundaries.elf'
+  p=subprocess.run([sys.executable,'tools/xhcc.py','riscv32-unknown-elf-gcc','-O0','-c',str(source.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+  subprocess.run([str(SDK/'bin/ld.lld.exe'),'-m','elf32lriscv','--no-relax','-Ttext=0x10000','-e','s_add','-o',str(exe),str(obj)],cwd=ROOT,check=True,capture_output=True)
+  with exe.open('rb') as f:
+   elf=ELFFile(f);symbols={s.name:s['st_value'] for s in elf.get_section_by_name('.symtab').iter_symbols()};uc=Uc(UC_ARCH_RISCV,UC_MODE_RISCV32);uc.mem_map(0x10000,0x30000);uc.mem_map(0x700000,0x20000)
+   for sec in elf.iter_sections():
+    if sec['sh_flags']&2 and sec['sh_type']!='SHT_NOBITS':uc.mem_write(sec['sh_addr'],sec.data())
+   count=0
+   for unsigned in [False,True]:
+    for name,op in operations.items():
+     pairs=[(0,1),(1,1),(0xffffffff,1),(0x80000000,0x7fffffff),(0x7fffffff,0xffffffff),(0xfffffff9,3),(17,5)]
+     if name in ['shl','shr']:pairs=[(a,b) for a in [0,1,0xffffffff,0x80000000,0x7fffffff] for b in [0,1,15,31]]
+     for a,b in pairs:
+      aa=a if unsigned or a<0x80000000 else a-0x100000000;bb=b if unsigned or b<0x80000000 else b-0x100000000
+      if name in ['div','mod']:
+       if bb==0:continue
+       q=abs(aa)//abs(bb);q=-q if (aa<0)!=(bb<0) else q;want=q if name=='div' else aa-q*bb
+      elif name=='band':want=aa&bb
+      elif name=='bor':want=aa|bb
+      elif name=='bxor':want=aa^bb
+      else:want=eval(f'aa {op} bb')
+      uc.reg_write(UC_RISCV_REG_SP,0x71f000);uc.reg_write(UC_RISCV_REG_RA,0x3f000);uc.reg_write(UC_RISCV_REG_A0,a);uc.reg_write(UC_RISCV_REG_A1,b);uc.emu_start(symbols[('u' if unsigned else 's')+'_'+name],0x3f000,count=100000);got=uc.reg_read(UC_RISCV_REG_A0)&0xffffffff
+      self.assertEqual(got,int(want)&0xffffffff,(unsigned,name,hex(a),hex(b),hex(got),want));count+=1
+  # Empty v2 table explicitly exercises the preserved C fallback; default
+  # sequences must produce identical machine text for all 32 functions.
+  import tempfile, shutil
+  with tempfile.TemporaryDirectory(prefix='xh-fallback-') as tmp:
+   root=Path(tmp);pkg=root/'fallback';pkg.mkdir();(pkg/'include').mkdir()
+   manifest=(ROOT/'packages/riscv32/package.ini').read_text().replace('id=riscv32','id=fallback').replace('tools=riscv32-unknown-elf-gcc,riscv32-none-elf-gcc','tools=fallback-gcc');(pkg/'package.ini').write_text(manifest)
+   shutil.copy2(ROOT/'packages/riscv32/encoding.rules',pkg/'encoding.rules');(pkg/'selection.rules').write_text('XHSELECT 2\n')
+   fallback=OUT/'fallback.o';p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'fallback-gcc','-O0','-c',str(source.relative_to(ROOT)),'-o',str(fallback.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+   with obj.open('rb') as a,fallback.open('rb') as b:self.assertEqual(ELFFile(a).get_section_by_name('.text').data(),ELFFile(b).get_section_by_name('.text').data())
+  self.assertEqual(count,276)
+  print(f'PASS RV32 scalar32 sequence execution: {count} signed/unsigned arithmetic, bitwise, shift, compare, DIV/MOD cases')
  def test_unsigned_numeric_overflow(self):
   p=OUT/'overflow.rules';p.write_text('XHENC 1\nrule X 1 4294967296\narg 0 5 0 1\nbits 0 0 5 0\nend\n')
   self.assertIn('invalid encoding rules',self.encode('X',[1],str(p.relative_to(ROOT)),ok=False))

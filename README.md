@@ -47,7 +47,7 @@ D:\miniconda3\python.exe tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o
 
 `packages/<id>/package.ini` v3提供工具别名、目标、CPU、ABI、include、参数方言及可选规则文件。复制目录即可注册新工具/目标配置，不需逐包新增主入口分支。`options.ini`描述flag/value/joined参数映射，可独立模拟编译器参数名称。
 
-RV32使用共享字段编码VM，R/I/S/B/U/J布局在外部 `encoding.rules`；标量32位ADD/SUB/AND/OR/XOR/MUL的IR选择与寄存器模板在 `selection.rules`。规则按需读取有界缓存。当前是**后端数据化第一阶段**：其余IR选择、ABI、通用寄存器分配、汇编助记符及重定位仍有C实现，任意全新ISA还不能只写目标名就实现。外部规则变体测试会在主程序SHA256不变时改变实际指令和执行结果。配置版本不匹配或规则越界必须失败。
+RV32使用共享字段编码VM，R/I/S/B/U/J布局在外部 `encoding.rules`；标量32位算术、位运算、移位、比较及有符号/无符号除法取模的IR选择与寄存器模板在 `selection.rules`，v2每条规则最多8步且兼容v1。规则按需读取有界缓存。当前是**后端数据化第一阶段**：其余IR选择、ABI、通用寄存器分配、汇编助记符及重定位仍有C实现，任意全新ISA还不能只写目标名就实现。外部规则变体测试会在主程序SHA256不变时改变实际指令和执行结果。配置版本不匹配或规则越界必须失败。
 
 主程序包含当前五类后端的代码，外部资源不整体装入内存；此次取消的子Wasm/共享stage实验不属于生产构建。协议与映射格式见 `docs/package-protocol.md`。
 

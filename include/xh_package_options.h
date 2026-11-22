@@ -5,6 +5,8 @@
  * canonical option token; flag may emit whitespace-separated tokens. Values
  * retain exact bytes and are never shell-expanded. -- stops rewriting.
  * Storage remains valid until next load/map; API is non-reentrant. */
+/* True for canonical separate-value options and loaded value aliases. */
+int xh_package_options_takes_value(const char *arg);
 int xh_package_options_load(const char *path);
 int xh_package_options_map(int argc, char **argv, int *out_argc, char ***out_argv);
 #endif

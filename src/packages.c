@@ -18,7 +18,7 @@ typedef struct {
   char dialect[16], options[128], engine[32], encoding[128], selection[128];
   int version;
   char protocol[32], protocol_major[8], protocol_minor[8], min_host_minor[8];
-  char requires[128], entry[32], adapter[128], backend[128];
+  char requires[512], entry[32], adapter[128], backend[128];
   char request_protocol[32], request_major[8], request_minor[8];
   char ir_protocol[32], ir_major[8], ir_minor[8];
 } Package;
@@ -50,6 +50,35 @@ static int safe_relative(const char *s) {
   }
   return 1;
 }
+static int package_requirements(const Package *pkg) {
+  static const char *supported[]={"package.options.v1","encoding.fields.v1","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
+  const char *p=pkg->requires;
+  while(*p){const char *end=strchr(p,',');size_t n=end?(size_t)(end-p):strlen(p);int i,known=0;size_t k;
+    if(!n||n>=96||p[0]<'a'||p[0]>'z')goto invalid;
+    {const char *prior=pkg->requires;while(prior<p){const char *pe=strchr(prior,',');size_t pn=pe?(size_t)(pe-prior):strlen(prior);if(pn==n&&!strncmp(prior,p,n))goto invalid;if(!pe)break;prior=pe+1;}}
+    for(k=0;k<n;k++) {
+      int alpha=p[k]>='a'&&p[k]<='z',digit=p[k]>='0'&&p[k]<='9';
+      if(!alpha&&!digit){if((p[k]!='.'&&p[k]!='_'&&p[k]!='-')||k==n-1||k==0||!((p[k-1]>='a'&&p[k-1]<='z')||(p[k-1]>='0'&&p[k-1]<='9')))goto invalid;}
+    }
+    for(i=0;supported[i];i++)if(strlen(supported[i])==n&&!strncmp(p,supported[i],n)){known=1;break;}
+    if(!known){fprintf(stderr,"xhcc: package %s requires unsupported capability: %.*s\n",pkg->id,(int)n,p);return 1;}
+    if(!end)break;p=end+1;if(!*p)goto invalid;
+  }
+  return 0;
+invalid:fprintf(stderr,"xhcc: invalid package capability requirements: %s\n",pkg->id);return 1;
+}
+static int package_target(const Package *p) {
+  static const struct {const char *target,*abi;} descriptors[]={
+    {"arm","aapcs-soft"},{"riscv32","ilp32"},{"x86","sysv-ilp32"},{"x86_64","sysv-lp64"},{"c","host-c"}};
+  unsigned i;
+  for(i=0;i<sizeof(descriptors)/sizeof(descriptors[0]);i++)if(!strcmp(p->target,descriptors[i].target)){
+    if(strcmp(p->abi,descriptors[i].abi)||!*p->cpu){fprintf(stderr,"xhcc: package ABI/CPU does not match target: %s\n",p->id);return 1;}
+    if(*p->engine && (strcmp(p->engine,"rv32-rule-v1")||strcmp(p->target,"riscv32"))){fprintf(stderr,"xhcc: unsupported package engine/target: %s\n",p->id);return 1;}
+    if((*p->encoding||*p->selection)&&strcmp(p->target,"riscv32")){fprintf(stderr,"xhcc: rules unavailable for package target: %s\n",p->id);return 1;}
+    return 0;
+  }
+  fprintf(stderr,"xhcc: unsupported package target: %s\n",p->target);return 1;
+}
 static int read_package(const char *path, Package *pkg) {
   char line[512];
   FILE *f = fopen(path, "r");
@@ -71,7 +100,7 @@ static int read_package(const char *path, Package *pkg) {
     key = trim(key);
     value = trim(value);
     if (!strcmp(key, "version")) {
-      if (pkg->version || (strcmp(value, "1") && strcmp(value, "2") && strcmp(value,"3")))
+      if (pkg->version || (strcmp(value, "1") && strcmp(value,"3")))
         goto invalid;
       pkg->version = value[0] - '0';
       continue;
@@ -103,7 +132,7 @@ static int read_package(const char *path, Package *pkg) {
   if (ferror(f))
     goto invalid;
   fclose(f);
-  if ((pkg->version != 1 && pkg->version != 2 && pkg->version != 3) || !safe_relative(pkg->id) || strchr(pkg->id, '/') ||
+  if ((pkg->version != 1 && pkg->version != 3) || !safe_relative(pkg->id) || strchr(pkg->id, '/') ||
       !*pkg->tools || !safe_relative(pkg->include) ||
       (pkg->version != 3 && !safe_relative(pkg->module)) ||
       (*pkg->options && !safe_relative(pkg->options)) ||
@@ -205,6 +234,7 @@ int xh_package_adapter_config(const char *root,const char *tool,char *path,size_
   path[0]=0;dialect[0]=0;
   for(i=0;i<n;i++)if(has_tool(packages[i].tools,tool)) {
     Package *p=&packages[i];const char *d=*p->dialect?p->dialect:(!strcmp(tool,"armcc")?"armcc":"gcc");
+    if(package_requirements(p)||package_target(p))return 1;
     if(strcmp(d,"gcc")&&strcmp(d,"armcc")){fprintf(stderr,"xhcc: unsupported argument dialect: %s\n",d);return 1;}
     if(strlen(d)>=dialect_cap)return 1;strcpy(dialect,d);
     if(*p->options && snprintf(path,cap,"%s/%s/%s",root,p->id,p->options)>=(int)cap)return 1;
@@ -230,6 +260,7 @@ int xh_package_apply(const char *root, const char *tool, ArkOptions *opts) {
   for (i = 0; i < n; i++)
     if (has_tool(packages[i].tools, tool)) {
       Package *p = &packages[i];
+      if(package_requirements(p)||package_target(p))return 1;
       if (strcmp(XH_MODULE_TARGET, "all") && strcmp(p->target, XH_MODULE_TARGET)) {
         fprintf(
             stderr,

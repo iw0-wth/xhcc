@@ -17,8 +17,9 @@ void xh_rules_release(void);
 int xh_rules_encode(const char *rule,const int *args,int count,unsigned *word);
 /* Validate without encoding (used before an assembler pass). */
 int xh_rules_load(void);
-/* Scalar32 IR selection VM. A matched record emits one constrained three-
- * register mnemonic. 1=selected, 0=unmatched (caller retains C fallback), -1=error. */
+/* Scalar32 IR selection VM v1/v2. A matched record emits up to eight
+ * constrained instructions; caller should provide >=512 output bytes.
+ * 1=selected, 0=unmatched (caller retains C fallback), -1=error. */
 int xh_rules_set_selection_path(const char *path);
 int xh_rules_select_binary(const char *operation,char *output,int capacity);
 #endif

@@ -3,6 +3,7 @@ from pathlib import Path, PurePosixPath
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,9 +27,14 @@ def manifest(path):
         raise ValueError(f'version 2 staged packages are obsolete; upgrade to version 3: {path}')
     if not BASE_FIELDS <= data.keys() or data['version'] not in ('1', '3') or data['id'] != path.parent.name:
         raise ValueError(f'invalid package schema: {path}')
-    allowed = BASE_FIELDS | ({'module'} if data['version'] == '1' else {'dialect', 'options', 'engine', 'encoding', 'selection'})
+    allowed = BASE_FIELDS | ({'module'} if data['version'] == '1' else {'dialect', 'options', 'engine', 'encoding', 'selection', 'requires'})
     if data.keys() - allowed:
         raise ValueError(f'unsupported package fields: {path}')
+    if 'requires' in data:
+        capabilities = data['requires'].split(',')
+        if len(set(capabilities)) != len(capabilities) or any(
+                re.fullmatch(r'[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*', item) is None for item in capabilities):
+            raise ValueError(f'invalid requires capability list: {path}')
     if data.get('dialect', 'gcc') not in ('gcc', 'armcc'):
         raise ValueError(f'unsupported dialect: {path}')
     for key in ('include', *[key for key in ('options', 'encoding', 'selection') if key in data]):

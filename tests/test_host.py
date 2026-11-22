@@ -103,6 +103,27 @@ class HostTests(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 host.manifest(directory / 'package.ini')
 
+    def test_requires_syntax_only_and_legacy_default(self):
+        valid = ['package.options.v1,encoding.fields.v1,selection.scalar32.v1',
+                 'selection.scalar32.v2,object.elf32,object.elf64', 'future.capability.v99']
+        for index, requires in enumerate(valid):
+            directory = self.package('valid' + str(index), 'valid' + str(index), requires=requires)
+            self.assertEqual(host.manifest(directory / 'package.ini')['requires'], requires)
+        legacy = self.package()
+        self.assertNotIn('requires', host.manifest(legacy / 'package.ini'))
+        with patch.object(host.subprocess, 'run') as run:
+            run.return_value.returncode = 42
+            result, _, _ = self.invoke('valid2')
+        run.assert_called_once()
+        self.assertEqual(result, 42)  # Unknown capabilities are the compiler's decision.
+        invalid = ['', ',object.elf32', 'object.elf32,', 'object.elf32,,object.elf64',
+                   'object.elf32,object.elf32', 'object.elf32, object.elf64',
+                   'Object.elf32', 'object/elf32', 'object..elf32', 'object.elf32;', '能力.v1']
+        for index, requires in enumerate(invalid):
+            directory = self.package('invalidcap' + str(index), 'invalidcap' + str(index), requires=requires)
+            with self.subTest(requires=requires), self.assertRaisesRegex(ValueError, 'requires'):
+                host.manifest(directory / 'package.ini')
+
     def test_list_does_not_require_compiler(self):
         self.package()
         self.compiler.unlink()

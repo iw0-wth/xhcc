@@ -46,6 +46,34 @@ class PackageOptionTests(unittest.TestCase):
             self.assertEqual((self.dir / 'custom.o').read_bytes()[:4], b'\x7fELF')
         self.assertEqual(self.invoke('-dumpmachine').stdout.strip(), 'arm-none-eabi')
 
+    def test_option_values_are_not_control_options(self):
+        # -D's value resembles help: it must be validated as a macro, not exit 0.
+        self.invoke('--compile', '-D', '--help', self.path('one.c'), success=False)
+        # Canonical option values must not be rewritten by package aliases.
+        self.invoke('--compile', '-D', '--compile', self.path('one.c'), success=False)
+        self.invoke('--compile', '--chip', '--help', self.path('one.c'), success=False)
+        result = self.invoke('--compile', '--chip', '--package-root', self.path('one.c'), success=False)
+        self.assertIn('CPU', result.stderr)
+        self.assertNotIn('cannot open package root', result.stderr)
+        self.invoke('--compile', '--package-root', 'other', self.path('one.c'), success=False)
+        self.invoke('--compile', '-o', '--package-root', self.path('one.c'))
+        output = ROOT / '--package-root'
+        try:
+            self.assertEqual(output.read_bytes()[:4], b'\x7fELF')
+        finally:
+            output.unlink(missing_ok=True)
+        # Help paired with compilation must still validate the package rules.
+        (self.package / 'options.ini').write_text('[bad]\nmode=magic\n', encoding='utf-8')
+        self.invoke('--help', '--compile', self.path('one.c'), success=False)
+
+    def test_rules_cannot_change_root_or_tool(self):
+        for emit in ('--package-root other', '--package-root=other', '--target=arm',
+                     '-target arm', '-m32', '-m64'):
+            with self.subTest(emit=emit):
+                (self.package / 'options.ini').write_text(
+                    '[escape]\nmatch=--compile\nmode=flag\nemit=' + emit + '\n', encoding='utf-8')
+                self.invoke('--compile', self.path('one.c'), success=False)
+
     def test_value_and_unknown_options_fail(self):
         self.invoke('--compile', '--chip', success=False)
         self.invoke('--compile', '--chip=', self.path('one.c'), success=False)

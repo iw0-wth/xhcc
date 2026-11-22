@@ -15,7 +15,18 @@ static size_t rule_used,mapped_used;
 static int error(const char *message){fprintf(stderr,"xhcc package options: %s\n",message);return 1;}
 static char *trim(char *s){char *e;while(isspace((unsigned char)*s))s++;e=s+strlen(s);while(e>s&&isspace((unsigned char)e[-1]))*--e=0;return s;}
 static const char *save(const char *s){size_t n=strlen(s)+1;char *p;if(n>sizeof(rule_storage)-rule_used)return 0;p=rule_storage+rule_used;memcpy(p,s,n);rule_used+=n;return p;}
+static int reserved_token(const char *p,size_t n) {
+ static const char *names[]={"--package-root","--target","-target","-m32","-m64",0};
+ int i;for(i=0;names[i];i++){size_t k=strlen(names[i]);if(n>=k&&!strncmp(p,names[i],k)&&(n==k||p[k]=='='))return 1;}return 0;
+}
+int xh_package_options_takes_value(const char *arg) {
+ static const char *names[]={"-o","-I","-D","-U","-include","-MF","-MT","-MQ","--cpu","-mcpu","--fpu","-mfpu","-config","--package-root","-x","-target","--target","-march","-mabi","-isystem","-iquote","--diag_style","--errors",0};
+ int i;for(i=0;names[i];i++)if(!strcmp(arg,names[i]))return 1;
+ for(i=0;i<rule_count;i++)if(rules[i].mode==2&&!strcmp(arg,rules[i].match))return 1;
+ return 0;
+}
 static int finish_rule(Rule *r){int i;if(!r->match||!r->emit||!r->mode)return error("each rule requires match, mode, emit");
+ {const char *p=r->emit;while(*p){const char *start;while(isspace((unsigned char)*p))p++;start=p;while(*p&&!isspace((unsigned char)*p))p++;if(p>start&&reserved_token(start,(size_t)(p-start)))return error("rules cannot change selected package root or target/tool");}}
  if(r->match[0]!='-'||r->emit[0]!='-'||!strcmp(r->match,"--"))return error("match/emit must be option tokens");
  if(r->mode==3&&r->match[strlen(r->match)-1]!='=')return error("joined match must end in =");
  if(r->mode!=1&&(strchr(r->emit,' ')||strchr(r->emit,'\t')))return error("value/joined emit must be one token");
@@ -50,7 +61,7 @@ int xh_package_options_map(int argc,char **argv,int *out_argc,char ***out_argv){
  for(i=0;i<argc;i++){const char *a=argv[i];int j,best=-1;size_t length=0;
   if(!literal&&!strcmp(a,"--"))literal=1;
   if(!literal)for(j=0;j<rule_count;j++){size_t n=strlen(rules[j].match);if((rules[j].mode==3?!strncmp(a,rules[j].match,n):!strcmp(a,rules[j].match))&&n>length){best=j;length=n;}}
-  if(best<0){if(append(a,strlen(a),&count))return 1;continue;}
+  if(best<0){if(append(a,strlen(a),&count))return 1;if(!literal&&xh_package_options_takes_value(a)&&i+1<argc){i++;if(append(argv[i],strlen(argv[i]),&count))return 1;}continue;}
   {Rule *r=&rules[best];
    if(r->mode==1){const char *p=r->emit;while(*p){const char *start;while(isspace((unsigned char)*p))p++;start=p;while(*p&&!isspace((unsigned char)*p))p++;if(p>start){if(*start=='@')return error("response expansion in rules is forbidden");if(append(start,(size_t)(p-start),&count))return 1;}}}
    else if(r->mode==2){if(i+1>=argc)return error("missing mapped option value");if(append(r->emit,strlen(r->emit),&count))return 1;i++;if(append(argv[i],strlen(argv[i]),&count))return 1;}

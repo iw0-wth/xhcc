@@ -500,20 +500,27 @@ int xh_driver_main(int argc, char **argv) {
   {
     char options_path[XH_DRIVER_PATH_BYTES];
     char *inputs[XH_DRIVER_MAX_ARGS], **mapped;
-    int count=0, mapped_count=0, skip=0, informational=0;
+    int count=0, mapped_count=0, skip=0, informational=0, package_args_started=0;
+    xh_package_options_load(0);
     if (driver.argc && driver.args[0][0]!='-' &&
         (strlen(driver.args[0])<3 || strcmp(driver.args[0]+strlen(driver.args[0])-2,".c"))) {
       tool=driver.args[0];skip=1;
     }
     for(i=skip;i<driver.argc;i++) {
       const char *a=driver.args[i];
-      if(!strcmp(a,"--help")||!strcmp(a,"-h")||!strcmp(a,"--version")||!strcmp(a,"-dumpversion")||!strcmp(a,"--list-tools")) informational=1;
       if(!strcmp(a,"--")){for(;i<driver.argc;i++)inputs[count++]=driver.args[i];break;}
-      if(!strcmp(a,"--package-root")||!strncmp(a,"--package-root=",15)) {
+      if(!package_args_started && (!strcmp(a,"--package-root")||!strncmp(a,"--package-root=",15))) {
         root=value(&i,a[14]=='='?a+15:0);if(!root){result=1;goto done;}continue;
       }
+      package_args_started=1;
       inputs[count++]=driver.args[i];
+      if(xh_package_options_takes_value(a)&&i+1<driver.argc) inputs[count++]=driver.args[++i];
     }
+    /* Only standalone informational invocations bypass package validation.
+     * Any compilation/options combination validates requirements first. */
+    if(count==1 && (!strcmp(inputs[0],"--help")||!strcmp(inputs[0],"-h")||
+       !strcmp(inputs[0],"--version")||!strcmp(inputs[0],"-dumpversion")||
+       !strcmp(inputs[0],"--list-tools"))) informational=1;
     if(!informational) {
       if(xh_package_adapter_config(root,tool,options_path,sizeof(options_path),package_dialect,sizeof(package_dialect)) ||
          xh_package_options_load(options_path) ||
@@ -523,6 +530,9 @@ int xh_driver_main(int argc, char **argv) {
       driver.args[driver.argc++]=(char *)tool;
       if(mapped_count>=XH_DRIVER_MAX_ARGS){result=fail("mapped argument count exceeded",0);goto done;}
       for(i=0;i<mapped_count;i++)driver.args[driver.argc++]=mapped[i];
+    } else {
+      driver.argc=0;
+      for(i=0;i<count;i++)driver.args[driver.argc++]=inputs[i];
     }
   }
   /* Load configuration first; CLI flags override it regardless of ordering. */
@@ -737,12 +747,8 @@ int xh_driver_main(int argc, char **argv) {
     if (!literal && !strcmp(a, "-MP")) { o->dep_phony = 1; continue; }
     if (!literal &&
         (!strcmp(a, "--package-root") || !strncmp(a, "--package-root=", 15))) {
-      root = value(&i, a[14] == '=' ? a + 15 : 0);
-      if (!root) {
-        result = 1;
-        goto done;
-      }
-      continue;
+      result = fail("--package-root must precede package options (or use XHCC_PACKAGE_ROOT)",0);
+      goto done;
     }
     if (!literal && (!strcmp(a, "--cpu") || !strncmp(a, "--cpu=", 6) ||
                      !strcmp(a, "-mcpu") || !strncmp(a, "-mcpu=", 6))) {

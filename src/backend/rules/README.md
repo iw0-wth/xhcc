@@ -1,8 +1,9 @@
 # External encoding rules v1
 
 The interpreter moves RV32 R/I/S/B/U/J bit layout and argument constraints out
-of the compiler binary. A second finite selector moves scalar32 ADD/SUB/AND/
-OR/XOR/MUL instruction choice and operand ordering into `selection.rules`.
+of the compiler binary. A second finite selector moves scalar32 arithmetic, bitwise operations,
+shifts, comparisons and signed/unsigned DIV/MOD instruction sequences and
+operand ordering into `selection.rules`.
 C frontend semantics, remaining IR instruction selection, stack management,
 register allocation, calling conventions, assembler mnemonics/pseudo instructions
 and ELF relocation policy remain C code. A rule file alone does not add a new
@@ -47,27 +48,37 @@ overlapping fields, unknown rules, incorrect argument counts, invalid ranges
 and misaligned operands fail compilation. There are no branches, loops,
 filesystem directives, dynamic imports or arbitrary expressions in the grammar.
 
-## Scalar instruction selection v1
+## Scalar instruction selection v1/v2
 
 ```
-XHSELECT 1
-select ADD scalar32 add dst lhs rhs
-select SUB scalar32 sub dst lhs rhs
+XHSELECT 2
+select LE_S scalar32
+emit slt dst rhs lhs
+emit xori dst dst 1
+end
 ```
 
-`xh_rules_set_selection_path(path)` independently selects the package's table.
+Version 1 single-line records remain accepted:
+`select ADD scalar32 add dst lhs rhs`. Version 2 has explicit `select` / `emit`
+/ `end` records with at most eight instructions per selected operation.
+`xh_rules_set_selection_path(path)` independently selects the package table.
 The default is `packages/riscv32/selection.rules`. Files are limited to 8192
-bytes and 32 unique operations. Each record chooses a scalar32 operation,
-one allowlisted three-register RV32 mnemonic, and `dst`/`lhs`/`rhs` selectors.
-The first operand must be `dst`. The current stack emitter supplies `dst=t0`,
-`lhs=t0`, `rhs=t1`; these are selectors, never raw inserted strings. Generated
-instructions then pass through the external field encoder above.
+bytes and 32 unique operations. Each instruction chooses an allowlisted
+mnemonic and `dst`/`lhs`/`rhs` register selectors; xori additionally accepts
+immediate 0 or 1. seqz/snez have two register operands. Every instruction writes
+`dst`; no instruction can write stack/frame state or insert arbitrary text.
+The current stack emitter supplies `dst=t0`, `lhs=t0`, `rhs=t1`.
+Generated instructions then pass through the external field encoder above.
 
-The allowlisted native mnemonics are add, sub, and, or, xor, mul, sll, srl, sra,
-slt, sltu, div, divu, rem and remu. Unknown/malformed records fail compilation.
-An absent operation has an explicit C fallback preserving the remaining
-backend. This table does not select floating point, 64-bit operations, calls,
-branches, loads or stores, and does not define an ABI.
+Native mnemonics are add, sub, and, or, xor, mul, sll, srl, sra, slt, sltu, div,
+divu, rem, remu, seqz, snez and xori. The default package covers ADD/SUB/MUL,
+AND/OR/XOR/SHL, SHR_S/U, EQ/NE, LT/GT/LE/GE_S/U and DIV/MOD_S/U (23 records).
+Both IR_BINARY and the separate IR_DIV/IR_MOD operations use this table.
+Malformed sequences, duplicate selectors, unknown mnemonics, incorrect arity,
+invalid operand kinds, missing end and oversized sequences fail compilation.
+An absent operation has an explicit C fallback preserving other backends and
+older partial tables. Floating point, 64-bit operations, calls, control flow,
+loads/stores, register allocation and ABI remain C code.
 
 Tests copy a package and change ADD from `add` to `sub`; the unchanged compiler
 binary compiles and executes the program as 13 and 7 respectively. Malformed

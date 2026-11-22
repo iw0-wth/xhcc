@@ -1541,8 +1541,8 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * "true").  Mask the flag and pick the u-variants. */
                     int is_uns = (I->aux & 0x100) != 0;
                     asmbuf_puts(&buf, "    lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 4\n");
-                    {int op=I->aux&~0x100;const char*key=op==TOK_PLUS?"ADD":op==TOK_MINUS?"SUB":op==TOK_BAND?"AND":op==TOK_BOR?"OR":op==TOK_BXOR?"XOR":op==TOK_MUL?"MUL":0;
-                     if(key){char selected[96];int match=xh_rules_select_binary(key,selected,sizeof(selected));if(match<0)break;if(match>0){asmbuf_puts(&buf,selected);asmbuf_puts(&buf,"    sw t0, 0(sp)\n");break;}}}
+                    {int op=I->aux&~0x100;const char*key=op==TOK_PLUS?"ADD":op==TOK_MINUS?"SUB":op==TOK_BAND?"AND":op==TOK_BOR?"OR":op==TOK_BXOR?"XOR":op==TOK_MUL?"MUL":op==TOK_SHL?"SHL":op==TOK_SHR?(is_uns?"SHR_U":"SHR_S"):op==TOK_EQ?"EQ":op==TOK_NE?"NE":op==TOK_LT?(is_uns?"LT_U":"LT_S"):op==TOK_GT?(is_uns?"GT_U":"GT_S"):op==TOK_LE?(is_uns?"LE_U":"LE_S"):op==TOK_GE?(is_uns?"GE_U":"GE_S"):op==TOK_DIV?(is_uns?"DIV_U":"DIV_S"):op==TOK_MOD?(is_uns?"MOD_U":"MOD_S"):0;
+                     if(key){char selected[512];int match=xh_rules_select_binary(key,selected,sizeof(selected));if(match<0)break;if(match>0){asmbuf_puts(&buf,selected);asmbuf_puts(&buf,"    sw t0, 0(sp)\n");break;}}}
                     switch (I->aux & ~0x100) {
                         case (int)TOK_PLUS:  asmbuf_puts(&buf, "    add t0, t0, t1\n"); break;
                         case (int)TOK_MINUS: asmbuf_puts(&buf, "    sub t0, t0, t1\n"); break;
@@ -1591,12 +1591,12 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * on the stack and handed the next consumer the divisor.
                      * aux: 0 signed, 1 unsigned. */
                     asmbuf_puts(&buf, "    lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 4\n");
-                    asmbuf_puts(&buf, I->aux ? "    divu t0, t0, t1\n" : "    div t0, t0, t1\n");
+                    {char selected[512];int match=xh_rules_select_binary(I->aux?"DIV_U":"DIV_S",selected,sizeof(selected));if(match<0)break;if(match)asmbuf_puts(&buf,selected);else asmbuf_puts(&buf,I->aux?"    divu t0, t0, t1\n":"    div t0, t0, t1\n");}
                     asmbuf_puts(&buf, "    sw t0, 0(sp)\n");
                     break;
                 case IR_MOD:
                     asmbuf_puts(&buf, "    lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 4\n");
-                    asmbuf_puts(&buf, I->aux ? "    remu t0, t0, t1\n" : "    rem t0, t0, t1\n");
+                    {char selected[512];int match=xh_rules_select_binary(I->aux?"MOD_U":"MOD_S",selected,sizeof(selected));if(match<0)break;if(match)asmbuf_puts(&buf,selected);else asmbuf_puts(&buf,I->aux?"    remu t0, t0, t1\n":"    rem t0, t0, t1\n");}
                     asmbuf_puts(&buf, "    sw t0, 0(sp)\n");
                     break;
                 /* ---- floating point (soft-float through libgcc) ---- */
