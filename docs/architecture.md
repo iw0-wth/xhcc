@@ -1,35 +1,38 @@
-# xhcc 当前结构与后续接口
+# xhcc 当前结构
 
-## 自有部件
+生产架构为一个WASI Preview1主程序，共享C前端/IR/通用优化/诊断，按工具名和外部配置包选择目标。后端子Wasm、分阶段前端/后端模块和宿主dispatch均已退出生产路径。
 
-- src/driver.c：工具名、参数、响应文件和顺序编译入口。
-- src/packages.c：包清单、工具别名、目标能力和外部 include 路径。
-- src/frontend/c：C 预处理、词法、语法、语义、类型与初始化。
-- src/ir：栈式 IR、生成、轻量优化和阶段管线。
-- src/backend/arm：Cortex-M 指令生成、汇编与重定位记录。
-- object：ARM ELF32 输出及 GNU 汇编数据定义。
-- src/diagnostics：诊断和可裁剪分析。
-- src/core：编译调度、配置、CPU 和有界 arena。
-- src/platform/wasi：stdio/WASI 文件、时间和诊断平台层。
-- include：部件接口和 xh_small.h 受限构建配置。
+## 部件
 
-当前内部仍复用 ArkOptions / ArkBackend / IrProgram 等名称。它们是 xhcc 自有源码中的实现接口，未承诺跨模块 ABI；后端不是通过 guest dlopen 加载。
+- src/frontend/c：唯一C预处理、词法、语法、语义、类型、初始化实现。
+- src/ir：通用IR、优化、分析与原有IR存档。
+- src/driver.c、src/cli/package_options.c：统一请求解析与配置驱动参数映射。
+- src/packages.c：配置发现、工具别名、目标默认值、外部资源和编码规则路径。
+- src/backend/{arm,riscv32,x86_64,c}：当前机器目标和C发射器。
+- src/backend/rules：共享字段编码规则VM；外部RV32 R/I/S/B/U/J布局。
+- object：标准ELF32/64、符号、重定位和GNU数据定义。
+- src/core：编译调度、CPU、配置、arena、私有对象和兼容链接。
+- src/diagnostics、src/platform/wasi：诊断及WASI文件/标准流/时间适配。
+- packages：v3配置、参数映射、编码规则、头文件和运行库源码，无包内Wasm。
 
-## 模块装载协议 v1
+## 扩展边界
 
-宿主扫描 packages/<id>/package.ini，以tools唯一别名选择模块。相对module/include路径以包目录为根。宿主每次装载一个WASI Preview1 command模块，传入 [tool, --package-root, guestRoot, ...args]。目录必须预开放；退出码0成功，非零失败，诊断stderr，预处理文本stdout，编译输出到-o。退出后释放模块实例及其内存，再执行下一任务。
+配置包可以独立新增工具别名、参数名称、默认CPU/ABI、包含路径和运行库，并替换规则引擎支持的编码表。主程序仅按schema读取，不为每个包加兼容分支。
 
-桌面参考宿主是tools/xhcc.py；它将包根映射到/xh-packages，cwd映射当前目录。NuttX宿主需以WAMR接口执行同等协议，传入args并配置文件访问。代码与资源包的存储可以独立于线性内存；总内存测量必须覆盖实际装载方式。
+当前RV32通用编码VM已取代六类写死编码helper；它按字段散布/有符号范围/对齐等规则工作。另一个有界selection VM将标量32位ADD/SUB/AND/OR/XOR/MUL的IR选择和寄存器模板外置。每类缓存只读取当前包的规则。其余指令选择、通用寄存器分配、ABI和重定位仍有C代码，新增任意全新ISA尚需扩规则表达能力及相应实现，不能仅改包target名称。
 
-仅复制资源可扩展头文件/目标资源；新增ISA需要相应编译模块。包元数据不产生新指令编码能力。当前目标检查只允许arm/cortex-m3/aapcs-soft。
+后续逐步把IR模式选择、合法化、寄存器约束、调用约定、重定位与对象属性转成有版本的描述。每步通过旧后端字节/执行对照，禁止用忽略约束和截断编码假装支持。
 
-## 后续工作
+## RAM
 
-1. 在实际NuttX/WAMR配置上运行，逐项核对WASI imports和3MiB线性内存之外的开销，测量约4MiB完整任务目标（允许适度超出，但尽量控制）；磁盘/Flash体积单独报告。
-2. 动态include工作区和阶段复用，扩大单TU容量；栈递归限制与最坏情况计量。
-3. 为Cortex-M0/M4/M7、FPU及其他目标建立独立ABI/执行测试。
-4. 拆分TargetInfo、ObjectSink等稳定接口；当前内部string target判断与紧耦合尚未全部消除。
-5. ELF独立.rodata、更多属性、debug/unwind、标准库与目标运行库包。
-6. 在独立xhmake中实现Makefile解析，再复用工具别名与模块装载协议。
+默认4MiB线性内存含静态区、1MiB arena、C栈和libc堆。启用ARM活跃性分析时工作区按需申请，结束释放。外部规则按需加载一个缓存，外部运行库/头文件不打入主模块。
 
-完整C99、完整gcc/armcc兼容、NuttX运行时宿主、4MiB真机总预算与xhmake都未被当前桌面测试证明。
+完整任务还含运行时装载的字节码、WAMR元数据、宿主栈和文件系统等，需要目标NuttX/WAMR配置实测。Wasm文件大小和线性内存上限分别报告；桌面WasmtimeRSS不能替代MCU测量。
+
+## 后续重点
+
+1. NuttX/WAMR导入与内存实测；扩大单TU容量的工作区复用。
+2. 继续后端规则数据化，避免大量写死目标逻辑和常驻表。
+3. Thumb-1/M0系列、完整VFP hard ABI、TLS/debug/unwind及更多标准对象能力。
+4. 完整GNU约束分配和更广GCC参数语义。
+5. 独立xhmake读取标准Makefile，以工具别名复用xhcc。

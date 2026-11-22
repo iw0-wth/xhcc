@@ -820,6 +820,18 @@ void ark_infer_array_size_from_init(Type *t, AstNode *init) {
 /* asm ("template" : outs : ins : clobbers) ;
  * Extended inline asm: capture template and three segments (outputs/inputs/clobbers) as raw strings.
  * Segments separated by top-level ':', whole thing ends with ')'. Each segment rebuilt as string from token spellings. */
+AstNode *parse_asm_operand_expr(Lexer *lex) {
+    Parser p = {0};
+    AstNode *expr;
+    p.lex = lex;
+    if (lexer_peek(lex).kind != TOK_LPAREN) return 0;
+    lexer_advance(lex);
+    expr = parse_assign_expr(&p);
+    if (p.error_count || lexer_peek(lex).kind != TOK_RPAREN) return 0;
+    lexer_advance(lex);
+    return expr;
+}
+
 static AstNode *parse_asm_statement(Parser *p) {
     int line = lexer_peek(p->lex).line;
     AstNode *n = ast_new(AST_ASM, line);
@@ -3822,8 +3834,8 @@ static AstNode *parse_postfix_expr(Parser *p) {
  * on the spelling: a decimal constant only becomes unsigned once it carries
  * `u`, while an octal/hexadecimal one may take an unsigned type straight away
  * (0xFFFFFFFF is unsigned int, 0xFFFFFFFFFFFFFFFF is unsigned long long).
- * `long` is 32 bits on every target this compiler models, so `long` and
- * `unsigned long` occupy the same fit window as `int` / `unsigned int`.
+ * The target data model selects 32-bit long (ILP32/LLP64) or 64-bit long
+ * (LP64), preserving long's distinct rank even when its width equals llong.
  *
  * Dropping the range check is not cosmetic: with no suffix the parser used to
  * return `unsigned int` unconditionally for a `u` literal, so `4300000000u`
@@ -3837,24 +3849,33 @@ static Type *int_literal_type(long long v, int uns, int lng, int llng, int dec) 
     int fits_int  = (u <= 0x7FFFFFFFULL);
     int fits_uint = (u <= 0xFFFFFFFFULL);
     int fits_ll   = dec ? (v >= 0) : (u <= 0x7FFFFFFFFFFFFFFFULL);
+    int wide_long = type_long_size() == 8;
+    int fits_long = wide_long ? fits_ll : fits_int;
+    int fits_ulong = wide_long || fits_uint;
     if (llng) {
         if (uns) return type_ullong();
         return fits_ll ? type_llong() : type_ullong();
     }
     if (lng) {
-        if (uns) return fits_uint ? type_ulong() : type_ullong();
-        if (dec) return fits_int ? type_long() : (fits_ll ? type_llong() : type_ullong());
-        if (fits_int)  return type_long();
-        if (fits_uint) return type_ulong();
+        if (uns) return fits_ulong ? type_ulong() : type_ullong();
+        if (dec) return fits_long ? type_long() : (fits_ll ? type_llong() : type_ullong());
+        if (fits_long) return type_long();
+        if (fits_ulong) return type_ulong();
         return fits_ll ? type_llong() : type_ullong();
     }
     if (uns) {
         if (fits_uint) return type_uint();
-        return type_ullong();
+        return fits_ulong ? type_ulong() : type_ullong();
     }
-    if (dec) return fits_int ? type_int() : (fits_ll ? type_llong() : type_ullong());
-    if (fits_int)  return type_int();
+    if (dec) {
+        if (fits_int) return type_int();
+        if (fits_long) return type_long();
+        return fits_ll ? type_llong() : type_ullong();
+    }
+    if (fits_int) return type_int();
     if (fits_uint) return type_uint();
+    if (fits_long) return type_long();
+    if (fits_ulong) return type_ulong();
     return fits_ll ? type_llong() : type_ullong();
 }
 

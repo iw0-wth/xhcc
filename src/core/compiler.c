@@ -23,6 +23,9 @@
 #include "scatter.h"
 #include "irser.h"
 #include "diag.h"
+#ifdef XHCC
+#include "xh_request.h"
+#endif
 /* Note: <stdio.h> intentionally NOT included - all file I/O goes through
  * fs_read_file/fs_write_file (flash_fs abstraction) to avoid pulling in
  * semihosting-dependent C library functions on STM32. */
@@ -926,14 +929,26 @@ static int write_ark_obj(const ArkBackend *be, const ArkOptions *opts,
     char outpath[512];
     const char *target;
 #ifdef XHCC
-    if (!opts->private_object && ark_streq(be->name, "arm")) {
+    if (!opts->private_object) {
+#if ARKCC_BACKEND_ARM
         extern int xhcc_arm_write_elf(const char *, unsigned char *, int);
+#endif
         if (opts->output_path) target = opts->output_path;
         else {
             if (derive_output(opts->input_path, outpath, sizeof(outpath), ".o") != 0) return ARK_ERR_ARG;
             target = outpath;
         }
-        return xhcc_arm_write_elf(target, g_code, bin_len);
+#if ARKCC_BACKEND_ARM
+        if (ark_streq(be->name,"arm")) return xhcc_arm_write_elf(target,g_code,bin_len);
+#endif
+#if ARKCC_BACKEND_X86_64
+        if (ark_streq(be->name,"x86")||ark_streq(be->name,"x86_64")) {extern int xhcc_x86_write_elf(const char*,unsigned char*,int);return xhcc_x86_write_elf(target,g_code,bin_len);}
+#endif
+#if ARKCC_BACKEND_RISCV32
+        if (ark_streq(be->name,"riscv32")) {extern int xhcc_rv_write_elf(const char*,unsigned char*,int);return xhcc_rv_write_elf(target,g_code,bin_len);}
+#endif
+        diag_tool(DIAG_SEV_ERROR,target,"this target has no standard object output; use -S for C output",0,0,0,0,0,0);
+        return ARK_ERR_CODEGEN;
     }
 #endif
     static unsigned char obj_buf[ARK_OBJ_BUF_SIZE] ARK_BUFFER_SECTION;
@@ -995,6 +1010,7 @@ static int write_ark_obj(const ArkBackend *be, const ArkOptions *opts,
     int   text_extra                 = 0;
     unsigned text_base               = 0;
     if (ark_streq(be->name, "arm")) {
+#if ARKCC_BACKEND_ARM
         extern unsigned arm_get_text_base(void);
         extern int   arm_get_symbol_count(void);
         extern const char *arm_get_symbol_name(int idx);
@@ -1022,6 +1038,7 @@ static int write_ark_obj(const ArkBackend *be, const ArkOptions *opts,
         p_reloc_offset= arm_get_reloc_offset;
         p_reloc_type  = arm_get_reloc_type;
         p_text_base   = arm_get_text_base;
+#endif
     } else if (ark_streq(be->name, "x86") || ark_streq(be->name, "x86_64")) {
 #if ARKCC_BACKEND_X86_64
         extern int   x86_get_symbol_count(void);
@@ -1713,6 +1730,10 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     if (out_be) *out_be = 0;
 
     preproc_reset();
+#ifdef XHCC
+    preproc_set_compiler_mode(opts->emulate_gcc,opts->language_c11,opts->hosted_mode,opts->undef_predefines);
+    g_irgen_no_builtin=opts->no_builtin;
+#endif
     preproc_set_main_file(opts->input_path);
     /* g_ir_cur_line is set by irgen from each AST node and read by ir_emit.
      * Nothing used to clear it, so a unit compiled after another one inherited
@@ -1752,7 +1773,11 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * correctly, matching gcc/armcc5 behavior. This is essential for
      * --uvprojx builds where the main .c includes HAL .c sources by
      * project-relative paths. Added FIRST so it has highest search priority. */
+#ifndef XHCC
     {
+#else
+    if(opts->private_object) {
+#endif
         const char *src = opts->input_path;
         int slen = ark_strlen(src);
         int di;
@@ -1772,7 +1797,15 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     for (i = 0; i < opts->include_dir_count; i++) {
         preproc_add_include_dir(opts->include_dirs[i]);
     }
+#ifdef XHCC
+    for(i=0;i<opts->quote_include_dir_count;i++)preproc_add_quote_include_dir(opts->quote_include_dirs[i]);
+    for(i=0;i<opts->system_include_dir_count;i++)preproc_add_system_include_dir(opts->system_include_dirs[i]);
+#endif
+#ifndef XHCC
     preproc_add_include_dir("stdlib/include");
+#else
+    if(opts->private_object && !opts->no_stdinc)preproc_add_include_dir("stdlib/include");
+#endif
 
     /* --cpu/-mcpu: override default (M7) predefined macros and FPU/DSP switches based on target CPU.
      * Must be called before preproc_process so later preprocessing sees the correct
@@ -1784,7 +1817,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * 清回了 0 —— `-cpu cortex-m7` 看着被接受，实际仍发 BL __aeabi_f2d，
      * 在没有符号解析运行库的小程序侧就是 unresolved symbol。 */
     g_arm_fpu_dp = 0;
-    if (opts->cpu) {
+    if (opts->cpu && (!opts->target || ark_streq(opts->target,"arm"))) {
         const CpuInfo *cpu = cpu_lookup(opts->cpu);
         if (!cpu) {
             diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -1796,6 +1829,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
         /* Which FPU the ARM backend may use for double <-> float conversion:
          * only the DP variants (Cortex-M7 DP) can encode VCVT.F64.*. */
         g_arm_fpu_dp = cpu->has_fpu_dp ? 1 : 0;
+#ifdef XHCC
+        if(g_config.fpu_type && ark_streq(g_config.fpu_type,"fpv5-sp-d16"))g_arm_fpu_dp=0;
+#endif
         /* CPUs without FPU support automatically disable hardware FPU codegen */
         if (!cpu->has_fpu) g_config.enable_fpu_hw = 0;
         if (opts->verbose) {
@@ -1973,6 +2009,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
 #ifdef XHCC
         extern int xh_write_dependencies(const ArkOptions *);
         if (xh_write_dependencies(opts) != ARK_OK) return ARK_ERR_IO;
+        if (opts->deps_only) return ARK_OK;
 #else
         /* 依赖文件能收多少个头文件：宿主与预处理器同源——预处理器记录多少就
          * 取多少（表按实际条数从池里分配），板端仍用 ARKCC_MAX_INC_FILES 的
@@ -2086,6 +2123,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     /* -E preprocess only */
     if (opts->preprocess_only) {
         const char *target = opts->output_path ? opts->output_path : "-";
+#ifdef XHCC
+        if(opts->dump_macros)return preproc_write_macros(target)==0?ARK_OK:ARK_ERR_IO;
+#endif
         int e_len = ark_strlen(preprocessed);
         if (ark_streq(target, "-")) {
             if (fs_write_file("-", (const unsigned char *)preprocessed, e_len) != e_len)
@@ -2108,6 +2148,12 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * The C backend runs on the host (8-byte pointers on 64-bit); ARM/RISC-V32
      * use 4-byte pointers; x86_64 uses 8-byte pointers. */
     type_set_ptr_size(be->pointer_size);
+#ifdef XHCC
+    type_set_long_size(ark_streq(be->name,"x86_64")?8:4);
+    g_irgen_armcc_asm = ark_streq(be->name,"arm")||ark_streq(be->name,"c");
+    g_irgen_native_asm = !ark_streq(be->name,"c");
+    g_irgen_arm_asm_immediates = ark_streq(be->name,"arm");
+#endif
     /* C 后端使用 8 字节 long long 虚拟栈槽，irgen 无需生成 32→64 位
      * widen/narrow 序列（DUP+PUSH+LT+NEG）或 64 位条件 BOR 合并。 */
     irgen_set_64bit_slots(ark_streq(be->name, "c"));
@@ -2138,6 +2184,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * it.  They emit warnings only, so they cannot change the exit code or the
      * image; with the switches off (the default) not one instruction runs. */
     pipeline_run_ast(ast);
+#ifdef XHCC
+    if(opts->syntax_only)return ARK_OK;
+#endif
     {
         int diag_before_irgen = diag_errors();
         ir = shared ? irgen_program_into(ast, shared) : irgen_program(ast);
@@ -3273,6 +3322,39 @@ int ark_compile(const ArkOptions *opts) {
     return ark_emit_program(opts, ir, be);
 }
 
+#ifdef XHCC
+/* Portable stage envelope: XHIR, protocol version 1, canonical target id,
+ * pointer bytes, long bytes; followed by the independently versioned ARKIR.
+ * Reject a cross-target request before allocating or emitting machine code. */
+static void xh_stage_u32(unsigned char*p,unsigned v){p[0]=(unsigned char)v;p[1]=(unsigned char)(v>>8);p[2]=(unsigned char)(v>>16);p[3]=(unsigned char)(v>>24);}
+static unsigned xh_stage_rd(const unsigned char*p){return(unsigned)p[0]|((unsigned)p[1]<<8)|((unsigned)p[2]<<16)|((unsigned)p[3]<<24);}
+static unsigned xh_stage_abi(const ArkBackend*be){return(unsigned)be->abi|((unsigned)(g_config.enable_fpu_hw!=0)<<8);}
+static int xh_target_id(const ArkBackend *be){return ark_streq(be->name,"arm")?1:ark_streq(be->name,"riscv32")?2:ark_streq(be->name,"x86")?3:ark_streq(be->name,"x86_64")?4:ark_streq(be->name,"c")?5:0;}
+int xh_frontend_to_ir(const ArkOptions *opts,const char *ir_path){
+    IrProgram *ir=0;const ArkBackend *be=0;unsigned char *buf;int rc,n,cap=ARK_OBJ_BUF_SIZE;
+    if(!opts||!ir_path)return ARK_ERR_ARG;mem_pool_reset();rc=ark_frontend_unit(opts,0,&ir,&be);if(rc!=ARK_OK||!ir)return rc;
+    buf=mem_pool_alloc(cap);if(!buf)return ARK_ERR_IRGEN;
+    buf[0]='X';buf[1]='H';buf[2]='I';buf[3]='R';xh_stage_u32(buf+4,1);xh_stage_u32(buf+8,(unsigned)xh_target_id(be));xh_stage_u32(buf+12,(unsigned)be->pointer_size);xh_stage_u32(buf+16,(unsigned)(ark_streq(be->name,"x86_64")?8:4));xh_stage_u32(buf+20,xh_stage_abi(be));xh_stage_u32(buf+24,1);xh_stage_u32(buf+28,xh_request_fingerprint());
+    n=ir_serialize(ir,buf+32,cap-32,ir_path);if(n<0)return ARK_ERR_IRGEN;return write_binary(ir_path,buf,n+32);
+}
+int xh_backend_from_ir(const ArkOptions *opts,const char *ir_path){
+    const ArkBackend *be;unsigned char *buf;IrProgram *ir;int size,n;
+    if(!opts||!ir_path)return ARK_ERR_ARG;be=opts->target?ark_backend_find(opts->target):ark_backend_default();if(!be)return ARK_ERR_ARG;
+    size=fs_file_size(ir_path);if(size<48||size>ARK_OBJ_BUF_SIZE){diag_tool(DIAG_SEV_ERROR,ir_path,"invalid or oversized stage IR file",0,0,0,0,0,0);return ARK_ERR_IRGEN;}
+    mem_pool_reset();buf=mem_pool_alloc(size+1);if(!buf)return ARK_ERR_IRGEN;n=fs_read_file(ir_path,(char*)buf,size+1);
+    if(n!=size||buf[0]!='X'||buf[1]!='H'||buf[2]!='I'||buf[3]!='R'||xh_stage_rd(buf+4)!=1||xh_stage_rd(buf+8)!=(unsigned)xh_target_id(be)||xh_stage_rd(buf+12)!=(unsigned)be->pointer_size||xh_stage_rd(buf+16)!=(unsigned)(ark_streq(be->name,"x86_64")?8:4)||xh_stage_rd(buf+20)!=xh_stage_abi(be)||xh_stage_rd(buf+24)!=1||xh_stage_rd(buf+28)!=xh_request_fingerprint()){
+        diag_tool(DIAG_SEV_ERROR,ir_path,"stage IR protocol, target or data-model mismatch",0,0,0,0,0,0);return ARK_ERR_IRGEN;
+    }
+    type_set_ptr_size(be->pointer_size);type_set_long_size((int)xh_stage_rd(buf+16));
+    {extern int g_xhcc_elf_mode,g_xhcc_listing_mode;g_xhcc_elf_mode=!opts->private_object;g_xhcc_listing_mode=opts->emit_asm;}
+    g_arm_fpu_dp=0;if(opts->cpu&&ark_streq(be->name,"arm")){const CpuInfo*cpu=cpu_lookup(opts->cpu);if(!cpu)return ARK_ERR_ARG;g_arm_fpu_dp=cpu->has_fpu_dp;if(!cpu->has_fpu)g_config.enable_fpu_hw=0;}if(g_config.fpu_type&&ark_streq(g_config.fpu_type,"fpv5-sp-d16"))g_arm_fpu_dp=0;
+    ir=ir_deserialize(buf+32,size-32,ir_path);if(!ir)return ARK_ERR_IRGEN;
+    /* Configuration is supplied by the request adapter; deserialization and
+     * emission intentionally never call preprocessing, parsing or pipelines. */
+    return ark_emit_program(opts,ir,be);
+}
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Backend emit + assemble + write                                     */
 /* ------------------------------------------------------------------ */
@@ -3391,6 +3473,9 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
              * machine code at the layout its -link path lays out. */
 #if ARKCC_BACKEND_RISCV32
             g_rv_obj_mode = 1;
+#ifdef XHCC
+            {extern int g_rv_elf_mode;g_rv_elf_mode = !opts->private_object;}
+#endif
 #endif
 #if ARKCC_BACKEND_X86_64
             g_x86_obj_mode = 1;
@@ -3490,6 +3575,7 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
      * to +0x0C000000, i.e. an image that faults outside itself while the
      * compile still exits 0.  Refuse instead.  (-c keeps the reference as a
      * relocation and -link resolves it, so this check is only for .bin.) */
+#if ARKCC_BACKEND_ARM
     if (ark_streq(be->name, "arm")) {
         extern int arm_get_unresolved_count(void);
         extern const char *arm_get_unresolved_name(void);
@@ -3506,6 +3592,7 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
             return ARK_ERR_ASM;
         }
     }
+#endif
 #if ARKCC_BACKEND_X86_64
     /* Same contract for the two x86 targets.  resolve_refs_x leaves a label it
      * cannot find as an all-zero disp32, so a call to it becomes a call to +0:

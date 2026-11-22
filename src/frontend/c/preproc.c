@@ -22,6 +22,9 @@
 #include "arkcc_config.h"
 #include "type.h"   /* type_set_pack/type_get_pack drive #pragma pack handling. */
 #include "diag.h"   /* codes, caret positioning, summary line. */
+#ifdef XHCC
+#include <stdio.h>
+#endif
 
 /* PP_BUF_SIZE and PP_MAX_INC_DEPTH come from arkcc_config.h (profile-aware).
  * STM32 profile: 64KB output / 8 include depth.
@@ -100,6 +103,40 @@ typedef struct Macro {
 } Macro;
 
 static Macro *g_macros;
+#ifdef XHCC
+int preproc_write_macros(const char *path) {
+    char line[4096]; Macro *m;
+    /* Output each record independently: no second full preprocessed buffer. */
+    for (m = g_macros; m; m = m->next) {
+        int n=0, i, j;
+#define XH_PUTC(c) do { if(n >= (int)sizeof(line)-1) return -1; line[n++]=(c); } while(0)
+#define XH_PUTS(s) do { const char *q=(s); while(*q) XH_PUTC(*q++); } while(0)
+        XH_PUTS("#define "); XH_PUTS(m->name);
+        if (m->is_func) {
+            XH_PUTC('(');
+            for(i=0;i<m->param_count;i++){ if(i)XH_PUTC(',');XH_PUTS(m->params[i]); }
+            if(m->is_variadic){if(m->param_count)XH_PUTC(',');XH_PUTS("...");}
+            XH_PUTC(')');
+        }
+        XH_PUTC(' '); XH_PUTS(m->body?m->body:""); XH_PUTC('\n');
+        (void)j;
+        /* The first record truncates; later records append via stdio below. */
+        {
+            FILE *fp;
+            if (!path || ark_streq(path,"-")) fp=stdout;
+            else fp=fopen(path,m==g_macros?"wb":"ab");
+            if(!fp)return -1;
+            i=(int)fwrite(line,1,(size_t)n,fp);
+            if(fp==stdout){if(fflush(fp))return -1;}
+            else if(fclose(fp))return -1;
+            if(i!=n)return -1;
+        }
+#undef XH_PUTS
+#undef XH_PUTC
+    }
+    return 0;
+}
+#endif
 static int    g_inc_depth;
 /* Per-depth include file content buffers (kept out of the memory pool so many
  * #include directives don't exhaust the bump allocator). Indexed by g_inc_depth.
@@ -107,6 +144,22 @@ static int    g_inc_depth;
 static char   g_inc_bufs[PP_MAX_INC_DEPTH][PP_INC_BUF] ARK_BUFFER_SECTION;
 static const char *g_inc_dirs[PP_MAX_INC_DIRS];
 static int    g_inc_dir_count;
+#ifdef XHCC
+static const char *xh_quote_dirs[PP_MAX_INC_DIRS], *xh_system_dirs[PP_MAX_INC_DIRS];
+static int xh_quote_count, xh_system_count, xh_forced_lookup;
+static int xh_gcc_mode, xh_c11_mode, xh_hosted_mode, xh_undef_mode;
+void preproc_set_compiler_mode(int gcc_mode, int c11, int hosted, int undefines) {
+    xh_gcc_mode=gcc_mode; xh_c11_mode=c11; xh_hosted_mode=hosted; xh_undef_mode=undefines;
+}
+void preproc_add_quote_include_dir(const char *dir) {
+    if (xh_quote_count >= PP_MAX_INC_DIRS) ark_abort("too many quote include paths");
+    xh_quote_dirs[xh_quote_count++] = dir;
+}
+void preproc_add_system_include_dir(const char *dir) {
+    if (xh_system_count >= PP_MAX_INC_DIRS) ark_abort("too many system include paths");
+    xh_system_dirs[xh_system_count++] = dir;
+}
+#endif
 static char   g_main_file[256];
 /* Track included files for dependency emission (-MMD). When a header resolves
  * to a path already recorded, we skip re-include via the include guard path. */
@@ -125,6 +178,13 @@ static int          g_inc_file_cap;
 static const char  *g_inc_files[PP_MAX_INC_FILES];
 #endif
 static int         g_inc_file_count;
+#ifdef XHCC
+static unsigned char *xh_dep_system;
+static int xh_dep_capacity, xh_current_system, xh_lookup_system;
+int preproc_dependency_is_system(int index) {
+    return index >= 0 && index < g_inc_file_count && xh_dep_system ? xh_dep_system[index] : 0;
+}
+#endif
 static int         g_inc_file_overflow;   /* 已告警过超限 */
 
 /* #pragma pack(push/pop) stack for struct alignment control. */
@@ -250,6 +310,14 @@ static void pp_diag_msg(int line, int col, DiagSeverity sev, const char *msg,
 
 /* Record one included file for -MMD. */
 static void dep_file_record(const char *path) {
+#ifdef XHCC
+    if (g_inc_file_count >= xh_dep_capacity) {
+        int next = xh_dep_capacity ? xh_dep_capacity * 2 : 32;
+        xh_dep_system = (unsigned char *)mem_realloc(xh_dep_system, xh_dep_capacity, next);
+        xh_dep_capacity = next;
+    }
+    xh_dep_system[g_inc_file_count] = (unsigned char)xh_lookup_system;
+#endif
 #if ARKCC_FEATURE_DEP_FILES_DYN
     if (g_inc_file_count == g_inc_file_cap) {
         int ncap = g_inc_file_cap ? g_inc_file_cap * 2 : 32;
@@ -442,6 +510,10 @@ void preproc_reset(void) {
     g_macros = 0;
     g_inc_depth = 0;
     g_inc_dir_count = 0;
+#ifdef XHCC
+    xh_quote_count = xh_system_count = 0;
+    xh_dep_system = 0; xh_dep_capacity = 0; xh_current_system = xh_lookup_system = 0;
+#endif
     g_main_file[0] = 0;
     g_inc_file_count = 0;
 #if ARKCC_FEATURE_DEP_FILES_DYN
@@ -676,10 +748,17 @@ static int read_include_one(const char *name, char *buf, int cap) {
 
 /* Read an include file by name; search include dirs if not found.
  * -1 on miss, READ_INCLUDE_CUT on a file that did not fit. */
-static int read_include(const char *name, char *buf, int cap) {
+static int read_include(const char *name, char *buf, int cap, int quoted) {
     int rd;
 #ifdef XHCC
-    {
+    xh_lookup_system = xh_current_system;
+    if (xh_forced_lookup) {
+        rd = read_include_one(name, buf, cap);
+        if (rd != -1) return rd;
+    }
+#endif
+#ifdef XHCC
+    if (quoted) {
         const char *parent = g_pp_file ? g_pp_file : g_main_file;
         int k, last = -1, nl = ark_strlen(name);
         char relative[512];
@@ -692,17 +771,38 @@ static int read_include(const char *name, char *buf, int cap) {
         }
     }
 #endif
+#ifdef XHCC
+    if (name[0] == '/' || name[0] == '\\' || (name[0] && name[1] == ':')) {
+        rd = read_include_one(name, buf, cap);
+        if (rd != -1) return rd;
+    }
+#else
     rd = read_include_one(name, buf, cap);
     if (rd != -1) return rd;
+#endif
     {
         int i;
+#ifdef XHCC
+        int total = g_inc_dir_count + xh_system_count + (quoted ? xh_quote_count : 0);
+        for (i = 0; i < total; i++) {
+            const char *dir;
+            int index = i;
+            if (quoted && index < xh_quote_count) dir = xh_quote_dirs[index];
+            else {
+                if (quoted) index -= xh_quote_count;
+                dir = index < g_inc_dir_count ? g_inc_dirs[index] : xh_system_dirs[index - g_inc_dir_count];
+                if (index >= g_inc_dir_count) xh_lookup_system = 1;
+            }
+#else
         for (i = 0; i < g_inc_dir_count; i++) {
+            const char *dir = g_inc_dirs[i];
+#endif
             char path[512];
-            int dl = ark_strlen(g_inc_dirs[i]);
+            int dl = ark_strlen(dir);
             int nl = ark_strlen(name);
             int k;
             if (dl + 1 + nl + 1 > (int)sizeof(path)) continue;
-            for (k = 0; k < dl; k++) path[k] = g_inc_dirs[i][k];
+            for (k = 0; k < dl; k++) path[k] = dir[k];
             path[dl] = '/';
             for (k = 0; k < nl; k++) path[dl + 1 + k] = name[k];
             path[dl + 1 + nl] = 0;
@@ -1335,7 +1435,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                                     diag_num(d2, PP_MAX_INC_DEPTH));
                     } else {
                         char *inc_buf = g_inc_bufs[g_inc_depth];
-                        int rd = read_include(path, inc_buf, PP_INC_BUF);
+                        int rd = read_include(path, inc_buf, PP_INC_BUF, quote == '"');
                         if (rd == READ_INCLUDE_CUT) {
                             /* read_include already reported the size; adding
                              * "cannot open source input file" here would name
@@ -1370,6 +1470,8 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                                  * a diagnostic is being emitted. */
                                 const char *caller_file = g_pp_file;
 #ifdef XHCC
+                                int saved_system = xh_current_system;
+                                xh_current_system = xh_lookup_system;
                                 g_pp_file = xh_resolved_include[g_inc_depth];
 #else
                                 g_pp_file = path;
@@ -1378,6 +1480,9 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                                 process(inc_buf, out, out_len, out_cap, 1);
                                 g_inc_depth--;
                                 g_pp_file = caller_file;
+#ifdef XHCC
+                                xh_current_system = saved_system;
+#endif
                             }
                         }
                     }
@@ -2148,6 +2253,40 @@ char *preproc_process(const char *src) {
         preproc_undef("__APCS_INTERWORK");
     }
 
+#ifdef XHCC
+    preproc_define("__XHCC__", "1");
+    preproc_define("__STDC_VERSION__", xh_c11_mode ? "201112L" : "199901L");
+    preproc_define("__STDC_HOSTED__", xh_hosted_mode ? "1" : "0");
+    preproc_define("__SIZE_TYPE__", g_target_id == 2 ? "unsigned long" : "unsigned int");
+    preproc_define("__PTRDIFF_TYPE__", g_target_id == 2 ? "long" : "int");
+    if (xh_gcc_mode) {
+        preproc_undef("__ARMCC_VERSION"); preproc_undef("__CC_ARM");
+        preproc_undef("__EDG__"); preproc_undef("__APCS_INTERWORK");
+        preproc_define("__GNUC__", "4"); preproc_define("__GNUC_MINOR__", "2");
+        preproc_define("__GNUC_PATCHLEVEL__", "0");
+    }
+    if (g_target_id == 2) {
+        preproc_define("__x86_64__", "1"); preproc_define("__amd64__", "1");
+        preproc_define("__LP64__", "1"); preproc_define("_LP64", "1");
+        preproc_define("__SIZEOF_POINTER__", "8"); preproc_define("__SIZEOF_LONG__", "8");
+    } else {
+        preproc_define("__SIZEOF_POINTER__", "4"); preproc_define("__SIZEOF_LONG__", "4");
+        if (g_target_id == 1) preproc_define("__i386__", "1");
+        if (g_target_id == 3) {
+            preproc_define("__riscv", "1"); preproc_define("__riscv_xlen", "32");
+            preproc_define("__riscv_float_abi_soft", "1");
+        }
+    }
+    preproc_define("__SIZEOF_INT__", "4"); preproc_define("__SIZEOF_LONG_LONG__", "8");
+    if (xh_undef_mode) {
+        const char *names[] = {"__GNUC__","__GNUC_MINOR__","__GNUC_PATCHLEVEL__",
+          "__arm__","__thumb__","__arm","__thumb","__ARMCC_VERSION","__CC_ARM",
+          "__EDG__","__APCS_INTERWORK","__x86_64__","__amd64__","__i386__",
+          "__LP64__","_LP64","__riscv","__riscv_xlen","__riscv_float_abi_soft",
+          "__SIZEOF_POINTER__","__SIZEOF_LONG__","__SIZEOF_INT__","__SIZEOF_LONG_LONG__",0};
+        int ui; for (ui=0; names[ui]; ++ui) preproc_undef(names[ui]);
+    }
+#endif
 #if ARKCC_FEATURE_EOF_NL_WARN
     /* The translation unit's own last line, before anything is expanded:
      * armcc reports #1-D while reading, ahead of every other diagnostic of the
@@ -2172,7 +2311,9 @@ char *preproc_process(const char *src) {
                 directive[n++] = path[pi] == '\\' ? '/' : path[pi];
             }
             directive[n++] = '"'; directive[n++] = '\n'; directive[n] = 0;
+            xh_forced_lookup = 1;
             process(directive, out, &out_len, PP_BUF_SIZE - 1, 1);
+            xh_forced_lookup = 0;
         }
     }
 #endif

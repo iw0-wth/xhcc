@@ -1,66 +1,70 @@
 # xhcc
 
-面向 8 MB+ RAM MCU / NuttX 等 RTOS 的 C 编译器，编译任务 RAM 目标约 4 MiB，允许适度超出但尽量控制；磁盘/Flash 中的模块和资源体积不受 4 MiB 限制。当前是首个 ARM Cortex-M3 / Thumb-2 / AAPCS soft-float 实现，编译器自身为 WASI Preview 1 command 模块。xhmake 后续独立开发。
+面向 MCU / NuttX 等 RTOS 的多目标 C 交叉编译器。当前采用一个共享 Wasm 主程序，加外部配置、编码规则和运行库资源包；不使用后端子 Wasm。编译任务 RAM 目标约 4 MiB，允许适度超出但尽量控制；文件/Flash 体积独立统计。xhmake 后续开发。
 
-支持 C → 预处理文本、ARM GAS 汇编、标准 ARM ELF32 ET_REL 对象；`--private-object` 显式输出开发对照用 ARKOBJ。完整链接器、任意 GCC/armcc 参数和完整 C99 一致性尚未完成。
+## 构建与使用
 
-## 构建和运行
-
-需要 Python 3、WASI SDK、Binaryen 和 WABT；运行需要 Wasmtime。Windows 当前环境：
+需要 Python 3、WASI SDK、Binaryen、WABT。运行使用 Wasmtime；Python 只是桌面宿主适配工具，主编译器不依赖 Python。
 
 ```powershell
 D:\miniconda3\python.exe tools/build.py
 D:\miniconda3\python.exe tools/xhcc.py --list-tools
-D:\miniconda3\python.exe tools/xhcc.py arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
-D:\miniconda3\python.exe tools/xhcc.py armcc --c99 --cpu Cortex-M3 -S examples/add.c -o build/add.s
+D:\miniconda3\python.exe tools/xhcc.py arm-none-eabi-gcc -c examples/add.c -o build/add.o
+D:\miniconda3\python.exe tools/xhcc.py armcc --cpu Cortex-M4 -S examples/add.c -o build/add.s
+D:\miniconda3\python.exe tools/xhcc.py riscv32-unknown-elf-gcc -c examples/add.c -o build/add-rv.o
+D:\miniconda3\python.exe tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o build/add-x64.o
 ```
 
-可通过 `--sdk` / `WASI_SDK_PATH`、`--wasm-opt` / `WASM_OPT`、`--wasm-validate` / `WASM_VALIDATE` 配置工具位置。脚本默认采用当前机器的 SDK/Binaryen 路径，其他机器必须配置；VC 运行库可从当前 Python 安装目录查找。构建不依赖 make。
-
-模块也可完全脱离 Python 启动器直接调用：
+构建生成 `build/wasm/xhcc.wasm`，同一份程序按工具名选择 ARM、RV32、i386、AMD64 或 C 后端。也可独立调用：
 
 ```powershell
-& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o
+& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
 ```
 
-Python 仅为桌面构建/启动适配工具，不是 MCU 编译器的运行依赖。Wasm guest 中没有进程创建或动态库依赖。文件访问需要运行时预开放对应目录。
+工具位置可通过 `--sdk` / `WASI_SDK_PATH`、`--wasm-opt` / `WASM_OPT`、`--wasm-validate` / `WASM_VALIDATE` 设置。Windows 默认使用本机 D 盘安装；其他机器须配置。
 
-## 当前命令子集
+## 语言和输出
 
-`-E/-S/-c` 至少指定一项；支持 `-o`、`-I`、对象宏 `-D/-U`（保留次序）、`-include`、`-std=c99`、`-O0/-O1`、`-mcpu=cortex-m3`、`-mthumb`、`-mfloat-abi=soft`、`-MMD/-MF/-MT`、`@response`、`--package-root`、`--list-tools`、`--memory-report`。armcc 别名还支持 `--c99 --cpu Cortex-M3 --thumb --fpu SoftVFP`。
+继承 arkcc 的 C99 实现、C11 六关键词子集（`_Alignas/_Alignof/_Static_assert/_Generic/_Thread_local/_Atomic`）、ARMCC 扩展和可选优化/诊断。C11 子集不等于完整 C11；机器目标真实 TLS 尚未实现并明确拒绝，原子操作仍有目标和运行时边界。
 
-未知选项明确失败。暂不支持 `-g`、`-O2`、其他 CPU/ABI、汇编输入、链接及 GNU ld/scatter 脚本。`-MT` 按 Make 字面目标转义。多源顺序编译，不允许共享显式 `-o/-MF/-MT`；默认产物为 cwd 下 basename。
+基本 asm 和 ARMCC asm 函数按目标支持；GNU 扩展 asm 支持一个32位 `=r` 输出、最多两个 `r/i` 输入及 `memory/cc` clobber，实际求值和回写。通用 GCC 约束分配、64位/内存操作数、多输出等尚未实现，会拒绝。
 
-响应文件支持引号、有限反斜杠转义；嵌套路径相对 cwd，不展开环境变量。限制：512 参数、64 源、32 KiB 参数存储、64 KiB 累计响应输入、8 层嵌套。
+机器目标 `-c` 生成标准 ELF ET_REL，不是私有 ARKOBJ 改后缀。ARM M3/M4/M7/M33已执行验证；M0/M0+/M1/M23需要Thumb-1指令选择，当前不假装支持。soft/softfp有CPU/FPU检查，hard-float调用ABI未实现。RV32为ILP32，i386为ILP32，AMD64为LP64。C后端输出C文本，不生成原生对象。
 
-## 内存与 NuttX 状态
+完整对照和限制见 `docs/feature-parity.md`、`object/README.md`。
 
-模块线性内存 initial=max=3 MiB（48 个 Wasm pages），含 1 MiB arena、128 KiB Wasm C 栈、静态工作区和 libc 堆。源文件容量 32 KiB，预处理输出 64 KiB，汇编 128 KiB，机器码 32 KiB，include 每层16 KiB/最多8层。超限报错；这些容量限制会随后续工作区改造调整，不能据此认为任意工程可编译。
+## GCC/armcc 参数
 
-构建后使用 Binaryen `-Oz` 优化体积并降级 SDK libc 带入的 sign-extension、饱和浮点转换和 bulk memory 操作，使用 WABT 关闭相关扩展严格验证。`tools/wasm_audit.py` 检查单个非共享 wasm32 memory、3 MiB 上限和 WASI Preview 1 imports。SDK 的 target_features 元数据可能保留 reference-types/multivalue 等声明；需要以实际运行时禁用扩展后的验证为准。
+提供 `-E/-S/-c`、`-fsyntax-only`、`-x c`、`-std=c99/c11/gnu99/gnu11`、O0/O1/O2、目标/CPU/ISA/ABI选项、`-I/-iquote/-isystem/-nostdinc`、`-D/-U/-include`、`-M/-MM/-MD/-MMD/-MF/-MT/-MQ/-MP`、`-dM/-P`、freestanding/hosted模式、警告控制、诊断格式、配置和原有优化开关。支持有界 `@response` 和多源顺序编译。
 
-**约 4 MiB 是完整编译任务 RAM 目标，允许适度超出但尽量避免；尚未在 NuttX/WAMR 上测量。** 3 MiB 线性内存之外仍有模块字节码、解释器装载数据、宿主栈和文件系统等开销；当前 Wasm 文件约 0.54 MiB。已去掉 MCU 自定义数据段造成的约 1.5 MiB 零填充文件负担。后续必须实测 XIP/文件映射/装载方式与运行时内存，继续约束剩余约 0.46 MiB 的开销。桌面 Wasmtime 的进程 RSS 不是 MCU 编译内存的证明。
-
-NuttX 运行时暂按 WAMR+WASI Preview 1，未有目标 `.config` 或真机。所需具体导入可用 `tools/wasm_audit.py` 获取；当前含目录枚举、路径 stat、文件读写/seek、时钟及进程退出，需要目标配置支持。
-
-## 外部包
-
-`packages/<id>/package.ini` 版本1包含 `id/tools/target/cpu/abi/module/include`。大头文件、运行库和目标资源放包内，编译器通过文件访问；当前包仅提供小型 freestanding 头文件子集，不是完整 libc。
-
-桌面启动器扫描工具别名，选择包内独立 `compiler.wasm`，每次运行一个模块；构建会将当前 ARM 模块复制到默认包。复制包含完整模块及清单的新包目录即可注册新工具；新的 ISA 仍需实现对应代码后端，不能仅修改 target 字段。guest 检查目标能力，不支持的包会失败。
-
-WASI Preview 1 本身没有通用模块启动接口。NuttX 上目录扩展代码后端的能力须由宿主 WAMR 装载器实现，当前交付的是协议和桌面参考适配器。资源包无需新增宿主 ABI。
-
-## 验证
+未知或语义未实现的参数明确报错。现代入口尚不支持通用链接、DWARF ELF输出和全部GCC参数。通过 `--ark-compat` 保留原Ark CLI的私有对象、IPO、IR/LTO、partial link、scatter、MDK导入等入口；这些不是GNU链接器或GCC LTO兼容实现。
 
 ```powershell
-D:\miniconda3\python.exe tests/test_driver.py
-D:\miniconda3\python.exe tests/test_platform.py
-D:\miniconda3\python.exe tests/test_host.py
-D:\miniconda3\python.exe object/tests/test_elf.py
-D:\miniconda3\python.exe tools/wasm_audit.py
+& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. build/wasm/xhcc.wasm --ark-compat --help
 ```
 
-ELF 执行测试还需要 GNU ARM 工具链、Unicorn 和 pyelftools。测试在两组 text/data 地址链接 xhcc 与 GCC 对象并执行，覆盖跨文件调用、数据/字符串/函数指针、局部符号、弱符号、聚合初值和软浮点。
+## 配置包与规则引擎
 
-源码基于 MIT 授权的 arkcc。来源见 NOTICE.md；原始授权保留在根目录 LICENSE。前端、IR、诊断、ARM 后端和平台层按 xhcc 自有部件组织在 src 中，无 vendor 层。现阶段保留部分 Ark 内部类型/函数前缀及显式私有对象格式，后续接口演进逐步替换。
+`packages/<id>/package.ini` v3提供工具别名、目标、CPU、ABI、include、参数方言及可选规则文件。复制目录即可注册新工具/目标配置，不需逐包新增主入口分支。`options.ini`描述flag/value/joined参数映射，可独立模拟编译器参数名称。
+
+RV32使用共享字段编码VM，R/I/S/B/U/J布局在外部 `encoding.rules`；标量32位ADD/SUB/AND/OR/XOR/MUL的IR选择与寄存器模板在 `selection.rules`。规则按需读取有界缓存。当前是**后端数据化第一阶段**：其余IR选择、ABI、通用寄存器分配、汇编助记符及重定位仍有C实现，任意全新ISA还不能只写目标名就实现。外部规则变体测试会在主程序SHA256不变时改变实际指令和执行结果。配置版本不匹配或规则越界必须失败。
+
+主程序包含当前五类后端的代码，外部资源不整体装入内存；此次取消的子Wasm/共享stage实验不属于生产构建。协议与映射格式见 `docs/package-protocol.md`。
+
+## RAM 与 RTOS
+
+当前默认单个非共享 wasm32 linear memory initial=max=4 MiB，含arena、C栈、静态区和libc堆。整项任务还包括Wasm字节码、解释器数据、宿主栈和文件系统开销，所以不能用4 MiB linear memory宣称整机总占用达标。NuttX/WAMR待实际配置和真机测量。
+
+默认arena1MiB；源32KiB、预处理64KiB、汇编128KiB、机器码32KiB、每层include16KiB/8层。大工程会显式超限，应按测量调整。ARM liveness工作区已按需分配，普通任务不固定占其约1.5MiB。
+
+Binaryen进行Oz与指令降级，WABT关闭相关扩展严格验证，Wasm仅使用WASI Preview1文件/标准流/参数等接口。Wasmtime进程RSS不是MCU内存证明。
+
+## 验证与来源
+
+```powershell
+D:\miniconda3\python.exe tools/test.py
+```
+
+执行测试需GNU ARM工具链、Unicorn、pyelftools（可安装到build/test-deps）。测试包括GNU ARM混合链接，RV32/i386/AMD64标准ELF双布局执行，LP64、CPU/softfp、内联汇编、配置包和外部规则。若无full-target clang，额外LLVM异编译器混链测试明确跳过。
+
+基于MIT授权arkcc，来源见 `NOTICE.md`，许可保留于根目录 `LICENSE`。源码已整理为xhcc自有部件，无vendor目录。

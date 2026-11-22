@@ -165,6 +165,10 @@ int   type_equal(Type *a, Type *b);
 void  type_set_ptr_size(int bytes);
 /* The pointer size the current backend selected (4 or 8). */
 int   type_ptr_size(void);
+/* Target integer data model: 4 for ILP32/LLP64, 8 for LP64. Set before parsing. */
+void  type_set_long_size(int bytes);
+int   type_long_size(void);
+int   type_is_64bit_integer(Type *t);
 int   type_is_scalar(Type *t);
 int   type_is_integer(Type *t);
 int   type_is_arith(Type *t);

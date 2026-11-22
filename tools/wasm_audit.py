@@ -12,7 +12,7 @@ def uleb(b, p):
 def string(b,p):
     n,p=uleb(b,p);return b[p:p+n].decode(),p+n
 
-def audit(path):
+def audit(path, max_mib=4):
     b=Path(path).read_bytes()
     if b[:8]!=b'\0asm\x01\0\0\0':raise ValueError('not a Wasm v1 module')
     p=8;imports=[];memories=[];features=[]
@@ -38,7 +38,7 @@ def audit(path):
                 for _ in range(count):
                     prefix=chr(b[q]);q+=1;feature,q=string(b,q);features.append(prefix+feature)
         p=end
-    if len(memories)!=1 or memories[0]['maximum_bytes']>3*1024*1024:raise ValueError('module exceeds 3 MiB memory contract')
+    if len(memories)!=1 or memories[0]['maximum_bytes']>max_mib*1024*1024:raise ValueError(f'module exceeds configured {max_mib} MiB memory contract')
     if any(m!='wasi_snapshot_preview1' for m,n in imports):raise ValueError('unexpected host import')
     forbidden={'simd128','relaxed-simd','atomics','memory64','exception-handling','multimemory','tail-call'}
     if any(f.startswith('+') and f[1:] in forbidden for f in features):raise ValueError('unsupported feature')

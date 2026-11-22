@@ -23,6 +23,9 @@
 #include "arkcc_config.h"
 
 #include "diag_msg_table.h"
+static int xh_warnings_as_errors, xh_warnings_disabled;
+void diag_set_warnings_as_errors(int enabled) { xh_warnings_as_errors = enabled != 0; }
+void diag_set_warnings_disabled(int enabled) { xh_warnings_disabled = enabled != 0; }
 
 #if ARKCC_FEATURE_DIAG_SINK
 #include <stdio.h>
@@ -671,6 +674,10 @@ static void report(DiagSeverity sev, int code, const DiagLoc *loc,
     Line m;
     int ends_line = 0;
 
+    if (sev == DIAG_SEV_WARNING) {
+        if (xh_warnings_disabled) return;
+        if (xh_warnings_as_errors) sev = DIAG_SEV_ERROR;
+    }
     if (!admit(sev, code)) return;
 
     line_reset(&m);
@@ -1117,6 +1124,10 @@ static void min_report(DiagSeverity sev, int code, const char *tpl,
     const char *args[3];
     char codebuf[16];
 
+    if (sev == DIAG_SEV_WARNING) {
+        if (xh_warnings_disabled) return;
+        if (xh_warnings_as_errors) sev = DIAG_SEV_ERROR;
+    }
     if (min_is_err(sev)) g_min_err++;
     else if (sev == DIAG_SEV_WARNING) g_min_warn++;
 

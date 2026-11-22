@@ -1,13 +1,24 @@
 /* xhcc: bounded command parsing followed by direct ark_compile calls. */
 #include "compiler.h"
 #include "config.h"
+#include "cpu.h"
+#include "pipeline.h"
 #include "diag.h"
+#ifndef XH_ADAPTER
 #include "memory.h"
+#else
+#include "xh_request.h"
+#endif
 #include "xh_driver.h"
 #include "xh_package.h"
+#include "xh_package_options.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#ifndef XH_MODULE_TARGET
+#define XH_MODULE_TARGET "arm"
+#endif
 
 static struct {
   char bytes[XH_DRIVER_ARG_BYTES];
@@ -237,20 +248,178 @@ static int add_macro(const char *s, int define) {
   return 0;
 }
 
+/* Only flags with real config semantics reach config_apply_args. */
+static int config_flag(const char *a) {
+  static const char *names[] = {
+    "vla", "complex", "wchar", "trigraph", "opt-constfold", "constfold",
+    "opt-dce", "dce", "opt-regalloc", "regalloc", "opt-regalloc-near",
+    "regalloc-near", "opt-vstack", "vstack", "opt-addr", "addr",
+    "opt-strength", "strength", "opt-cbz", "cbz", "opt-branch", "branch",
+    "opt-imm", "imm", "opt-peep", "peep", "opt-cbranch", "cbranch",
+    "opt-copyprop", "copyprop", "opt-live", "live", "opt-inline",
+    "autoinline", "opt-vectorize", "vectorize", "enum-is-int", "dollar", 0
+  };
+  static const char *long_names[] = {
+    "--enum_is_int", "--dollar", "--signed_chars", "--unsigned_chars",
+    "--wchar16", "--wchar32", "--autoinline", "--no_autoinline",
+    "--vectorize", "--no_vectorize", 0
+  };
+  const char *name;
+  int i;
+  for (i = 0; long_names[i]; i++)
+    if (!strcmp(a, long_names[i])) return 1;
+  if (strncmp(a, "-f", 2)) return 0;
+  name = !strncmp(a, "-fno-", 5) ? a + 5 : a + 2;
+  for (i = 0; names[i]; i++)
+    if (!strcmp(name, names[i])) return 1;
+  return 0;
+}
+
+static void apply_flag(const char *a) {
+  char *args[2];
+  args[0] = (char *)"xhcc";
+  args[1] = (char *)a;
+  config_apply_args(2, args);
+}
+
+static int runtime_flag(const char *a) {
+  struct Switch { const char *name; int *field; };
+  struct Switch switches[] = {
+    {"warn-mem", &g_config.enable_memlint}, {"warn-enum", &g_config.enable_enumcheck},
+    {"warn-unused-result", &g_config.enable_unused_result},
+    {"warn-unreachable", &g_config.enable_warn_unreachable},
+    {"warn-unused-static", &g_config.enable_warn_unused_static},
+    {"warn-recursion", &g_config.enable_warn_recursion},
+    {"licm", &g_config.enable_licm}, {"unroll", &g_config.enable_unroll},
+    {"tailmerge", &g_config.enable_tailmerge}, {"xblock", &g_config.enable_xblock},
+    {"tailcall", &g_config.enable_tailcall}, {"divconst", &g_config.enable_divconst},
+    {"const-global", &g_config.enable_const_global},
+    {"dce-cfg", &g_config.enable_dce_cfg}, {"reg-top", &g_config.enable_reg_top},
+    {"rt-lazy", &g_config.enable_rt_lazy}, {"asm-extra", &g_config.enable_asm_extra}
+  };
+  const char *name;
+  int enable = 1;
+  size_t i;
+  if (strncmp(a, "--", 2)) return 0;
+  name = a + 2;
+  if (!strncmp(name, "no-", 3)) { enable = 0; name += 3; }
+  for (i = 0; i < sizeof(switches) / sizeof(switches[0]); i++)
+    if (!strcmp(name, switches[i].name)) { *switches[i].field = enable; return 1; }
+  return 0;
+}
+
+/* GCC spellings expose only checks implemented by this compiler. */
+static int warning_flag(const char *a) {
+  const char *name;
+  int enable = 1;
+  if (!strcmp(a, "-Werror")) { diag_set_warnings_as_errors(1); return 1; }
+  if (!strcmp(a, "-Wno-error")) { diag_set_warnings_as_errors(0); return 1; }
+  if (!strcmp(a, "-w")) { diag_set_warnings_disabled(1); return 1; }
+  if (!strcmp(a, "-Wall")) {
+    g_config.enable_enumcheck = 1;
+    g_config.enable_unused_result = 1;
+    g_config.enable_warn_unused_static = 1;
+    g_config.enable_warn_unreachable = 1;
+    return 1;
+  }
+  if (!strcmp(a, "-Wextra")) {
+    g_config.enable_memlint = 1;
+    g_config.enable_warn_recursion = 1;
+    return 1;
+  }
+  if (strncmp(a, "-W", 2)) return 0;
+  name = a + 2;
+  if (!strncmp(name, "no-", 3)) { enable = 0; name += 3; }
+  if (!strcmp(name, "unused")) {
+    driver.opts.no_unused_warn = !enable;
+    g_config.enable_unused_result = enable;
+    g_config.enable_warn_unused_static = enable;
+  } else if (!strcmp(name, "unused-function")) g_config.enable_warn_unused_static = enable;
+  else if (!strcmp(name, "unused-result")) g_config.enable_unused_result = enable;
+  else if (!strcmp(name, "switch-enum")) g_config.enable_enumcheck = enable;
+  else if (!strcmp(name, "unreachable-code")) g_config.enable_warn_unreachable = enable;
+  else if (!strcmp(name, "infinite-recursion")) g_config.enable_warn_recursion = enable;
+  else if (!strcmp(name, "return-local-addr") || !strcmp(name, "use-after-free"))
+    g_config.enable_memlint = enable;
+  else if (!strcmp(name, "cpp")) {
+    if (enable) diag_default(1215); else diag_suppress(1215);
+  } else return 0;
+  return 1;
+}
+
+static int diagnostic_policy(const char *a) {
+  static const char *names[] = {"--diag_suppress=", "--diag_remark=", "--diag_error=", 0};
+  int i;
+  for (i = 0; names[i]; i++) {
+    size_t n = strlen(names[i]);
+    if (!strncmp(a, names[i], n)) {
+      const char *p = a + n;
+      if (!*p) return -1;
+      while (*p) {
+        int code = 0;
+        if (!isdigit((unsigned char)*p)) return -1;
+        while (isdigit((unsigned char)*p)) {
+          if (code > 100000) return -1;
+          code = code * 10 + (*p++ - '0');
+        }
+        if (i == 2) diag_force_error(code); else diag_suppress(code);
+        if (*p && (*p++ != ',' || !*p)) return -1;
+      }
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int validate_cpu(ArkOptions *o, int arm_flags) {
+  if (!strcmp(o->target, "arm")) {
+    const CpuInfo *cpu = cpu_lookup(o->cpu);
+    if (!cpu || (!strcmp(cpu->name, "Cortex-M0") ||
+                 !strcmp(cpu->name, "Cortex-M0+") ||
+                 !strcmp(cpu->name, "Cortex-M1") ||
+                 !strcmp(cpu->name, "Cortex-M23")))
+      return fail("ARM backend requires a Thumb-2 CPU (M3/M4/M7/M33): %s",
+                  o->cpu ? o->cpu : "(none)");
+    o->cpu = cpu->name;
+  } else {
+    if (arm_flags) return fail("ARM instruction/float options require ARM target", 0);
+    if (o->cpu && strcmp(o->cpu, "generic") &&
+        !( !strcmp(o->target, "x86_64") && !strcmp(o->cpu, "x86-64")) &&
+        !( !strcmp(o->target, "x86") && !strcmp(o->cpu, "i686")) &&
+        !( !strcmp(o->target, "riscv32") && !strcmp(o->cpu, "rv32im")))
+      return fail("unsupported CPU for selected target: %s", o->cpu);
+  }
+  return 0;
+}
+
 static void usage(void) {
-  puts("xhcc 0.1 - Cortex-M3 Thumb soft-float C99 compiler\n"
-       "Usage: xhcc [arm-none-eabi-gcc|armcc] -E|-S|-c [options] file.c ...\n"
+  puts("xhcc 0.2 - multi-target C99/C11 subset compiler\n"
+       "Usage: xhcc [TOOL] -E|-S|-c [options] file.c ...\n"
+       "  Tools: arm-none-eabi-gcc, armcc, x86_64-linux-gnu-gcc,\n"
+       "         i686-linux-gnu-gcc, riscv32-unknown-elf-gcc, xh-c-gcc\n"
        "  -o FILE  -I DIR  -D NAME[=VALUE]  -U NAME  -include FILE\n"
-       "  -std=c99 (armcc: --c99)  -O0|-O1  -mcpu=cortex-m3\n"
-       "  -mthumb  -mfloat-abi=soft  (armcc: --cpu Cortex-M3 --thumb --fpu "
+       "  -std=c99|c11|gnu99|gnu11 (C11 subset; no thread library/TLS)\n"
+       "  -O0|-O1|-O2  -mcpu=CPU (ARM: Cortex-M3/M4/M7/M33)\n"
+       "  -config FILE  -f[no-]FEATURE  --diag_style=gnu|arm|ide|modern\n"
+       "  -E -dM: final macro definitions; -E -P: omit line markers\n"
+       "  -fsyntax-only  -ffreestanding|-fhosted -f[no-]builtin -undef\n"
+       "  -fhosted selects hosted macros; it does not provide a complete libc\n"
+       "  -Wall -Wextra (available checks only) -Werror -w\n"
+       "  -W[no-]unused[-function|-result], switch-enum, unreachable-code,\n"
+       "    infinite-recursion, cpp, return-local-addr/use-after-free (shared check)\n"
+       "  --ark-compat ARGS: original Ark CLI, private objects/link/IPO/MDK\n"
+       "  -mthumb -mfloat-abi=soft|softfp -mfpu=fpv4-sp-d16|fpv5[-sp]-d16\n"
+       "  (armcc: --cpu Cortex-M3 --thumb --fpu "
        "SoftVFP)\n"
-       "  -MMD -MF FILE -MT TARGET  --private-object  --memory-report\n"
-       "  --package-root DIR (default packages)  --list-tools  -v\n"
+       "  -M|-MM|-MD|-MMD -MP -MF FILE -MT TARGET|-MQ QUOTED_TARGET\n"
+       "  --private-object  --memory-report\n"
+       "  --package-root DIR (default XHCC_PACKAGE_ROOT or packages)\n"
+       "  XHCC_PROTOCOL_MAJOR must be 1 when set; --list-tools -v\n"
        "  @FILE: quoted arguments, cwd-relative nested paths; no expansion\n"
        "  Limits: 512 arguments, 64 sources, 32 KiB storage, 64 KiB response\n"
        "          input, 8 response levels, 511-byte derived output paths.\n"
        "  Multiple sources compile sequentially; explicit -o/-MF/-MT require\n"
-       "  one source. No linking, assembly inputs, other CPUs/ABIs/options.");
+       "  one source. Modern linking and unsupported options are rejected.");
 }
 
 static int same_path(const char *a, const char *b) {
@@ -277,19 +446,109 @@ static int derive_output(const char *source, const char *suffix, char *out) {
 
 int xh_driver_main(int argc, char **argv) {
   ArkOptions *o = &driver.opts;
-  const char *root = "packages", *tool = "arm-none-eabi-gcc";
+  const char *root = "packages", *tool =
+      !strcmp(XH_MODULE_TARGET, "x86_64") ? "x86_64-linux-gnu-gcc" :
+      !strcmp(XH_MODULE_TARGET, "x86") ? "i686-linux-gnu-gcc" :
+      !strcmp(XH_MODULE_TARGET, "riscv32") ? "riscv32-unknown-elf-gcc" :
+      !strcmp(XH_MODULE_TARGET, "c") ? "xh-c-gcc" : "arm-none-eabi-gcc";
   int i, literal = 0, list_tools = 0, memory_report = 0, result = 0;
-  int seen_e = 0, seen_s = 0, seen_c = 0;
+  const char *explicit_cpu = 0, *arch = 0, *abi = 0, *fpu = 0;
+  char package_dialect[16] = "gcc";
+  const char *protocol_major = getenv("XHCC_PROTOCOL_MAJOR");
+  const char *environment_root = getenv("XHCC_PACKAGE_ROOT");
+  int softfp = 0;
+#ifdef XH_ADAPTER
+  int wrote_request = 0;
+  FILE *request_queue = 0;
+#endif
+  int width = 0, query = 0;
+  int seen_e = 0, seen_s = 0, seen_c = 0, arm_flags = 0;
   memset(&driver, 0, sizeof(driver));
   config_init();
+  /* Compiled capabilities are available but opt-in for modern ELF output. */
+  g_config.enable_fpu_hw = 0;
+  g_config.enable_dwarf = 0;
   diag_init(0, 0);
+  diag_set_warnings_as_errors(0);
+  diag_set_warnings_disabled(0);
+  if (environment_root && *environment_root) root = environment_root;
+  if (protocol_major && strcmp(protocol_major, "1")) {
+    result = fail("unsupported package protocol major (expected 1): %s", protocol_major);
+    goto done;
+  }
   for (i = 1; i < argc; i++)
     if (expand_argument(argv[i], 0)) {
       result = 1;
       goto done;
     }
-  o->target = "arm";
-  o->cpu = "Cortex-M3";
+  /* Expand response files before dispatch so both interfaces keep @ support. */
+  if (driver.argc && !strcmp(driver.args[0], "--ark-compat")) {
+#ifdef XH_ADAPTER
+    result = fail("legacy --ark-compat requires the debugall compiler", 0);
+    goto done;
+#else
+    char *legacy_args[XH_DRIVER_MAX_ARGS + 1];
+    legacy_args[0] = argv[0];
+    for (i = 1; i < driver.argc; i++) legacy_args[i] = driver.args[i];
+    legacy_args[driver.argc] = 0;
+    diag_shutdown();
+    return xh_legacy_main(driver.argc, legacy_args);
+#endif
+  }
+  /* Select package before translating its data-only option aliases. Response
+   * files were expanded once above; emitted tokens never expand @ files. */
+  {
+    char options_path[XH_DRIVER_PATH_BYTES];
+    char *inputs[XH_DRIVER_MAX_ARGS], **mapped;
+    int count=0, mapped_count=0, skip=0, informational=0;
+    if (driver.argc && driver.args[0][0]!='-' &&
+        (strlen(driver.args[0])<3 || strcmp(driver.args[0]+strlen(driver.args[0])-2,".c"))) {
+      tool=driver.args[0];skip=1;
+    }
+    for(i=skip;i<driver.argc;i++) {
+      const char *a=driver.args[i];
+      if(!strcmp(a,"--help")||!strcmp(a,"-h")||!strcmp(a,"--version")||!strcmp(a,"-dumpversion")||!strcmp(a,"--list-tools")) informational=1;
+      if(!strcmp(a,"--")){for(;i<driver.argc;i++)inputs[count++]=driver.args[i];break;}
+      if(!strcmp(a,"--package-root")||!strncmp(a,"--package-root=",15)) {
+        root=value(&i,a[14]=='='?a+15:0);if(!root){result=1;goto done;}continue;
+      }
+      inputs[count++]=driver.args[i];
+    }
+    if(!informational) {
+      if(xh_package_adapter_config(root,tool,options_path,sizeof(options_path),package_dialect,sizeof(package_dialect)) ||
+         xh_package_options_load(options_path) ||
+         xh_package_options_map(count,inputs,&mapped_count,&mapped)) {result=1;goto done;}
+      driver.argc=0;
+      /* Keep tool outside rewrite storage and rules. */
+      driver.args[driver.argc++]=(char *)tool;
+      if(mapped_count>=XH_DRIVER_MAX_ARGS){result=fail("mapped argument count exceeded",0);goto done;}
+      for(i=0;i<mapped_count;i++)driver.args[driver.argc++]=mapped[i];
+    }
+  }
+  /* Load configuration first; CLI flags override it regardless of ordering. */
+  for (i = 0; i < driver.argc; i++) {
+    if (!strcmp(driver.args[i], "--")) break;
+    if (!strcmp(driver.args[i], "-config")) {
+      const char *path = value(&i, 0);
+      FILE *fp;
+      if (!path) { result = 1; goto done; }
+      fp = fopen(path, "rb");
+      if (!fp) { result = fail("cannot open config file: %s", path); goto done; }
+      fclose(fp);
+      config_load_file(path);
+    } else if (!strcmp(driver.args[i], "-o") || !strcmp(driver.args[i], "-I") ||
+               !strcmp(driver.args[i], "-D") || !strcmp(driver.args[i], "-U") ||
+               !strcmp(driver.args[i], "-include") || !strcmp(driver.args[i], "-MF") ||
+               !strcmp(driver.args[i], "-MT") || !strcmp(driver.args[i], "-MQ") || !strcmp(driver.args[i], "--cpu") ||
+               !strcmp(driver.args[i], "-mcpu") || !strcmp(driver.args[i], "--fpu") || !strcmp(driver.args[i], "-mfpu") ||
+               !strcmp(driver.args[i], "--package-root") ||
+               !strcmp(driver.args[i], "--diag_style") || !strcmp(driver.args[i], "--errors") ||
+               !strcmp(driver.args[i], "-x") || !strcmp(driver.args[i], "-target") ||
+               !strcmp(driver.args[i], "--target") || !strcmp(driver.args[i], "-march") ||
+               !strcmp(driver.args[i], "-mabi") || !strcmp(driver.args[i], "-isystem") ||
+               !strcmp(driver.args[i], "-iquote")) i++;
+  }
+  o->opt_level = g_config.opt_level;
   for (i = 0; i < driver.argc; i++) {
     const char *a = driver.args[i], *v = 0;
     if (!literal && !strcmp(a, "--")) {
@@ -306,8 +565,13 @@ int xh_driver_main(int argc, char **argv) {
       goto done;
     }
     if (!literal && !strcmp(a, "--version")) {
-      puts("xhcc 0.1 (Ark C core), Cortex-M3 Thumb soft-float C99");
+      puts("xhcc 0.2 (Ark C core), multi-target C99/C11 subset");
       goto done;
+    }
+    if (!literal && !strcmp(a, "-dumpversion")) { puts("0.2"); goto done; }
+    if (!literal && (!strcmp(a, "-dumpmachine") || !strcmp(a, "-print-search-dirs"))) {
+      query = !strcmp(a, "-dumpmachine") ? 1 : 2;
+      continue;
     }
     if (!literal && !strcmp(a, "--list-tools")) {
       list_tools = 1;
@@ -329,6 +593,12 @@ int xh_driver_main(int argc, char **argv) {
       seen_e = 1;
       continue;
     }
+    if (!literal && !strcmp(a, "-dM")) { o->dump_macros = 1; continue; }
+    if (!literal && !strcmp(a, "-P")) { o->no_line_markers = 1; continue; }
+    if (!literal && !strcmp(a, "-dD")) {
+      result = fail("-dD macro definition ordering is not implemented; use -dM -E for final macros", 0);
+      goto done;
+    }
     if (!literal && !strcmp(a, "-S")) {
       seen_s = 1;
       continue;
@@ -338,17 +608,133 @@ int xh_driver_main(int argc, char **argv) {
       continue;
     }
     if (!literal && (!strcmp(a, "-std=c99") || !strcmp(a, "--c99") ||
-                     !strcmp(a, "-mthumb") || !strcmp(a, "--thumb") ||
-                     !strcmp(a, "-mfloat-abi=soft")))
+                     !strcmp(a, "-std=c11") || !strcmp(a, "-std=gnu99") ||
+                     !strcmp(a, "-std=gnu11"))) {
+      o->language_c11 = !strcmp(a, "-std=c11") || !strcmp(a, "-std=gnu11");
       continue;
-    if (!literal && (!strcmp(a, "-O0") || !strcmp(a, "-O1"))) {
+    }
+    if (!literal && (!strcmp(a, "-ffreestanding") || !strcmp(a, "-fhosted"))) {
+      o->hosted_mode = !strcmp(a, "-fhosted");
+      o->no_builtin = !o->hosted_mode;
+      continue;
+    }
+    if (!literal && !strcmp(a, "-undef")) { o->undef_predefines = 1; continue; }
+    if (!literal && (!strcmp(a, "-fbuiltin") || !strcmp(a, "-fno-builtin"))) {
+      o->no_builtin = !strcmp(a, "-fno-builtin");
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-mthumb") || !strcmp(a, "--thumb") ||
+                     !strcmp(a, "-mfloat-abi=soft") || !strcmp(a, "-mfloat-abi=softfp"))) {
+      arm_flags = 1;
+      if (!strncmp(a, "-mfloat-abi=", 12)) softfp = !strcmp(a, "-mfloat-abi=softfp");
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-O0") || !strcmp(a, "-O1") || !strcmp(a, "-O2"))) {
       o->opt_level = a[2] - '0';
+      apply_flag(a);
       continue;
     }
-    if (!literal && !strcmp(a, "-MMD")) {
+    if (!literal && !strcmp(a, "-config")) {
+      if (!value(&i, 0)) { result = 1; goto done; }
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-g") || !strcmp(a, "-ffunction-sections") ||
+                     !strcmp(a, "--split_sections") || !strcmp(a, "--dwarf2") ||
+                     !strcmp(a, "--dwarf3"))) {
+      result = fail("option requires legacy --ark-compat (standard ELF support unavailable): %s", a);
+      goto done;
+    }
+    if (!literal && config_flag(a)) {
+      apply_flag(a);
+      continue;
+    }
+    if (!literal && runtime_flag(a)) continue;
+    if (!literal) {
+      int policy = diagnostic_policy(a);
+      if (policy < 0) { result = fail("invalid diagnostic policy: %s", a); goto done; }
+      if (policy) continue;
+    }
+    if (!literal && !strncmp(a, "--pipeline=", 11)) {
+      int profile = pipeline_profile_parse(a + 11);
+      if (profile < 0) { result = fail("unknown pipeline: %s", a + 11); goto done; }
+      g_config.pipeline_profile = profile;
+      continue;
+    }
+    if (!literal && !strncmp(a, "--size-weight=", 14)) {
+#if ARKCC_FEATURE_SIZEWEIGHT
+      if (a[14] < '0' || a[14] > '9' || a[15]) { result = fail("size weight expects 0..9: %s", a); goto done; }
+      g_config.size_weight = a[14] - '0';
+      continue;
+#else
+      result = fail("size weight unavailable in this build", 0); goto done;
+#endif
+    }
+    if (!literal && warning_flag(a)) continue;
+    if (!literal && !strcmp(a, "-fsyntax-only")) { o->syntax_only = 1; continue; }
+    if (!literal && (!strcmp(a, "--diag_style") || !strncmp(a, "--diag_style=", 13))) {
+      v = value(&i, a[12] == '=' ? a + 13 : 0);
+      if (!v || diag_set_style_name(v)) {
+        result = fail("invalid diagnostic style: %s", v ? v : "");
+        goto done;
+      }
+      continue;
+    }
+    if (!literal && (!strcmp(a, "--errors") || !strncmp(a, "--errors=", 9))) {
+      v = value(&i, a[8] == '=' ? a + 9 : 0);
+      if (!v || diag_open_sink(v)) { result = fail("cannot open diagnostic output: %s", v ? v : ""); goto done; }
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-x") || !strncmp(a, "-xc", 3))) {
+      v = value(&i, a[2] ? a + 2 : 0);
+      if (!v || strcmp(v, "c")) { result = fail("only C language is supported: %s", v ? v : ""); goto done; }
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-target") || !strcmp(a, "--target") || !strncmp(a, "--target=", 9))) {
+      v = value(&i, !strncmp(a, "--target=", 9) ? a + 9 : 0);
+      if (!v) { result = 1; goto done; }
+      if (!strcmp(v, "arm") || !strcmp(v, "arm-none-eabi")) tool = "arm-none-eabi-gcc";
+      else if (!strcmp(v, "x86_64") || !strcmp(v, "x86_64-linux-gnu")) tool = "x86_64-linux-gnu-gcc";
+      else if (!strcmp(v, "x86") || !strcmp(v, "i686-linux-gnu")) tool = "i686-linux-gnu-gcc";
+      else if (!strcmp(v, "riscv32") || !strcmp(v, "riscv32-unknown-elf")) tool = "riscv32-unknown-elf-gcc";
+      else if (!strcmp(v, "c")) tool = "xh-c-gcc";
+      else { result = fail("unsupported target: %s", v); goto done; }
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-march") || !strncmp(a, "-march=", 7) ||
+                     !strcmp(a, "-mabi") || !strncmp(a, "-mabi=", 6))) {
+      int is_arch = a[2] == 'a' && a[3] == 'r';
+      int n = is_arch ? 6 : 5;
+      v = value(&i, a[n] == '=' ? a + n + 1 : 0);
+      if (!v) { result = 1; goto done; }
+      if (is_arch) arch = v; else abi = v;
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-m32") || !strcmp(a, "-m64"))) {
+      width = a[2] == '3' ? 32 : 64;
+      tool = width == 32 ? "i686-linux-gnu-gcc" : "x86_64-linux-gnu-gcc";
+      continue;
+    }
+    if (!literal && !strcmp(a, "-nostdinc")) { o->no_stdinc = 1; continue; }
+    if (!literal && (!strcmp(a, "-isystem") || !strncmp(a, "-isystem", 8) ||
+                     !strcmp(a, "-iquote") || !strncmp(a, "-iquote", 7))) {
+      int system = !strncmp(a, "-isystem", 8);
+      int n = system ? 8 : 7;
+      int *count = system ? &o->system_include_dir_count : &o->quote_include_dir_count;
+      const char **dirs = system ? o->system_include_dirs : o->quote_include_dirs;
+      v = value(&i, a[n] ? a + n : 0);
+      if (!v) { result = 1; goto done; }
+      if (*count == ARK_PP_MAX_INC_DIRS) { result = fail("include search class limit exceeded", 0); goto done; }
+      dirs[(*count)++] = v;
+      continue;
+    }
+    if (!literal && (!strcmp(a, "-MMD") || !strcmp(a, "-MD") ||
+                     !strcmp(a, "-M") || !strcmp(a, "-MM"))) {
       o->gen_depend = 1;
+      o->deps_only = !strcmp(a, "-M") || !strcmp(a, "-MM");
+      o->include_system_deps = !strcmp(a, "-M") || !strcmp(a, "-MD");
       continue;
     }
+    if (!literal && !strcmp(a, "-MP")) { o->dep_phony = 1; continue; }
     if (!literal &&
         (!strcmp(a, "--package-root") || !strncmp(a, "--package-root=", 15))) {
       root = value(&i, a[14] == '=' ? a + 15 : 0);
@@ -365,22 +751,22 @@ int xh_driver_main(int argc, char **argv) {
         result = 1;
         goto done;
       }
-      if (strcmp(v, "cortex-m3") && strcmp(v, "Cortex-M3")) {
-        result = fail("only Cortex-M3 is supported: %s", v);
-        goto done;
-      }
+      explicit_cpu = v;
       continue;
     }
-    if (!literal && (!strcmp(a, "--fpu") || !strncmp(a, "--fpu=", 6))) {
+    if (!literal && (!strcmp(a, "--fpu") || !strncmp(a, "--fpu=", 6) ||
+                     !strcmp(a, "-mfpu") || !strncmp(a, "-mfpu=", 6))) {
       v = value(&i, a[5] == '=' ? a + 6 : 0);
       if (!v) {
         result = 1;
         goto done;
       }
-      if (strcmp(v, "SoftVFP") && strcmp(v, "softvfp")) {
-        result = fail("only soft float is supported: %s", v);
-        goto done;
-      }
+      arm_flags = 1;
+      if (!strcmp(v, "SoftVFP") || !strcmp(v, "softvfp")) fpu = "SoftVFP";
+      else if (!strcmp(v, "fpv4-sp-d16") || !strcmp(v, "FPv4-SP-D16")) fpu = "fpv4-sp-d16";
+      else if (!strcmp(v, "fpv5-d16") || !strcmp(v, "FPv5-D16")) fpu = "fpv5-d16";
+      else if (!strcmp(v, "fpv5-sp-d16") || !strcmp(v, "FPv5-SP-D16")) fpu = "fpv5-sp-d16";
+      else { result = fail("unsupported FPU: %s", v); goto done; }
       continue;
     }
     if (!literal && !strncmp(a, "-include", 8) && (!a[8] || a[8] == '=')) {
@@ -396,7 +782,7 @@ int xh_driver_main(int argc, char **argv) {
       o->forced_includes[o->forced_include_count++] = v;
       continue;
     }
-    if (!literal && (!strncmp(a, "-MF", 3) || !strncmp(a, "-MT", 3))) {
+    if (!literal && (!strncmp(a, "-MF", 3) || !strncmp(a, "-MT", 3) || !strncmp(a, "-MQ", 3))) {
       v = value(&i, a[3] ? a + 3 : 0);
       if (!v) {
         result = 1;
@@ -404,8 +790,11 @@ int xh_driver_main(int argc, char **argv) {
       }
       if (a[2] == 'F')
         o->depend_file = v;
-      else
+      else {
+        if (o->depend_target) { result = fail("multiple -MT/-MQ targets are unsupported", 0); goto done; }
         o->depend_target = v;
+        o->dep_quote_target = a[2] == 'Q';
+      }
       continue;
     }
     if (!literal && a[0] == '-' &&
@@ -447,11 +836,30 @@ int xh_driver_main(int argc, char **argv) {
     result = xh_package_list(root) != 0;
     goto done;
   }
+  o->emulate_gcc = !strcmp(package_dialect, "gcc");
+  if (query) {
+    if (xh_package_apply(root, tool, o)) { result = 1; goto done; }
+    if (query == 1) puts(!strcmp(o->target, "arm") ? "arm-none-eabi" :
+      !strcmp(o->target, "x86_64") ? "x86_64-linux-gnu" :
+      !strcmp(o->target, "x86") ? "i686-linux-gnu" :
+      !strcmp(o->target, "riscv32") ? "riscv32-unknown-elf" : "xh-c");
+    else {
+      int j;
+      printf("install: %s\n", root);
+      printf("programs: =in-process\nlibraries: =\ninclude: =");
+      for (j = 0; j < o->include_dir_count; j++) printf("%s%s", j ? ";" : "", o->include_dirs[j]);
+      putchar('\n');
+    }
+    goto done;
+  }
+#ifdef XH_ADAPTER
+  o->memory_report = memory_report;
+#endif
   if (!driver.source_count) {
     result = fail("no input source files", 0);
     goto done;
   }
-  if (!seen_e && !seen_s && !seen_c) {
+  if (!seen_e && !seen_s && !seen_c && !o->deps_only && !o->syntax_only) {
     result = fail("linking is unsupported; specify -E, -S or -c", 0);
     goto done;
   }
@@ -460,26 +868,79 @@ int xh_driver_main(int argc, char **argv) {
     result = fail("-o, -MF and -MT require a single source", 0);
     goto done;
   }
-  if (!o->gen_depend && (o->depend_file || o->depend_target)) {
-    result = fail("-MF and -MT require -MMD", 0);
+  if (!o->gen_depend && (o->depend_file || o->depend_target || o->dep_phony)) {
+    result = fail("-MF/-MT/-MQ/-MP require -M/-MM/-MD/-MMD", 0);
     goto done;
   }
-  o->preprocess_only = seen_e;
-  o->emit_asm = !seen_e && seen_s;
-  o->compile_only = !seen_e && !seen_s;
+  if ((o->dump_macros || o->no_line_markers) && (!seen_e || o->deps_only)) {
+    result = fail("-dM/-P require -E without -M/-MM", 0); goto done;
+  }
+  if (o->syntax_only && (seen_e || seen_s || o->deps_only || o->private_object)) {
+    result = fail("-fsyntax-only cannot combine with -E/-S/-M/-MM/--private-object", 0); goto done;
+  }
+  if (o->deps_only) {
+    if (!o->depend_file) o->depend_file = o->output_path ? o->output_path : "-";
+    o->output_path = 0;
+  }
+  o->preprocess_only = seen_e || o->deps_only;
+  o->emit_asm = !o->preprocess_only && seen_s;
+  o->compile_only = !o->preprocess_only && !seen_s && !o->syntax_only;
   if (o->private_object && !o->compile_only) {
     result = fail("--private-object requires -c without -E/-S", 0);
     goto done;
   }
-  g_config.enable_fpu_hw = 0;
+  if (g_config.debug_info || g_config.split_sections || g_config.dwarf_version >= 2 ||
+      g_config.scatter_file || g_config.linker_script) {
+    result = fail("config requires legacy --ark-compat (debug/sections/linker layout)", 0);
+    goto done;
+  }
+  if (g_config.enable_fpu_hw) {
+    result = fail("hardware floating-point is unsupported by modern packages", 0);
+    goto done;
+  }
   g_config.fpu_type = "SoftVFP";
   g_config.opt_level = o->opt_level;
-  g_config.enable_opt_inline = 0;
-  g_config.enable_opt_vectorize = 0;
   if (xh_package_apply(root, tool, o)) {
     result = 1;
     goto done;
   }
+  if (width && strcmp(o->target, width == 32 ? "x86" : "x86_64")) {
+    result = fail("-m32/-m64 conflicts with selected target", 0); goto done;
+  }
+  if (arch) {
+    int valid = (!strcmp(o->target, "riscv32") && !strcmp(arch, "rv32im")) ||
+      (!strcmp(o->target, "x86") && (!strcmp(arch, "i386") || !strcmp(arch, "i686"))) ||
+      (!strcmp(o->target, "x86_64") && !strcmp(arch, "x86-64"));
+    if (!strcmp(o->target, "arm")) {
+      if (!strcmp(arch, "armv7-m")) { valid = 1; if (!explicit_cpu) explicit_cpu = "Cortex-M3"; }
+      else if (!strcmp(arch, "armv7e-m")) { valid = 1; if (!explicit_cpu) explicit_cpu = "Cortex-M4"; }
+      else if (!strcmp(arch, "armv8-m.main")) { valid = 1; if (!explicit_cpu) explicit_cpu = "Cortex-M33"; }
+    }
+    if (!valid) { result = fail("unsupported architecture for selected target: %s", arch); goto done; }
+  }
+  if (abi && !((!strcmp(o->target, "riscv32") && !strcmp(abi, "ilp32")) ||
+               (!strcmp(o->target, "arm") && !strcmp(abi, "aapcs")) ||
+               ((!strcmp(o->target, "x86") || !strcmp(o->target, "x86_64")) && !strcmp(abi, "sysv")))) {
+    result = fail("unsupported ABI for selected target: %s", abi); goto done;
+  }
+  if (explicit_cpu) o->cpu = explicit_cpu;
+  if (validate_cpu(o, arm_flags)) { result = 1; goto done; }
+  if (softfp) {
+    const CpuInfo *cpu = cpu_lookup(o->cpu);
+    if (!cpu || !cpu->has_fpu) { result = fail("softfp requires a CPU with an FPU", 0); goto done; }
+    if (!fpu) fpu = !strcmp(cpu->name, "Cortex-M4") ? "fpv4-sp-d16" :
+                    cpu->has_fpu_dp ? "fpv5-d16" : "fpv5-sp-d16";
+    if ((!strcmp(cpu->name, "Cortex-M4") && strcmp(fpu, "fpv4-sp-d16")) ||
+        (!strcmp(cpu->name, "Cortex-M7") && strcmp(fpu, "fpv5-d16") && strcmp(fpu, "fpv5-sp-d16")) ||
+        (!strcmp(cpu->name, "Cortex-M33") && strcmp(fpu, "fpv5-sp-d16"))) {
+      result = fail("FPU does not match selected CPU: %s", fpu); goto done;
+    }
+    g_config.enable_fpu_hw = 1;
+    g_config.fpu_type = fpu;
+  } else if (fpu && strcmp(fpu, "SoftVFP")) {
+    result = fail("hardware -mfpu requires -mfloat-abi=softfp", 0); goto done;
+  }
+  if (o->verbose) config_print();
   {
     const char *explicit_output = o->output_path;
     const char *explicit_depend = o->depend_file;
@@ -489,7 +950,7 @@ int xh_driver_main(int argc, char **argv) {
       o->input_path = driver.sources[i];
       o->output_path = explicit_output;
       o->depend_file = explicit_depend;
-      if (!explicit_output && !o->preprocess_only) {
+      if (!explicit_output && !o->preprocess_only && !o->syntax_only) {
         if (derive_output(o->input_path,
                           o->emit_asm         ? ".s"
                           : o->private_object ? ".ark_obj"
@@ -543,13 +1004,63 @@ int xh_driver_main(int argc, char **argv) {
           break;
         }
       }
-      mem_pool_reset();
       diag_init(o->input_path, 0);
+#ifdef XH_ADAPTER
+      {
+        int j;
+        xh_request_add_diagnostic_arg(0);
+        for (j=0;j<driver.argc;j++) {
+          const char *a=driver.args[j];
+          if (!strcmp(a,"--")) break;
+          if (!strncmp(a,"-W",2) || !strcmp(a,"-w") ||
+              !strncmp(a,"--diag_",7) || !strncmp(a,"--errors",8)) {
+            if (xh_request_add_diagnostic_arg(a)) { result=fail("diagnostic request argument limit",0); break; }
+            if ((!strcmp(a,"--diag_style") || !strcmp(a,"--errors")) && j+1<driver.argc)
+              if (xh_request_add_diagnostic_arg(driver.args[++j])) { result=1;break; }
+          } else if (!strcmp(a,"-o") || !strcmp(a,"-I") || !strcmp(a,"-D") ||
+              !strcmp(a,"-U") || !strcmp(a,"-include") || !strcmp(a,"-MF") ||
+              !strcmp(a,"-MT") || !strcmp(a,"-MQ") || !strcmp(a,"--cpu") ||
+              !strcmp(a,"-mcpu") || !strcmp(a,"--fpu") || !strcmp(a,"-mfpu") ||
+              !strcmp(a,"-config") || !strcmp(a,"--package-root") || !strcmp(a,"-x") ||
+              !strcmp(a,"-target") || !strcmp(a,"--target") || !strcmp(a,"-march") ||
+              !strcmp(a,"-mabi") || !strcmp(a,"-isystem") || !strcmp(a,"-iquote")) j++;
+        }
+        if(result)break;
+      }
+      xh_request_set_tool(tool);
+      {
+        const char *base = getenv("XHCC_REQUEST_OUTPUT");
+        char path[XH_DRIVER_PATH_BYTES];
+        if (!base || !*base) { rc = fail("missing XHCC_REQUEST_OUTPUT",0); }
+        else if (driver.source_count == 1) {
+          rc = xh_request_write(o, base);
+          if (!rc) wrote_request = 1;
+        } else {
+          int n;
+          if (!request_queue) {
+            n = snprintf(path,sizeof(path),"%s.queue",base);
+            if (n<0 || (size_t)n>=sizeof(path)) { rc=fail("request queue path too long",0); goto request_done; }
+            request_queue=fopen(path,"wb");
+            if (!request_queue) { rc=fail("cannot open request queue",0); goto request_done; }
+          }
+          n=snprintf(path,sizeof(path),"%s.%d",base,i);
+          if (n<0 || (size_t)n>=sizeof(path)) { rc=fail("request path too long",0); goto request_done; }
+          if (strchr(path,'\n') || strchr(path,'\r')) {rc=fail("invalid newline in request queue path",0);goto request_done;}
+          rc=xh_request_write(o,path);
+          if (!rc && fprintf(request_queue,"%s\n",path)<0) rc=1;
+          if (!rc) wrote_request=2;
+        }
+request_done:
+        if (rc) fail("cannot write CompileRequest to XHCC_REQUEST_OUTPUT", 0);
+      }
+#else
+      mem_pool_reset();
       rc = ark_compile(o);
-      errors = diag_errors();
       if (memory_report)
         fprintf(stderr, "[xhcc] %s: arena peak %d/%d B\n", o->input_path,
                 mem_pool_high(), mem_pool_capacity());
+#endif
+      errors = diag_errors();
       if (rc && !errors)
         fprintf(stderr, "[xhcc] compilation failed (%d): %s\n", rc,
                 o->input_path);
@@ -559,6 +1070,19 @@ int xh_driver_main(int argc, char **argv) {
     }
   }
 done:
+#ifdef XH_ADAPTER
+  if (request_queue && fclose(request_queue)) result=fail("cannot close request queue",0);
+  if (!result) {
+    const char *stage_path = getenv("XHCC_STAGE_RESULT");
+    FILE *stage = stage_path && *stage_path ? fopen(stage_path, "wb") : 0;
+    if (!stage) result = fail("cannot open XHCC_STAGE_RESULT", 0);
+    else {
+      int written = fputs(wrote_request == 2 ? "queue\n" : wrote_request ? "request\n" : "complete\n", stage);
+      int closed = fclose(stage);
+      if (written == EOF || closed) result = fail("cannot write XHCC_STAGE_RESULT", 0);
+    }
+  }
+#endif
   diag_shutdown();
   return result;
 }

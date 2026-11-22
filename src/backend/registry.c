@@ -25,6 +25,20 @@
 #define ARKCC_BACKEND_C        1
 #endif
 
+#if defined(XH_BACKEND_STAGE) && !ARKCC_BACKEND_ARM
+/* Backend-independent request/emitter state; never links ARM code. */
+int g_arm_fpu_dp=0,g_arm_vt_reserve=0;
+int g_xhcc_elf_mode=1,g_xhcc_listing_mode=0;
+#endif
+#ifdef XH_FRONTEND_STAGE
+/* Frontend needs target ABI metadata, never executable backend tables. */
+int g_arm_fpu_dp=0,g_arm_vt_reserve=0;
+static const ArkBackend xh_meta_arm={"arm","thumb-none-eabi",4,0,0,0,0};
+static const ArkBackend xh_meta_rv={"riscv32","riscv32-unknown-elf",4,0,0,0,0};
+static const ArkBackend xh_meta_x86={"x86","i386-unknown-elf",4,0,0,0,0};
+static const ArkBackend xh_meta_x64={"x86_64","x86_64-unknown-elf",8,0,0,0,0};
+static const ArkBackend xh_meta_c={"c","generic-c",4,0,0,0,0};
+#endif
 static const ArkBackend *g_backends[8];
 static int g_count = 0;
 static int g_inited = 0;
@@ -32,6 +46,9 @@ static int g_inited = 0;
 static void registry_init(void) {
     if (g_inited) return;
     g_inited = 1;
+#ifdef XH_FRONTEND_STAGE
+    g_backends[g_count++]=&xh_meta_arm;g_backends[g_count++]=&xh_meta_rv;g_backends[g_count++]=&xh_meta_x86;g_backends[g_count++]=&xh_meta_x64;g_backends[g_count++]=&xh_meta_c;
+#else
 #if ARKCC_BACKEND_ARM
     g_backends[g_count++] = ark_backend_arm();
 #endif
@@ -52,6 +69,7 @@ static void registry_init(void) {
 #endif
 #if ARKCC_BACKEND_C
     g_backends[g_count++] = ark_backend_c();
+#endif
 #endif
 }
 

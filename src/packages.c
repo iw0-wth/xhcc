@@ -1,6 +1,10 @@
 /* Versioned external target resources. Code module selection belongs to host.
  */
 #include "xh_package.h"
+#include "xh_rules.h"
+#ifndef XH_MODULE_TARGET
+#define XH_MODULE_TARGET "arm"
+#endif
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,7 +15,12 @@
 typedef struct {
   char id[64], tools[128], target[32], cpu[32], abi[32], module[128],
       include[128];
+  char dialect[16], options[128], engine[32], encoding[128], selection[128];
   int version;
+  char protocol[32], protocol_major[8], protocol_minor[8], min_host_minor[8];
+  char requires[128], entry[32], adapter[128], backend[128];
+  char request_protocol[32], request_major[8], request_minor[8];
+  char ir_protocol[32], ir_major[8], ir_minor[8];
 } Package;
 static Package packages[PACKAGE_CAP];
 static char include_path[PATH_CAP];
@@ -62,9 +71,9 @@ static int read_package(const char *path, Package *pkg) {
     key = trim(key);
     value = trim(value);
     if (!strcmp(key, "version")) {
-      if (pkg->version || strcmp(value, "1"))
+      if (pkg->version || (strcmp(value, "1") && strcmp(value, "2") && strcmp(value,"3")))
         goto invalid;
-      pkg->version = 1;
+      pkg->version = value[0] - '0';
       continue;
     }
 #define FIELD(k, fld)                                                          \
@@ -72,13 +81,20 @@ static int read_package(const char *path, Package *pkg) {
     dest = pkg->fld;                                                           \
     cap = sizeof(pkg->fld);                                                    \
   }
-    FIELD("id", id)
+    FIELD("selection",selection) else FIELD("engine",engine) else FIELD("encoding",encoding) else FIELD("dialect",dialect) else FIELD("options",options) else FIELD("id", id)
     else FIELD("tools", tools) else FIELD("target", target) else FIELD(
         "cpu",
         cpu) else FIELD("abi",
                         abi) else FIELD("module",
                                         module) else FIELD("include",
-                                                           include) else goto invalid;
+                                                           include)
+    else FIELD("protocol", protocol) else FIELD("protocol_major", protocol_major)
+    else FIELD("protocol_minor", protocol_minor) else FIELD("min_host_minor", min_host_minor)
+    else FIELD("requires", requires) else FIELD("entry", entry)
+    else FIELD("adapter", adapter) else FIELD("backend", backend)
+    else FIELD("request_protocol", request_protocol) else FIELD("request_major", request_major)
+    else FIELD("request_minor", request_minor) else FIELD("ir_protocol", ir_protocol)
+    else FIELD("ir_major", ir_major) else FIELD("ir_minor", ir_minor) else goto invalid;
 #undef FIELD
     if (*dest || strlen(value) >= cap)
       goto invalid;
@@ -87,9 +103,12 @@ static int read_package(const char *path, Package *pkg) {
   if (ferror(f))
     goto invalid;
   fclose(f);
-  if (pkg->version != 1 || !safe_relative(pkg->id) || strchr(pkg->id, '/') ||
+  if ((pkg->version != 1 && pkg->version != 2 && pkg->version != 3) || !safe_relative(pkg->id) || strchr(pkg->id, '/') ||
       !*pkg->tools || !safe_relative(pkg->include) ||
-      !safe_relative(pkg->module))
+      (pkg->version != 3 && !safe_relative(pkg->module)) ||
+      (*pkg->options && !safe_relative(pkg->options)) ||
+      (*pkg->encoding && !safe_relative(pkg->encoding)) ||
+      (*pkg->selection && !safe_relative(pkg->selection)))
     goto invalid_closed;
   return 1;
 invalid:
@@ -179,6 +198,20 @@ static int scan(const char *root) {
   }
   return count;
 }
+int xh_package_adapter_config(const char *root,const char *tool,char *path,size_t cap,char *dialect,size_t dialect_cap) {
+  int n=scan(root),i;
+  if(n<0)return 1;
+  if(!cap||!dialect_cap)return 1;
+  path[0]=0;dialect[0]=0;
+  for(i=0;i<n;i++)if(has_tool(packages[i].tools,tool)) {
+    Package *p=&packages[i];const char *d=*p->dialect?p->dialect:(!strcmp(tool,"armcc")?"armcc":"gcc");
+    if(strcmp(d,"gcc")&&strcmp(d,"armcc")){fprintf(stderr,"xhcc: unsupported argument dialect: %s\n",d);return 1;}
+    if(strlen(d)>=dialect_cap)return 1;strcpy(dialect,d);
+    if(*p->options && snprintf(path,cap,"%s/%s/%s",root,p->id,p->options)>=(int)cap)return 1;
+    return 0;
+  }
+  fprintf(stderr,"xhcc: no package provides tool: %s\n",tool);return 1;
+}
 int xh_package_list(const char *root) {
   int n = scan(root), i;
   if (n < 0)
@@ -197,15 +230,14 @@ int xh_package_apply(const char *root, const char *tool, ArkOptions *opts) {
   for (i = 0; i < n; i++)
     if (has_tool(packages[i].tools, tool)) {
       Package *p = &packages[i];
-      if (strcmp(p->target, "arm") || strcmp(p->cpu, "cortex-m3") ||
-          strcmp(p->abi, "aapcs-soft")) {
+      if (strcmp(XH_MODULE_TARGET, "all") && strcmp(p->target, XH_MODULE_TARGET)) {
         fprintf(
             stderr,
             "xhcc: package target is unavailable in this compiler module: %s\n",
             p->id);
         return 1;
       }
-      if (opts->include_dir_count >= ARK_PP_MAX_INC_DIRS) {
+      if (!opts->no_stdinc && opts->system_include_dir_count >= ARK_PP_MAX_INC_DIRS) {
         fprintf(stderr, "xhcc: too many include paths\n");
         return 1;
       }
@@ -215,8 +247,20 @@ int xh_package_apply(const char *root, const char *tool, ArkOptions *opts) {
         fprintf(stderr, "xhcc: missing package include directory\n");
         return 1;
       }
-      opts->include_dirs[opts->include_dir_count++] = include_path;
-      opts->target = "arm";
+      if (!opts->no_stdinc) opts->system_include_dirs[opts->system_include_dir_count++] = include_path;
+      if (*p->engine && strcmp(p->engine,"rv32-rule-v1")) {
+        fprintf(stderr,"xhcc: unsupported package rule engine: %s\n",p->engine);return 1;
+      }
+      if (*p->encoding) {
+        char rules_path[PATH_CAP];
+        if(strcmp(p->target,"riscv32")||snprintf(rules_path,sizeof(rules_path),"%s/%s/%s",root,p->id,p->encoding)>=(int)sizeof(rules_path)||xh_rules_set_path(rules_path))return 1;
+      } else if (xh_rules_set_path(0)) return 1;
+      if (*p->selection) {
+        char rules_path[PATH_CAP];
+        if(strcmp(p->target,"riscv32")||snprintf(rules_path,sizeof(rules_path),"%s/%s/%s",root,p->id,p->selection)>=(int)sizeof(rules_path)||xh_rules_set_selection_path(rules_path))return 1;
+      } else if(xh_rules_set_selection_path(0)) return 1;
+      opts->target = p->target;
+      opts->cpu = strcmp(p->target, "arm") ? 0 : p->cpu;
       return 0;
     }
   fprintf(stderr, "xhcc: no package provides tool: %s\n", tool);

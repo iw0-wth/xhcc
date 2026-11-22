@@ -53,27 +53,37 @@ int xh_write_dependencies(const ArkOptions *o) {
       obj = target;
     }
   }
-  f = fopen(dest, "wb");
+  f = !strcmp(dest, "-") ? stdout : fopen(dest, "wb");
   if (!f) {
     fprintf(stderr, "xhcc: cannot write dependency file: %s\n", dest);
     return 1;
   }
-  rc = escaped(f, obj);
+  rc = o->depend_target && !o->dep_quote_target ? (fputs(obj, f) == EOF ? -1 : 0) : escaped(f, obj);
   if (fputs(": ", f) == EOF)
     rc = -1;
   if (escaped(f, o->input_path))
     rc = -1;
   n = preproc_get_included_files(incs, ARKCC_MAX_INC_FILES);
   for (i = 0; i < n; ++i) {
+    if (!o->include_system_deps && preproc_dependency_is_system(i)) continue;
     if (fputc(' ', f) == EOF || escaped(f, incs[i]))
       rc = -1;
   }
   if (fputc('\n', f) == EOF)
     rc = -1;
-  if (fclose(f))
+  if (o->dep_phony) {
+    for (i = 0; i < n; ++i) {
+      int j;
+      if (!o->include_system_deps && preproc_dependency_is_system(i)) continue;
+      for (j = 0; j < i; ++j) if (!strcmp(incs[j], incs[i])) break;
+      if (j < i) continue;
+      if (escaped(f, incs[i]) || fputs(":\n", f) == EOF) rc = -1;
+    }
+  }
+  if (f == stdout ? fflush(f) : fclose(f))
     rc = -1;
   if (rc) {
-    remove(dest);
+    if (strcmp(dest, "-")) remove(dest);
     fprintf(stderr, "xhcc: dependency output failed: %s\n", dest);
   }
   return rc ? 1 : 0;

@@ -1,0 +1,10 @@
+# RV32 scalar32 IR operation selection v1.
+# Register selectors are dst=t0, lhs=t0, rhs=t1 after stack operands load.
+XHSELECT 1
+select ADD scalar32 add dst lhs rhs
+select SUB scalar32 sub dst lhs rhs
+select AND scalar32 and dst lhs rhs
+select OR scalar32 or dst lhs rhs
+select XOR scalar32 xor dst lhs rhs
+select MUL scalar32 mul dst lhs rhs
+# Unmatched operations retain the existing C backend implementation.

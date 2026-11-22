@@ -1,5 +1,5 @@
 /build/
 __pycache__/
 *.pyc
-/packages/*/compiler.wasm
+/packages/*/*.wasm
 /tests/output/

@@ -43,7 +43,12 @@
  * including the 16-byte header, or -1 when the payload does not fit or the IR
  * contains something the format cannot express (that case is reported through
  * diag_tool, so the caller must not print a second generic message).
- * `who` names the file for the diagnostic. */
+ * `who` names the file for the diagnostic. Both directions validate opcode,
+ * allowed name fields and bound GNU IR_ASM operand metadata. Binding retains
+ * opcode IR_ASM: aux=0x40000000|nout(0/1), val=ninputs(0..2), aux2=0;
+ * name is the plain template after immediate substitution. No extra opcode
+ * number is allocated. Target/ABI/data-model agreement belongs to the XHIR
+ * transport envelope, not this legacy ARKIR1 object payload. */
 int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who);
 
 /* Read a payload produced by ir_serialize() into a fresh IrProgram.  Returns

@@ -8,10 +8,10 @@ static void xh_listing_data(AsmBuffer *b,IrProgram *p){
     for(i=0;i<p->global_count;i++){
         IrGlobal *g=p->globals[i];int sz=g->type?type_size(g->type):4;unsigned char *bytes;
         if(g->is_extern)continue;if(sz<=0)sz=4;
-        if(g->is_tls||g->section){diag_tool(DIAG_SEV_ERROR,"xhcc","assembly TLS and custom data sections are not supported",0,0,0,0,0,0);continue;}
+        if(g->is_tls){diag_tool(DIAG_SEV_ERROR,"xhcc","assembly TLS is not supported",0,0,0,0,0,0);continue;}
         if(!g->is_static){asmbuf_puts(b,".global ");asmbuf_puts(b,g->name);asmbuf_putc(b,'\n');}
         if(g->has_at){asmbuf_puts(b,".set ");asmbuf_puts(b,g->name);asmbuf_puts(b,", ");asmbuf_int(b,g->at_addr);asmbuf_putc(b,'\n');continue;}
-        asmbuf_puts(b,g->has_init?".data\n":".bss\n");asmbuf_puts(b,".balign ");asmbuf_int(b,g->align_bytes>8?g->align_bytes:8);asmbuf_putc(b,'\n');
+        if(g->section){asmbuf_puts(b,".section ");asmbuf_puts(b,g->section);asmbuf_puts(b,",\"aw\",%progbits\n");}else asmbuf_puts(b,g->has_init?".data\n":".bss\n");asmbuf_puts(b,".balign ");asmbuf_int(b,g->align_bytes>8?g->align_bytes:8);asmbuf_putc(b,'\n');
         asmbuf_puts(b,".type ");asmbuf_puts(b,g->name);asmbuf_puts(b,", %object\n.size ");asmbuf_puts(b,g->name);asmbuf_puts(b,", ");asmbuf_int(b,sz);asmbuf_putc(b,'\n');asmbuf_puts(b,g->name);asmbuf_puts(b,":\n");
         if(!g->has_init){asmbuf_puts(b,"    .zero ");asmbuf_int(b,sz);asmbuf_putc(b,'\n');continue;}
         if(g->init_sym){xh_listing_ref(b,g->init_sym,g->init_sym_off);continue;}

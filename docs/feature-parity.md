@@ -1,0 +1,215 @@
+# xhcc / arkcc feature parity
+
+This is an implementation audit and a bounded regression matrix, not a claim of
+ISO C conformance or binary compatibility with every compiler named by a driver
+alias. The reference is the local `arkcc` source tree. Build integration, target
+object formats and runtime packages are maintained separately from language
+parity. A compiled-in switch alone is not evidence that a feature was exercised.
+
+## Audited source relationship
+
+Before these changes, every file in `src/ir` and every C frontend file was
+identical to its arkcc counterpart, except `type.c` (empty loop braces) and
+`preproc.c` (platform buffer sections, resolved relative include paths, forced
+includes and dependency paths). No missing parser or IR implementation was found
+by that comparison. `xh_small.h` instead selected STM32_MIN and explicitly
+removed DWARF, FPU emission, IPO, object IR, inlining and vectorization; STM32_MIN
+also removed numerous optional passes indirectly.
+
+The bounded profile now selects HOST_FULL feature defaults while preserving
+small buffers. All buffer/backend/profile definitions can be overridden with
+`-D`. This restores compilation of the reference implementations; the driver
+must still expose the runtime flags and target paths, and tests must exercise
+them. The safety changes to IR generation described below deliberately reject
+reference paths that silently emitted incorrect code.
+
+## Language and target matrix
+
+| Area | Inherited implementation / current boundary |
+| --- | --- |
+| C99 subset | Declarations in blocks/for, designated and aggregate initializers, compound literals, VLA, `_Bool`, `restrict`, `inline`, long long, variadic functions, function pointers, struct/union/enum and bitfields are inherited. Regression coverage compiles representative combinations, not all standard corner cases. |
+| Floating point and complex | Float/double conversions, floating constant folding, `_Complex` and wide literals are retained. Machine ABI restrictions, helper runtime availability and backend correctness still apply; an accepted source is not proof of arithmetic execution on every ISA. |
+| C11 subset | The six inherited keywords are `_Alignas`, `_Alignof`, `_Static_assert`, `_Generic`, `_Thread_local`, `_Atomic`. `-std=c11` selects this subset. It does **not** mean complete C11. `_Noreturn`, the full C11 library, threads and full standard atomic semantics are not established. |
+| Alignment | `_Alignas` is checked against natural alignment; the reference explicitly rejects block alignment above 8 bytes. |
+| TLS | The parser retains TLS markers and constraints. Machine output currently rejects TLS explicitly because TLS sections/relocations/runtime are not implemented. C output can retain the declaration; no working thread runtime is established. |
+| Atomics | `_Atomic` type/qualifier parsing is inherited; ordinary layout is used and operations rely on the target header/runtime. This does not establish lock-free atomics or the complete C11 memory model. |
+| GNU extensions | Attribute and keyword parsing is inherited. `-fno-builtin` suppresses implicit libc declarations and ordinary complex-library lowering (`creal`, `cimag`, `conj`, `cabs`, `carg`, `cexp` and f/l variants), preserving declared calls. No `__builtin_*` implementation is present in the audited source. Actual code emission depends on the particular attribute and target; accepting `__attribute__` is not complete GCC compatibility. |
+| ARMCC syntax | `__irq`, `__weak`, `__naked`, `__packed`, `__align`, `__at`, `__svc`, `__softfp`, `__forceinline`, arm pragmas, asm functions and other existing keywords remain parsed. They are ARM extensions; other targets do not acquire their ARM semantics merely by parsing them. |
+| Preprocessor | Macro expansion, conditional directives, includes, trigraphs, wide literals, macro redefinition checking and dynamic macro bodies are retained. Capacity limits remain explicit below. |
+
+## Inline assembly: verified scope and reference defects
+
+Basic `asm`, `__asm` and `__asm__` statements retain user text for the selected
+backend. Users must supply instructions for that target. `volatile` is accepted;
+IR assembly is conservatively treated as a side-effecting statement.
+
+Operand-free extended asm with `"memory"` and `"cc"` clobbers is retained. A new
+operand-aware native subset accepts one 32-bit local/parameter `=r` output and
+up to two `r`/`i` inputs. Register inputs are 32-bit scalar identifiers or integer
+literals; immediate inputs must fold to a signed 32-bit integer constant. IR
+evaluates register inputs, the backend binds registers, and the output is stored
+back to its local slot. Numeric `%N` placeholders are renumbered after immediate
+substitution; `%%` escapes a literal percent. ARM `i` substitutions include
+GCC's `#` prefix; an existing `#%N` template avoids a duplicate prefix. The
+production output suite uses a standard `%N` template and verifies that the
+result includes the ARM immediate prefix. Destination execution remains a
+separate CPU test.
+Assembly syntax remains native to
+the selected ISA. C emission rejects operand binding because its stack-slot
+locals are not original C identifiers.
+
+`+r`, early-clobber, tied/named operands, register clobbers, multiple outputs,
+memory operands, output globals/static locals, 64-bit operands and nontrivial
+register-input expressions remain explicitly rejected. The supported subset is
+not full GCC constraint allocation. `memory`/`cc` clobbers and volatile forms are
+accepted; ARM functions containing asm skip text register optimizations so these
+optimizations cannot move values across the opaque user statement.
+
+The original ARM/RISC-V emitters merely substitute `%0` through `%3` with
+`r0` through `r3` / `a0` through `a3`, ignoring constraints and never evaluating
+inputs or writing outputs. This can return a successful status with wrong
+machine code. x86 rejects numbered placeholders but does not implement operand
+binding. The C emitter preserves raw operand source strings even though lowering
+has replaced C locals with stack slots, so its apparent pass-through is not a
+valid implementation of arbitrary operands either. xhcc rejects these unsafe
+paths outside the implemented operand subset before backend emission.
+
+ARMCC `__asm` function bodies are emitted by ARM, and passed through as raw
+assembly by the C emitter (requiring a compatible downstream assembler). x86 and
+RISC-V lack that body-emission path; xhcc now rejects them instead of silently
+emitting empty functions. Basic statement assembly remains available on those
+targets. The C emitter's assembly pass-through does not translate ARM mnemonics
+to a host ISA.
+
+The new common GNU `=r`/`r`/`i` subset parses operand expressions from a replay
+lexer and restricts their shape before emitting IR. Expanding it further requires
+full semantic typing and general lvalue lowering, safe register/clobber allocation,
+and preservation through optimization and IPO/object IR. Changing template
+substitution alone does not satisfy these requirements.
+
+## Restored optional implementations and runtime controls
+
+| Implementation | Reference runtime controls / limits |
+| --- | --- |
+| Constant fold and linear DCE | `-O1` or higher, `-fopt-constfold`, `-fopt-dce`; disabled at `-O0`. |
+| CFG DCE | `--dce-cfg`, full pipeline and at least `-O1`. |
+| Inlining | `--autoinline`, `-fopt-inline`, `-O2`; full pipeline, minimum `-O2`. |
+| SIMD pattern vectorization | `--vectorize`, `-fopt-vectorize`, `-O2`; limited inherited pattern recognition and backend SIMD support, not a general vectorizer for all ISAs. |
+| Loop optimizations | `--licm`, `--unroll`; full pipeline, minimum `-O1`, MIR required. |
+| Block sharing | `--tailmerge`, `--xblock`; inherited legality and size thresholds, full pipeline. |
+| Global constant propagation | `--const-global`; useful after inlining / whole-program merge, at least `-O1`. |
+| ARM code emission / assembly passes | `-fopt-regalloc`, `-fopt-regalloc-near`, `-fopt-vstack`, `-fopt-addr`, `-fopt-strength`, `-fopt-cbz`, `-fopt-branch`, `-fopt-imm`, `-fopt-peep`, `-fopt-cbranch`, `-fopt-copyprop`, `-fopt-live`, `--reg-top`, `--tailcall`, `--divconst`. ARM-specific passes do not imply equivalent implementations on other ISAs. |
+| Diagnostics | `--warn-mem`, `--warn-enum`, `--warn-unused-result`, `--warn-unreachable`, `--warn-unused-static`, `--warn-recursion`; independently opt-in. |
+| Debug information | `-g` / `-gdwarf-2`, `-fdwarf` / `-fno-dwarf` through configuration; backend/object-writer support must be verified for the selected output path. |
+| IPO | `--ipo` / `-flto`; multiple translation units must remain in the arena simultaneously. Driver integration and capacity are separate from feature compilation. |
+| Object IR and LTO | `-c --obj-ir`, `-link --lto`; inherited private ARKOBJ2 serialization, not GCC/LLVM LTO or automatically compatible with public ELF conversion. |
+| Partial link / relocation / scatter | `-r`, `--reloc-data`, `--reloc-text`, `--scatter`; object/linker target support and driver plumbing must be checked separately. |
+| Pipeline introspection | `--print-pipeline`, `--pipeline=full|lite`, `--size-weight=N`; allows inspection of compiled-in and runtime-gated stages. |
+
+## Target selection and RAM
+
+Production uses one all-target main Wasm containing a single copy of the common
+C frontend and IR implementation. Version 3 configuration packages select the
+compiler-name interface, target, ABI and backend rules; they do not load child
+compiler Wasm modules. The earlier adapter/frontend/backend staged prototype is
+not the production deployment. Its historical tests below are labeled separately.
+
+The backend rules engine is being integrated incrementally, beginning with
+external RISC-V instruction encoding rules. A configuration package alone does
+not establish that every target's instruction selector and encoder have moved
+out of the main module. The code owner records the rules actually externalized;
+remaining compiled backend logic must not be described as arbitrary downloadable
+compiler support.
+
+IR is target dependent: parsing fixes structure layout, pointer width, long width
+and calling-convention details. The runtime must select a consistent target/ABI
+before frontend execution and keep it through emission. ARKIR1 object payloads
+retain strict opcode/name/asm validation. The prototype XHIR stage envelope is
+not a production requirement for in-process frontend/backend dispatch.
+
+The shared header defaults to `XH_TARGET_ALL=0` for the production all-target
+artifact. Optional development target builds use `-DXH_TARGET=N`: 1 ARM,
+2 RISCV32, 3 x86 (i386), 4 x86_64, 5 C.
+`XH_TARGET_ARM`, `XH_TARGET_RISCV32`, `XH_TARGET_X86`, `XH_TARGET_X86_64`,
+`XH_TARGET_C` are readable symbolic equivalents. `XH_MODULE_TARGET` is a build
+and driver identity string, separate from this numeric selection. The production
+module enables all backends and runtime configuration chooses one per invocation.
+Optional slim development builds must reject unavailable targets; disabling ARM
+also requires resolving the core assembler/object API coupling. Target data
+models are selected before each frontend run:
+`type_set_long_size(8)` for x86_64 LP64 and 4 for the ILP32 machine targets;
+`type_set_ptr_size` selects pointer width separately. Long alignment, integer
+literal candidates, arithmetic conversions and wide integer IR paths follow
+this data model. `g_irgen_armcc_asm` must be set per translation unit to permit
+ARMCC assembly functions only on ARM/C. Individual `ARKCC_BACKEND_*` overrides remain available for
+advanced builds, but disabling ARM requires resolving the core coupling first.
+
+The RAM goal is approximately 4 MiB per process/module, with explicit build
+memory overrides where needed. The former fixed 3 MiB maximum was a Wasm linear
+memory limit, **not** a module file-size limit. Restoring optional code can grow
+the compiler file independently of RAM. Buffer defaults are:
+
+| Resource | Default |
+| --- | ---: |
+| Arena `ARK_POOL_SIZE` | 1 MiB |
+| Source `ARK_SRC_BUF_SIZE` | 32 KiB |
+| Assembly `ARK_ASM_BUF_SIZE` | 128 KiB |
+| Code / link buffers | 32 KiB each |
+| Object `ARK_OBJ_BUF_SIZE` | 64 KiB |
+| Preprocessed text `PP_BUF_SIZE` | 64 KiB |
+| Include buffers | 8 levels × 16 KiB |
+| Macro body hard cap | 16 KiB |
+| ARM symbols / relocations / globals | 512 / 512 / 128 |
+| Link symbols / relocations / objects | 64 / 64 / 16 |
+| Include directories / predefined macros | 32 / 64 |
+
+These bounds can reject otherwise supported programs. Increase the corresponding
+`-D` values and Wasm memory cap together; the arena must hold at least twice the
+link buffer. IPO/LTO, large AST/IR and debug data compete for the same arena.
+The ARM liveness pass originally had approximately 1.5 MiB of static workspace.
+The target integration allocates it with `malloc` only when requested and frees
+it after the pass, so ordinary compilation does not carry that static RAM cost.
+Large liveness workloads still consume the module's linear memory and may need a
+larger configured memory cap; the final build map and runtime peaks remain the
+evidence for the approximately 4 MiB goal.
+
+## Regression evidence and outstanding validation
+
+`tests/test_language.py` compiles C99 constructs, all six C11 subset keywords,
+checks a failing static assertion, checks `_Generic` selected constant output,
+compiles long long / variadic / indirect calls, inspects basic and operand-free
+extended asm output, verifies unsupported operands/register clobbers fail,
+checks ARMCC asm function target restrictions and TLS rejection/preservation,
+checks LP64 long layout/literal rank, and feeds real IR to each optional high-level
+pass. A common IR guard rejects unsupported machine TLS before code emission.
+The current production main-module run passed all 18 cases on each of ARM,
+RISC-V, i386, x86_64 and C: **90/90**, through compiler-name selection and version
+3 configuration packages. Each invocation loads the same main Wasm once. This
+includes machine TLS rejection, LP64 layout/literal rank, GNU asm operand
+binding with the corrected ARM `i` prefix, and `-fno-builtin` preservation of
+declared calls and rejection of undeclared library names. Three added cases
+adapt representative reference layout/bitfield and function-typedef/compound
+literal semantics, and verify unsupported atomic read-modify-write is rejected
+instead of lowered nonatomically. These are compilation/output checks;
+destination-ISA execution is a separate target test suite. It accepts `XHCC_COMMAND` and `XHCC_TEST_TARGET` to
+exercise every built module via Wasmtime. It never starts a build itself.
+
+`tests/test_legacy_parity.py` exercises the original `--ark-compat` path with
+bounded real sources: private object `ARKIR1` payloads, IPO cross-file inline
+output, LTO byte-identical assembly, partial-link image identity, actual memory
+lint warnings, scatter reset-vector relocation and explicit rejection of LTO
+objects lacking IR. These gates adapt the reference `run_objir_tests.py` and
+`run_partiallink_tests.py` output checks; they do not infer behavior from macros.
+The current production artifact `build/wasm/xhcc.wasm` passed all **7/7** legacy
+gates through Wasmtime using its explicit `--ark-compat` interface. The seventh gate additionally round-trips
+bound GNU asm through private object IR/LTO, checks byte-identical direct IPO
+assembly, and corrupts the serialized output metadata to confirm explicit
+rejection. They run the same unified main artifact; the explicit legacy driver
+retains original private-object/link options in addition to the modern interface.
+
+Pending final integration results must distinguish output inspection from
+execution on the destination ISA. No claim here establishes full C99/C11,
+complete GCC/Clang/ARMCC command compatibility, unrestricted source capacity,
+arbitrary GNU operand assembly beyond the tested subset, all-target DWARF, public ELF LTO, or complete
+cross-target atomic/TLS/runtime support. Those are explicit remaining limits,
+not capabilities restored by selecting a macro.

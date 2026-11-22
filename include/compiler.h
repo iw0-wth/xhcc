@@ -88,10 +88,34 @@ typedef struct {
     int forced_include_count;
     const char *depend_target;
     int private_object;
+    int no_stdinc;
+    int memory_report;
+    int dump_macros;
+    int no_line_markers;
+    int hosted_mode;
+    int undef_predefines;
+    int no_builtin;
+    int language_c11;
+    int emulate_gcc;
+    int syntax_only;
+    int deps_only;
+    int dep_phony;
+    int dep_quote_target;
+    int include_system_deps;
+    const char *quote_include_dirs[ARK_PP_MAX_INC_DIRS];
+    int quote_include_dir_count;
+    const char *system_include_dirs[ARK_PP_MAX_INC_DIRS];
+    int system_include_dir_count;
 #endif
 } ArkOptions;
 
 int ark_compile(const ArkOptions *opts);
+#ifdef XHCC
+/* Stage boundary v1: optimized versioned IR with explicit target/data-model
+ * envelope. Each API owns a fresh arena and never reruns the other stage. */
+int xh_frontend_to_ir(const ArkOptions *opts, const char *ir_path);
+int xh_backend_from_ir(const ArkOptions *opts, const char *ir_path);
+#endif
 
 /* Address of the compiler's own work buffers (.ark_buf), for boot-time
  * reporting of where the linker actually placed them. */

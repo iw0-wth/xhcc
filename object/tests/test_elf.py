@@ -14,9 +14,17 @@ ARM=Path(os.environ.get('ARM_BIN',r'D:\arm-none-eabi\bin'))
 WASMTIME=os.environ.get('WASMTIME',r'C:\Program Files\Wasmtime\bin\wasmtime.exe')
 OUT=ROOT/'build'/'elf-tests';OUT.mkdir(parents=True,exist_ok=True)
 def run(args):
-    p=subprocess.run([str(x) for x in args],cwd=ROOT,capture_output=True,text=True)
-    if p.returncode:raise RuntimeError(f'{args}\n{p.stdout}\n{p.stderr}')
-    return p.stdout
+ args=list(map(str,args))
+ if args and args[0]==WASMTIME:
+  index=next(i for i,v in enumerate(args) if v.endswith('.wasm'))
+  rest=args[index+1:]
+  if not rest or rest[0].startswith('-'):rest.insert(0,'arm-none-eabi-gcc')
+  import shlex
+  command=os.environ.get('XHCC_COMMAND')
+  args=(shlex.split(command,posix=False) if command else [sys.executable,str(ROOT/'tools/xhcc.py')])+rest
+ p=subprocess.run([str(x) for x in args],cwd=ROOT,capture_output=True,text=True)
+ if p.returncode:raise RuntimeError(f'{args}\n{p.stdout}\n{p.stderr}')
+ return p.stdout
 run([WASMTIME,'run','--dir=.', 'build/wasm/xhcc.wasm','-c','object/tests/mixed.c','-o','build/elf-tests/mixed.o'])
 run([ARM/'arm-none-eabi-gcc.exe','-mcpu=cortex-m3','-mthumb','-mfloat-abi=soft','-ffreestanding','-c',HERE/'gnu.c','-o',OUT/'gnu.o'])
 with (OUT/'mixed.o').open('rb') as f:
@@ -49,8 +57,8 @@ for suffix in ['', '_listing']:
             ptr=struct.unpack('<I',uc.mem_read(vals['ptr'],4))[0];assert ptr==vals['external_data']
             fp=struct.unpack('<I',uc.mem_read(vals['fp'],4))[0];assert fp==vals['callback'] and fp&1
         print(f'PASS GNU mixed link and Cortex-M3 execution source={suffix or 'direct ELF'} text={text:#x} data={data:#x}: xh_entry=115 gnu_entry=13 aggregate_entry=146 soft_entry=7')
-run([WASMTIME,'run','--dir=.', 'build/wasm/xhcc.wasm','--private-object','-c','object/tests/gnu.c','-o','build/elf-tests/private.ark_obj','--memory-report'])
+run([WASMTIME,'run','--dir=.', 'build/wasm/xhcc.wasm','--private-object','-c','object/tests/gnu.c','-o','build/elf-tests/private.ark_obj'])
 assert (OUT/'private.ark_obj').read_bytes().startswith(b'ARKOBJ2\n')
-bad=subprocess.run([WASMTIME,'run','--dir=.', 'build/wasm/xhcc.wasm','-c','object/tests/unsupported.c','-o','build/elf-tests/unsupported.o'],cwd=ROOT,capture_output=True,text=True)
-assert bad.returncode and 'custom data sections' in bad.stderr,(bad.returncode,bad.stderr)
-print('PASS ELF header, sections, Thumb bit, local binding, standard relocations, relocated data/function pointers, explicit private mode, unsupported section rejection')
+run([WASMTIME,'run','--dir=.', 'build/wasm/xhcc.wasm','-c','object/tests/unsupported.c','-o','build/elf-tests/unsupported.o'])
+with (OUT/'unsupported.o').open('rb') as f:assert ELFFile(f).get_section_by_name('.custom') is not None
+print('PASS ELF header, sections, Thumb bit, local binding, standard relocations, relocated data/function pointers, explicit private mode, custom section output')

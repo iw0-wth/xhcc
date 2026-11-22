@@ -19,6 +19,11 @@ IrProgram *irgen_program_into(AstNode *prog, IrProgram *out);
  * writing an image that silently computes the wrong answer. Reset on entry to
  * irgen_program(). */
 extern int g_irgen_errors;
+/* Set per translation unit: only ARM and C emit raw armcc asm functions. */
+extern int g_irgen_armcc_asm;
+extern int g_irgen_arm_asm_immediates; /* ARM i operands include # like GCC */
+extern int g_irgen_no_builtin; /* -fno-builtin: keep ordinary library calls */
+extern int g_irgen_native_asm; /* zero for C emitter: operand binding needs native registers */
 
 /* 设置 IR 生成是否使用 8 字节槽模型（C 后端）。
  * 启用后 irgen_widen_to_64 和 irgen_cond_to_bool 成为 no-op，

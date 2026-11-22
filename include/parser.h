@@ -18,6 +18,8 @@ typedef struct {
 } Parser;
 
 AstNode *parse_program(Lexer *lex);
+/* Parse one parenthesized GNU asm operand from a replay lexer. */
+AstNode *parse_asm_operand_expr(Lexer *lex);
 
 /* Deduce the outermost dimension of a `T a[] = {...}` array from its
  * initialiser (C99 6.7.9p22).  The parser calls it while reading a

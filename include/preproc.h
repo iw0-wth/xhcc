@@ -11,6 +11,12 @@
 /* Add extra search paths (reset before each compile). */
 void preproc_reset(void);
 void preproc_add_include_dir(const char *dir);
+#ifdef XHCC
+int preproc_write_macros(const char *path);
+void preproc_set_compiler_mode(int gcc_mode, int c11, int hosted, int undefines);
+void preproc_add_quote_include_dir(const char *dir);
+void preproc_add_system_include_dir(const char *dir);
+#endif
 void preproc_set_main_file(const char *path);
 
 /* 覆盖 __DATE__ / __TIME__ 的取值（C99 6.10.8.1 允许实现决定它们的来源）。
@@ -47,5 +53,8 @@ int preproc_get_included_files(const char **out, int max_count);
 /* Number of files recorded for -MMD so far. The host grows that list instead
  * of capping it, so callers size their destination from this value. */
 int preproc_included_count(void);
+#ifdef XHCC
+int preproc_dependency_is_system(int index);
+#endif
 
 #endif /* ARK_PREPROC_H */

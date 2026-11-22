@@ -259,8 +259,8 @@ int eval_const_cexpr(AstNode *node, double *re, double *im) {
 int fconst_to_int(double d, Type *t, long long *out) {
     double lo = -9223372036854775808.0, hi = 9223372036854775807.0;
     if (!(d == d)) return 0;                       /* NaN */
-    if (t && t->size > 0 && t->size < 8) {
-        switch (t->size) {
+    if (t && type_size(t) > 0 && type_size(t) < 8) {
+        switch (type_size(t)) {
         case 1: lo = t->is_unsigned ? 0.0 : -128.0;
                 hi = t->is_unsigned ? 255.0 : 127.0; break;
         case 2: lo = t->is_unsigned ? 0.0 : -32768.0;
@@ -331,8 +331,8 @@ Type *usual_arith_conv(Type *lt, Type *rt) {
             return hi;
         }
         {
-            int hi_bytes = (hi->kind == TYPE_LLONG) ? 8 : 4;
-            int lo_bytes = (lo->kind == TYPE_LLONG) ? 8 : 4;
+            int hi_bytes = type_size(hi);
+            int lo_bytes = type_size(lo);
             if (hi_bytes > lo_bytes) {
                 /* Higher rank is wider (llong 8B vs uint 4B): signed can hold all unsigned lower values */
                 return hi;
@@ -490,13 +490,16 @@ int eval_const_expr(AstNode *node, long long *out_value) {
     }
 }
 
+/* Per-translation-unit language mode is set by the compiler before sema/IR. */
+extern int g_irgen_no_builtin;
+
 int sema_check(AstNode *prog) {
     int i;
     g_errors = 0;
     sym_init();
     if (!prog || prog->kind != AST_PROGRAM) return 0;
     /* Builtins: pre-register the simple host libc functions so they are not reported as undefined */
-    {
+    if (!g_irgen_no_builtin) {
         const char *builtins[] = {
             "printf","putchar","puts","strlen","strcmp","strcpy",
             "memset","memcpy","abort","malloc","free",0
@@ -1224,6 +1227,13 @@ static Type *sema_expr(AstNode *node) {
                     }
                 } else {
                     node->type = type_int();
+                    if (g_irgen_no_builtin) {
+                        DiagLoc loc = loc_of(node);
+                        diag_report_msg(DIAG_SEV_ERROR, &loc,
+                                        "function %s is not declared (-fno-builtin disables implicit library declarations)",
+                                        node->u.call.name, 0, 0);
+                        g_errors++;
+                    }
                 }
                 {
                     /* C99 6.5.2.2p7: every argument is converted to the type

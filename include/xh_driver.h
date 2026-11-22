@@ -9,10 +9,12 @@
 #define XH_DRIVER_PATH_BYTES 512
 #define XH_DRIVER_MAX_SOURCES 64
 
-/* argv[0] is the executable. Optional argv[1]: arm-none-eabi-gcc or armcc.
+/* argv[0] is the executable. Optional argv[1] selects a packaged compiler.
+ * --ark-compat as the first expanded argument dispatches the original Ark CLI.
  * Response paths, including nested @files, are relative to the process cwd.
  * No shell, subprocess, heap allocation, environment expansion or linking.
  * Fixed storage makes this entry point non-reentrant. */
 int xh_driver_main(int argc, char **argv);
+int xh_legacy_main(int argc, char **argv);
 
 #endif

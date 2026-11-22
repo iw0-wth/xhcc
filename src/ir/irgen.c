@@ -26,6 +26,10 @@
  * and RV32I, whose regions are built from the caller's own argument words
  * (see include/ir.h and <stdarg.h>). */
 int g_ir_va_slot_region = 1;
+int g_irgen_armcc_asm = 1;
+int g_irgen_native_asm = 1;
+int g_irgen_no_builtin = 0;
+int g_irgen_arm_asm_immediates = 1;
 
 /* See include/ir.h.  0 by default, so every target except ARM Thumb-2 rejects
  * a >8-byte composite through `...` instead of emitting code that reads the
@@ -1280,9 +1284,29 @@ IrProgram *irgen_program_into(AstNode *prog, IrProgram *out) {
     return irgen_program_impl(prog, out);
 }
 
+#ifdef XHCC
+static void xh_check_global_tls(AstNode *node) {
+    int i;
+    if (!node) return;
+    if (node->kind == AST_VAR_DECL && node->u.var.is_tls && g_irgen_native_asm) {
+        ark_log("[irgen] error: TLS storage requires target thread-pointer support, which is not implemented\n");
+        g_irgen_errors++;
+    } else if (node->kind == AST_PROGRAM) {
+        for (i = 0; i < node->u.program.decl_count; ++i)
+            xh_check_global_tls(node->u.program.decls[i]);
+    } else if (node->kind == AST_BLOCK) {
+        for (i = 0; i < node->u.block.stmt_count; ++i)
+            xh_check_global_tls(node->u.block.stmts[i]);
+    }
+}
+#endif
+
 static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
     int i;
     g_irgen_errors = 0;
+#ifdef XHCC
+    xh_check_global_tls(prog);
+#endif
     sym_init();
 
     /* Pre-pass: register all function/global symbols so cross-references
@@ -1683,6 +1707,15 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
         AstNode *d = prog->u.program.decls[i];
         if (d->kind == AST_ASM_FUNC) {
             IrFunc *fn;
+#ifdef XHCC
+            /* Select per TU for universal builds; other machine backends
+             * otherwise silently generate an empty function. */
+            if (!g_irgen_armcc_asm) {
+                ark_log("[irgen] error: armcc __asm function bodies require the ARM target\n");
+                g_irgen_errors++;
+                continue;
+            }
+#endif
             /* armcc __weak override: skip if this weak asm func was
              * overridden by a non-weak definition (see AST_FUNC_DEF above). */
             {
@@ -2290,7 +2323,7 @@ static int irgen_compound_literal(IrGen *g, AstNode *node) {
 static void irgen_discard_result(IrGen *g, AstNode *node) {
     Type *et = node ? node->type : 0;
     int words = 1;
-    if (et && (et->kind == TYPE_LLONG || et->kind == TYPE_DOUBLE)) {
+    if (et && (type_is_64bit_integer(et) || et->kind == TYPE_DOUBLE)) {
         words = 2;
     } else if (et && (et->kind == TYPE_STRUCT || et->kind == TYPE_UNION)) {
         /* An aggregate expression is passed as a low/high word pair
@@ -2361,7 +2394,104 @@ static void irgen_store_small_agg(IrGen *g, int off, int sz) {
     }
 }
 
+#ifdef XHCC
+/* Conservative operand-aware GNU asm subset. Operands are parsed, not copied
+ * as source text: only scalar 32-bit identifiers/constants are admitted until
+ * expression typing and lvalue lowering can share the full sema machinery. */
+static int xh_asm_operand_list(const char *raw, int output, AstNode **exprs,
+                               int *immediate, int *count) {
+    Lexer lex;
+    int n = 0;
+    if (!raw || !*raw) { *count = 0; return 1; }
+    lexer_init(&lex, raw);
+    while (lexer_peek(&lex).kind != TOK_EOF) {
+        Token t = lexer_peek(&lex);
+        AstNode *expr;
+        Symbol *sym;
+        if (n >= (output ? 1 : 2) || t.kind != TOK_STR) return 0;
+        if (output ? !ark_streq(t.str, "=r") :
+            (!ark_streq(t.str, "r") && !ark_streq(t.str, "i"))) return 0;
+        immediate[n] = !output && ark_streq(t.str, "i");
+        lexer_advance(&lex);
+        expr = parse_asm_operand_expr(&lex);
+        if (!expr) return 0;
+        if (immediate[n]) {
+            long long value;
+            if (!eval_const_expr(expr, &value) || value < (-2147483647LL - 1) ||
+                value > 2147483647LL) return 0;
+        } else if (expr->kind == AST_VAR) {
+            sym = sym_find(expr->u.name);
+            if (!sym || !type_is_integer(sym->type) || type_size(sym->type) != 4 ||
+                sym->type->is_atomic || (output && (sym->type->is_const ||
+                sym->is_static || (sym->kind != SYM_VAR && sym->kind != SYM_PARAM)))) return 0;
+            expr->type = sym->type;
+        } else if (!output && expr->kind == AST_NUM &&
+                   type_is_integer(expr->type) && type_size(expr->type) <= 4) {
+            /* A register input constant still goes through IR evaluation. */
+        } else return 0;
+        exprs[n++] = expr;
+        if (lexer_peek(&lex).kind == TOK_EOF) break;
+        if (lexer_peek(&lex).kind != TOK_COMMA) return 0;
+        lexer_advance(&lex);
+        if (lexer_peek(&lex).kind == TOK_EOF) return 0;
+    }
+    *count = n;
+    return 1;
+}
+
+static int xh_lower_asm_operands(IrGen *g, const char *text,
+                               const char *outs, const char *ins) {
+    AstNode *out[1], *in[2];
+    int oi[1], ii[2], no = 0, ni = 0, nr = 0, i;
+    int map[3];
+    long long values[3];
+    StrBuf b;
+    const char *p;
+    if (!g_irgen_native_asm ||
+        !xh_asm_operand_list(outs, 1, out, oi, &no) ||
+        !xh_asm_operand_list(ins, 0, in, ii, &ni)) return 0;
+    if (!no && !ni) return 0;
+    if (no) map[0] = 0;
+    for (i = 0; i < ni; ++i) {
+        if (ii[i]) { map[no + i] = -1; eval_const_expr(in[i], &values[no + i]); }
+        else map[no + i] = no + nr++;
+    }
+    sb_init(&b);
+    for (p = text; *p; ++p) {
+        if (*p != '%') { sb_putc(&b, *p); continue; }
+        ++p;
+        if (*p == '%') { sb_puts(&b, "%%"); continue; }
+        if (*p < '0' || *p >= '0' + no + ni ||
+            (p[1] >= '0' && p[1] <= '9')) return 0;
+        i = *p - '0';
+        if (map[i] < 0) {
+            /* GNU ARM %N prints an immediate marker. Existing #%N templates
+             * are accepted too, without emitting an invalid double marker. */
+            if (g_irgen_arm_asm_immediates && (p - text < 2 || p[-2] != '#'))
+                sb_putc(&b, '#');
+            sb_putd(&b, values[i]);
+        }
+        else { sb_putc(&b, '%'); sb_putc(&b, (char)('0' + map[i])); }
+    }
+    /* Validate the entire statement before emitting any input evaluation. */
+    for (i = 0; i < ni; ++i) if (!ii[i]) irgen_expr(g, in[i]);
+    ir_emit(g->fn, IR_ASM, nr, b.data, 0x40000000 | no);
+    if (no) {
+        Symbol *s = sym_find(out[0]->u.name);
+        ir_emit(g->fn, IR_STORE, s->offset, 0, 4);
+    }
+    return 1;
+}
+#endif
+
 static void irgen_stmt(IrGen *g, AstNode *node) {
+#ifdef XHCC
+    if (node && node->kind == AST_VAR_DECL && node->u.var.is_tls && g_irgen_native_asm) {
+        ark_log("[irgen] error: TLS storage requires target thread-pointer support, which is not implemented\n");
+        g_irgen_errors++;
+        return;
+    }
+#endif
     if (!node) return;
     g_ir_cur_line = node->line;
     switch (node->kind) {
@@ -2793,7 +2923,8 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
                                 case TYPE_SHORT: store_aux = 2; break;
                                 case TYPE_INT:
                                 case TYPE_ENUM:  store_aux = 4; break;
-                                case TYPE_LLONG:  store_aux = 8; break;
+                                case TYPE_LONG:   store_aux = type_long_size(); break;
+                                 case TYPE_LLONG:  store_aux = 8; break;
                                 case TYPE_DOUBLE: store_aux = 8; break;
                                 /* _Complex double is 16 bytes, _Complex float
                                  * is 8. Storing a hard-coded 16 for both wrote
@@ -2986,7 +3117,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
             int sv_default = g->default_label;
             int sv_end = g->switch_end_label;
             Type *sw_type = node->u.switch_stmt.expr ? node->u.switch_stmt.expr->type : 0;
-            int is_llong_sw = (sw_type && sw_type->kind == TYPE_LLONG);
+            int is_llong_sw = (sw_type && type_is_64bit_integer(sw_type));
 
             cl.labels = 0; cl.values = 0; cl.count = 0; cl.cap = 0;
             cl.default_label = -1;
@@ -3097,6 +3228,36 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
             const char *outs = node->u.asm_stmt.outputs;
             const char *ins  = node->u.asm_stmt.inputs;
             const char *clb  = node->u.asm_stmt.clobbers;
+#ifdef XHCC
+            if (clb && *clb) {
+                const char *c = clb;
+                int invalid = 0;
+                while (*c) {
+                    while (*c == ' ' || *c == '\t' || *c == ',') c++;
+                    if (!*c) break;
+                    if (c[0] == '"' && c[1] == 'm' && c[2] == 'e' &&
+                        c[3] == 'm' && c[4] == 'o' && c[5] == 'r' &&
+                        c[6] == 'y' && c[7] == '"') c += 8;
+                    else if (c[0] == '"' && c[1] == 'c' && c[2] == 'c' &&
+                             c[3] == '"') c += 4;
+                    else { invalid = 1; break; }
+                    if (*c && *c != ' ' && *c != '\t' && *c != ',') {
+                        invalid = 1; break;
+                    }
+                }
+                if (invalid) {
+                    ark_log("[irgen] error: inline asm register clobbers are not supported; only memory and cc clobbers are supported\n");
+                    g_irgen_errors++;
+                    break;
+                }
+            }
+            if ((outs && *outs) || (ins && *ins)) {
+                if (xh_lower_asm_operands(g, text, outs, ins)) break;
+                ark_log("[irgen] error: GNU extended asm operands are not supported in this form (supported: one local 32-bit =r output, up to two r/i scalar inputs on native targets)\n");
+                g_irgen_errors++;
+                break;
+            }
+#endif
             if (outs || ins || clb) {
                 /* Build the extended form with a leading '@'. */
                 StrBuf sb; sb_init(&sb);
@@ -3458,8 +3619,10 @@ static void irgen_truncate_int(IrGen *g, Type *dst_t) {
         case TYPE_CHAR:  bits = 8;  break;
         case TYPE_SHORT: bits = 16; break;
         case TYPE_INT:
-        case TYPE_ENUM:
-        case TYPE_LONG:  bits = 32; break;
+        case TYPE_ENUM:  bits = 32; break;
+        case TYPE_LONG:
+            if (type_long_size() == 8) return;
+            bits = 32; break;
         default:         return;    /* llong / bool handled elsewhere */
     }
     ir_emit(g->fn, IR_TRUNC, bits, 0, dst_t->is_unsigned ? 1 : 0);
@@ -3542,7 +3705,7 @@ static void irgen_convert_value(IrGen *g, Type *src_t, Type *dst_t) {
          * (same encoding AST_CAST and the backends already agree on). */
         int aux = (src_t->kind == TYPE_DOUBLE) ? 0x200 : 0;
         if (dst_t->is_unsigned) aux |= 0x400;
-        if (dst_t->kind == TYPE_LLONG)
+        if (type_is_64bit_integer(dst_t))
             ir_emit(g->fn, IR_64F2I, 0, 0, aux);
         else
             ir_emit(g->fn, IR_F2I, 0, 0, aux);
@@ -3556,7 +3719,7 @@ static void irgen_convert_value(IrGen *g, Type *src_t, Type *dst_t) {
         /* aux: 0x200 = destination is double, 0x400 = source is unsigned. */
         int aux = (dst_t->kind == TYPE_DOUBLE) ? 0x200 : 0;
         if (src_t->is_unsigned) aux |= 0x400;
-        if (src_t->kind == TYPE_LLONG)
+        if (type_is_64bit_integer(src_t))
             ir_emit(g->fn, IR_64I2F, 0, 0, aux);
         else
             ir_emit(g->fn, IR_I2F, 0, 0, aux);
@@ -3659,7 +3822,7 @@ static void irgen_push_step(IrGen *g, Type *vt, int step) {
         ir_emit(g->fn, IR_PUSH_FLOAT,
                 ir_program_add_float(g->prog, step > 0 ? 1.0 : -1.0), 0,
                 vt->kind == TYPE_DOUBLE ? 0x200 : 0);
-    } else if (vt && vt->kind == TYPE_LLONG) {
+    } else if (vt && type_is_64bit_integer(vt)) {
         ir_emit(g->fn, IR_PUSH_INT, step, 0, 0);              /* low word */
         ir_emit(g->fn, IR_PUSH_INT, step < 0 ? -1 : 0, 0, 0); /* high word */
     } else {
@@ -3739,11 +3902,11 @@ static void irgen_emit_binary_op(IrGen *g, int op, Type *lt, Type *rt) {
              * 32-bit shift when x is int. */
             Type *pl = usual_arith_conv(lt, 0);
             is_unsigned = pl && pl->is_unsigned;
-            is_llong = pl && pl->kind == TYPE_LLONG;
+            is_llong = pl && type_is_64bit_integer(pl);
         } else {
             Type *common = usual_arith_conv(lt, rt);
             is_unsigned = common && common->is_unsigned;
-            is_llong = common && common->kind == TYPE_LLONG;
+            is_llong = common && type_is_64bit_integer(common);
         }
     }
     if (is_float) {
@@ -3792,7 +3955,7 @@ static void irgen_maybe_widen_for_binary(IrGen *g, Type *lt, Type *rt) {
     if (rt->kind == TYPE_FLOAT || rt->kind == TYPE_DOUBLE) return;
     {
         Type *common = usual_arith_conv(lt, rt);
-        if (common && common->kind == TYPE_LLONG) {
+        if (common && type_is_64bit_integer(common)) {
             irgen_widen_to_64(g, rt, common);
         }
     }
@@ -3846,7 +4009,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                  * low 32 bits on ARM (emit_mov_imm truncates to 32 bits),
                  * silently dropping the high word for values >= 2^31.
                  * IR_64PUSH encoding: val=high32, aux=low32. */
-                if (node->type && node->type->kind == TYPE_LLONG) {
+                if (node->type && type_is_64bit_integer(node->type)) {
                     long long v = node->u.num_val;
                     int low32  = (int)(unsigned int)(v & 0xFFFFFFFFLL);
                     int high32 = (int)(unsigned int)((unsigned long long)v >> 32);
@@ -3910,7 +4073,8 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                         case TYPE_SHORT: push_aux = 2; break;
                         case TYPE_INT:
                         case TYPE_ENUM:  push_aux = 4; break;
-                        case TYPE_LLONG:  push_aux = 8; break;
+                        case TYPE_LONG:   push_aux = type_long_size(); break;
+                         case TYPE_LLONG:  push_aux = 8; break;
                         case TYPE_DOUBLE: push_aux = 8; break;
                         default:         push_aux = 0; break;
                     }
@@ -3970,7 +4134,8 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                         case TYPE_SHORT: aux = 2 | uns; break;
                         case TYPE_INT:
                         case TYPE_ENUM:  aux = 4 | uns; break;
-                        case TYPE_LLONG: aux = 8 | uns; break;  /* #5 FIX: 64-bit local */
+                        case TYPE_LONG:  aux = type_long_size() | uns; break;
+                         case TYPE_LLONG: aux = 8 | uns; break;  /* #5 FIX: 64-bit local */
                         case TYPE_DOUBLE: aux = 8; break;       /* #5 FIX: double local */
                         case TYPE_COMPLEX: aux = irgen_complex_aux(s->type, type_size(s->type)); break;
                         /* x86-64: an 8-byte pointer is one 8-byte word. */
@@ -4011,7 +4176,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                      * aux: 0x200=src is double, 0x400=dst is unsigned.
                      * ARM backend selects __aeabi_d2lz/__aeabi_d2ulz (or
                      * __aeabi_f2lz/__aeabi_f2ulz for float source). */
-                    if (dst_t->kind == TYPE_LLONG) {
+                    if (type_is_64bit_integer(dst_t)) {
                         int aux = is_dbl ? 0x200 : 0;
                         if (dst_t->is_unsigned) aux |= 0x400;
                         ir_emit(g->fn, IR_64F2I, 0, 0, aux);
@@ -4028,7 +4193,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                      * aux: 0x200=dst is double, 0x400=src is unsigned.
                      * ARM backend selects __aeabi_l2d/__aeabi_ul2d (or
                      * __aeabi_l2f/__aeabi_ul2f for float destination). */
-                    if (src_t->kind == TYPE_LLONG) {
+                    if (type_is_64bit_integer(src_t)) {
                         int aux = is_dbl ? 0x200 : 0;
                         if (src_t->is_unsigned) aux |= 0x400;
                         ir_emit(g->fn, IR_64I2F, 0, 0, aux);
@@ -4180,11 +4345,11 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                          * count is. */
                         Type *pl = usual_arith_conv(lt, 0);
                         is_unsigned = pl && pl->is_unsigned;
-                        is_llong = pl && pl->kind == TYPE_LLONG;
+                        is_llong = pl && type_is_64bit_integer(pl);
                     } else {
                         Type *common = usual_arith_conv(lt, rt);
                         is_unsigned = common && common->is_unsigned;
-                        is_llong = common && common->kind == TYPE_LLONG;
+                        is_llong = common && type_is_64bit_integer(common);
                     }
                 }
                 /* C99 complex arithmetic: if either operand is TYPE_COMPLEX the operation
@@ -4362,7 +4527,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                          * PUSH_GLOBAL/STORE_GLOBAL; static locals use the mangled name. */
                         const char *gname = operand->u.name;
                         if (s->is_static) gname = static_local_name(g->fn->name, operand->u.name);
-                        if (s->type && s->type->kind == TYPE_LLONG) {
+                        if (s->type && type_is_64bit_integer(s->type)) {
                             /* 64-bit global ++/--: same fix as the local case
                              * below -- one 32-bit add would wrap the low half
                              * and leave the high half untouched. */
@@ -4393,7 +4558,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                             ir_emit(g->fn, IR_STORE_GLOBAL, 0, gname, 0);
                             ir_emit(g->fn, IR_PUSH_GLOBAL, 0, gname, 0);
                         }
-                    } else if (s->type && s->type->kind == TYPE_LLONG) {
+                    } else if (s->type && type_is_64bit_integer(s->type)) {
                         /* 64-bit ++/--: the generic path below pushes one word
                          * and adds 1 with a 32-bit ADD, so `unsigned long long
                          * a = 0xFFFFFFFF; a++;` wrapped the low half and left the
@@ -4558,7 +4723,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                  * val=0: 32-bit integer unary. */
                 int is_float = node->type &&
                     (node->type->kind == TYPE_FLOAT || node->type->kind == TYPE_DOUBLE);
-                int is_llong = node->type && node->type->kind == TYPE_LLONG;
+                int is_llong = node->type && type_is_64bit_integer(node->type);
                 irgen_expr(g, node->u.unary.operand);
                 ir_emit(g->fn, IR_UNARY, is_float ? 1 : (is_llong ? 2 : 0), 0, op);
             }
@@ -4748,7 +4913,8 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                                 case TYPE_SHORT: store_aux = 2; break;
                                 case TYPE_INT:
                                 case TYPE_ENUM:  store_aux = 4; break;
-                                case TYPE_LLONG:  store_aux = 8; break;  /* 64-bit local */
+                                case TYPE_LONG:   store_aux = type_long_size(); break;
+                                 case TYPE_LLONG:  store_aux = 8; break;  /* 64-bit local */
                                 case TYPE_DOUBLE: store_aux = 8; break;
                                 case TYPE_COMPLEX: store_aux = irgen_complex_aux(s->type, type_size(s->type)); break;
                                 /* x86-64: 8-byte pointers are one word. */
@@ -5052,7 +5218,8 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                                 case TYPE_SHORT: store_aux = 2; break;
                                 case TYPE_INT:
                                 case TYPE_ENUM:  store_aux = 4; break;
-                                case TYPE_LLONG:  store_aux = 8; break;
+                                case TYPE_LONG:   store_aux = type_long_size(); break;
+                                 case TYPE_LLONG:  store_aux = 8; break;
                                 case TYPE_DOUBLE: store_aux = 8; break;
                                 case TYPE_COMPLEX: store_aux = irgen_complex_aux(s->type, type_size(s->type)); break;
                                 /* x86-64: `p += n` must write all 8 bytes. */
@@ -5222,7 +5389,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
             /* C99 complex builtins: lower the common ones to plain IR here. The
              * complex layout is 16 bytes (double re + double im) while IR_CALL passes
              * one long long (8 bytes) per argument, so special-case them up front. */
-            if (s && n == 1) {
+            if (s && n == 1 && !g_irgen_no_builtin) {
                 const char *fn = node->u.call.name;
                 if (ark_streq(fn, "creal") || ark_streq(fn, "crealf") || ark_streq(fn, "creall")) {
                     irgen_expr(g, node->u.call.args[0]);
@@ -5516,8 +5683,8 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                      *   - If arg is int/short/char/ptr (<=4 bytes): promote
                      *     to 8 bytes via IR_SEXT (signed) or IR_ZEXT (unsigned).
                      * The C/ARM/RISC-V backends treat these as no-ops. */
-                    if (pt && pt->kind == TYPE_LLONG) {
-                        if (at && at->kind == TYPE_LLONG) {
+                    if (pt && type_is_64bit_integer(pt)) {
+                        if (at && type_is_64bit_integer(at)) {
                             ir_emit(g->fn, IR_CDECL64, 0, 0, 0);
                         } else {
                             if (at && (at->is_unsigned || at->kind == TYPE_PTR ||
@@ -5538,7 +5705,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                                 ir_emit(g->fn, IR_SEXT, 0, 0, 0);
                             }
                         }
-                    } else if (!pt && at && at->kind == TYPE_LLONG) {
+                    } else if (!pt && at && type_is_64bit_integer(at)) {
                         /* Variadic long long arg (no prototype): convert
                          * internal word order to cdecl order. */
                         ir_emit(g->fn, IR_CDECL64, 0, 0, 0);
@@ -5659,10 +5826,10 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                         if (i < 16 && (k == TYPE_FLOAT || k == TYPE_DOUBLE)) {
                             argmask |= (1 << (2 * i));
                         }
-                        if (i < 16 && (k == TYPE_LLONG || k == TYPE_DOUBLE)) {
+                        if (i < 16 && (type_is_64bit_integer(use_t) || k == TYPE_DOUBLE)) {
                             argmask |= (1 << (2 * i + 1));
                         }
-                        if (k == TYPE_LLONG || k == TYPE_DOUBLE) wires[i] = 8;
+                        if (type_is_64bit_integer(use_t) || k == TYPE_DOUBLE) wires[i] = 8;
                         /* _Complex float: an 8-byte object passed as two
                          * words.  Without the 8-byte wire width the ARM
                          * backend popped only r0 and left the imaginary
@@ -5754,7 +5921,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                      * Both bits are above the argument count, which every backend
                      * truncates to int. */
                     if (node->type &&
-                        (node->type->kind == TYPE_LLONG || node->type->kind == TYPE_DOUBLE))
+                        (type_is_64bit_integer(node->type) || node->type->kind == TYPE_DOUBLE))
                         call_val |= 0x100000000LL;
                     /* A composite of 5..8 bytes comes back in the same two
                      * registers (AAPCS r0:r1, RISC-V a0:a1), and both backends

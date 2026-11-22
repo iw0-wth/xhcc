@@ -541,6 +541,16 @@ void type_struct_add_anonymous(Type *parent, Type *child) {
  * argv[i] (char**) would compute argv+i*4 and load 4 bytes, corrupting the
  * pointer and crashing with STATUS_ACCESS_VIOLATION. */
 static int g_ptr_size = 4;
+static int g_long_size = 4;
+
+void type_set_long_size(int bytes) {
+    if (bytes == 4 || bytes == 8) g_long_size = bytes;
+}
+int type_long_size(void) { return g_long_size; }
+int type_is_64bit_integer(Type *t) {
+    return t && (t->kind == TYPE_LLONG ||
+                 (t->kind == TYPE_LONG && g_long_size == 8));
+}
 
 void type_set_ptr_size(int bytes) {
     if (bytes == 4 || bytes == 8) g_ptr_size = bytes;
@@ -558,7 +568,7 @@ int type_size(Type *t) {
         case TYPE_BOOL:   return 1;
         case TYPE_SHORT:  return 2;
         case TYPE_INT:    return 4;
-        case TYPE_LONG:   return 4;
+        case TYPE_LONG:   return g_long_size;
         case TYPE_LLONG:  return 8;
         case TYPE_FLOAT:  return 4;
         case TYPE_DOUBLE: return 8;
@@ -621,6 +631,7 @@ int type_align(Type *t) {
         case TYPE_CHAR:
         case TYPE_BOOL:   return 1;
         case TYPE_SHORT:  return 2;
+        case TYPE_LONG:   return g_long_size;
         case TYPE_LLONG:
         case TYPE_DOUBLE: return 8;
         case TYPE_PTR:    return g_ptr_size; /* pointer is naturally aligned */

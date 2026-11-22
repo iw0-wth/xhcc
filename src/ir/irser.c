@@ -31,6 +31,48 @@
 
 #if ARKCC_FEATURE_OBJ_IR
 
+/* Reject unsupported wire semantics in both directions. Name-bearing local
+ * operations keep source names for diagnostics; they are not symbol rewrites. */
+static const char *ir_wire_inst_error(const IrInst *I) {
+    const char *s;
+    int operands;
+    if ((int)I->op < 0 || (int)I->op >= (int)IR_OP_COUNT)
+        return "an instruction has an unknown opcode";
+    if (I->name) {
+        switch (I->op) {
+        case IR_NOP: /* legacy optimizers can retain debug names on NOPs */
+        case IR_PUSH_INT: case IR_PUSH_VAR: case IR_PUSH_ADDR: case IR_STORE: case IR_GETARG:
+        case IR_FUNC_BEGIN: case IR_FUNC_END: case IR_ARG:
+        case IR_CALL: case IR_PUSH_FUNC: case IR_PUSH_STR:
+        case IR_PUSH_GLOBAL: case IR_STORE_GLOBAL: case IR_PUSH_GLOBAL_ADDR:
+        case IR_LABEL_NAMED: case IR_JMP_NAMED: case IR_ASM:
+            break;
+        default: return "an instruction carries a name its opcode cannot interpret";
+        }
+    }
+    if (I->op != IR_ASM) return 0;
+    if (!I->name) return "an inline assembly instruction has no template";
+    if (!(I->aux & 0x40000000)) {
+        if (I->aux || I->val || I->aux2)
+            return "a legacy inline assembly instruction has unexpected operand metadata";
+        return 0;
+    }
+    if (I->aux != 0x40000000 && I->aux != 0x40000001)
+        return "a bound inline assembly instruction has invalid output metadata";
+    if (I->val < 0 || I->val > 2 || I->aux2)
+        return "a bound inline assembly instruction has invalid input metadata";
+    operands = (I->aux & 1) + (int)I->val;
+    for (s = I->name; *s; ++s) {
+        if (*s != '%') continue;
+        ++s;
+        if (*s == '%') continue;
+        if (*s < '0' || *s >= '0' + operands ||
+            (s[1] >= '0' && s[1] <= '9'))
+            return "a bound inline assembly template has an unbound operand";
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Writer                                                              */
 /* ------------------------------------------------------------------ */
@@ -296,6 +338,8 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
         w_u32(&w, (unsigned)f->code_count);
         for (k = 0; k < f->code_count; k++) {
             IrInst *I = &f->code[k];
+            const char *why = ir_wire_inst_error(I);
+            if (why) return ir_ser_fail(who, why, 0);
             w_u32(&w, (unsigned)I->op);
             w_i64(&w, I->val);
             w_sstr(&w, I->name);
@@ -813,7 +857,7 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
             IrFunc *f;
             if (r.err) goto bad;
             if (!nm) { r.why = "a function record has no name"; goto bad; }
-            if (ncode < 0 || ncode * 24 > r.n) { r.why = "implausible instruction count"; goto bad; }
+            if (ncode < 0 || ncode > r.n / 24) { r.why = "implausible instruction count"; goto bad; }
             f = deser_func_new(nm, ncode);
             for (k = 0; k < ncode; k++) {
                 IrInst *I = &f->code[k];
@@ -827,6 +871,8 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
                 I->line = r_i32(&r);
                 I->aux2 = r_i32(&r);
                 if (r.err) goto bad;
+                r.why = ir_wire_inst_error(I);
+                if (r.why) goto bad;
                 switch (I->op) {
                 case IR_PUSH_STR:
                     if (I->val < 0 || I->val >= p->string_count) {

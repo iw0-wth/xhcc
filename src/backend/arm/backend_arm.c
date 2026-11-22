@@ -1655,16 +1655,15 @@ static int lv_same(AsmBuffer *b, const int *ls, const int *ll,
     return !strcmp(r, t);
 }
 
-static int lv_pass(AsmBuffer *b, int from) {
-    static int ls[PP_MAX_LINES], ll[PP_MAX_LINES];
-    static cp_ins iv[PP_MAX_LINES];
-    static unsigned char kd[PP_MAX_LINES];      /* 0 other, 1 instruction, 2 label */
-    static unsigned char it[PP_MAX_LINES];
-    static unsigned la[PP_MAX_LINES];
-    static int bof[PP_MAX_LINES];
-    static LvBlock blk[LV_MAX_BLOCKS];
-    static char lab[LV_MAX_LABELS][40];
-    static int labline[LV_MAX_LABELS];
+typedef struct {
+    int ls[PP_MAX_LINES],ll[PP_MAX_LINES];cp_ins iv[PP_MAX_LINES];
+    unsigned char kd[PP_MAX_LINES],it[PP_MAX_LINES];unsigned la[PP_MAX_LINES];
+    int bof[PP_MAX_LINES];LvBlock blk[LV_MAX_BLOCKS];char lab[LV_MAX_LABELS][40];int labline[LV_MAX_LABELS];
+} LvScratch;
+static int lv_pass_work(AsmBuffer *b, int from, LvScratch *scratch) {
+    int *ls=scratch->ls,*ll=scratch->ll,*bof=scratch->bof,*labline=scratch->labline;
+    cp_ins *iv=scratch->iv;unsigned char *kd=scratch->kd,*it=scratch->it;unsigned *la=scratch->la;
+    LvBlock *blk=scratch->blk;char (*lab)[40]=scratch->lab;
     static char t[256], nw[256], o2[256], o3[256];
     AsmBuffer out;
     int n, i, j, nb, nlab, changed = 0, prev_end, seen_label, iter;
@@ -1945,6 +1944,14 @@ static int lv_pass(AsmBuffer *b, int from) {
     return changed;
 }
 
+static int lv_pass(AsmBuffer *b,int from){
+#if ARKCC_PROFILE != ARKCC_PROFILE_STM32_MIN
+    LvScratch *s=(LvScratch*)malloc(sizeof(*s));int result;if(!s)return 0;
+    result=lv_pass_work(b,from,s);free(s);return result;
+#else
+    static LvScratch s;return lv_pass_work(b,from,&s);
+#endif
+}
 static void ark_live_function(AsmBuffer *b, int from) {
     int round;
     if (!g_config.enable_opt_live) return;
@@ -6119,7 +6126,11 @@ static char *codegen_arm(IrProgram *prog) {
 
     asmbuf_puts(&buf, "@ Generated Thumb-2 assembly\n");
 #ifdef XHCC
-    if (g_xhcc_listing_mode) asmbuf_puts(&buf, ".syntax unified\n.cpu cortex-m3\n");
+    if (g_xhcc_listing_mode) {
+        asmbuf_puts(&buf,".syntax unified\n.thumb\n");
+        if(g_config.enable_fpu_hw){asmbuf_puts(&buf,".arch armv7e-m\n.fpu ");asmbuf_puts(&buf,g_config.fpu_type?g_config.fpu_type:"fpv4-sp-d16");asmbuf_putc(&buf,'\n');}
+        else asmbuf_puts(&buf,".arch armv7-m\n");
+    }
 #endif
     asmbuf_puts(&buf, ".thumb\n");
     asmbuf_puts(&buf, ".text\n\n");
@@ -8252,6 +8263,7 @@ static char *codegen_arm(IrProgram *prog) {
                     }
                 }
                 case IR_ASM:
+                    if(I->aux&0x40000000){int k,outs=I->aux&1;const char*s=I->name?I->name:"";for(k=(int)I->val-1;k>=0;k--){asmbuf_puts(&buf,"    POP {r");asmbuf_int(&buf,outs+k);asmbuf_puts(&buf,"}\n");}asmbuf_puts(&buf,"    ");while(*s){if(*s=='%'&&s[1]=='%'){asmbuf_putc(&buf,'%');s+=2;}else if(*s=='%'&&s[1]>='0'&&s[1]<='2'){asmbuf_putc(&buf,'r');asmbuf_putc(&buf,s[1]);s+=2;}else asmbuf_putc(&buf,*s++);}asmbuf_putc(&buf,'\n');if(outs)emit_push_r0(&buf);break;}
                     /* Inline assembly written out as-is.
                      * Extended form with '@' prefix (assembled by irgen): skip past the quote and write the template,
                      * ignoring outputs/inputs/clobbers; also replace %0/%1/... with
@@ -9252,6 +9264,7 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
         }
         asmbuf_putc(&buf, '\n');
+        { int ai,has_asm=0;for(ai=0;ai<f->code_count;ai++)if(f->code[ai].op==IR_ASM){has_asm=1;break;}if(!has_asm){
 #if ARKCC_FEATURE_OPT_VSTACK
         /* Keep the value stack in r5/r7 instead of memory.  Runs first, so the
          * slot rewriter below sees the already shortened function. */
@@ -9292,6 +9305,7 @@ static char *codegen_arm(IrProgram *prog) {
          * buffer, so the rewrite sees exactly this function and nothing else. */
         ark_regalloc_function(&buf, fstart, f, local_size);
 #endif
+        }}
         /* Correctness, not an option: a frame slot beyond 4095 bytes cannot be
          * reached by "[r6, #off]" at all. */
         ark_fix_far_offset(&buf, fstart);
@@ -9299,7 +9313,7 @@ static char *codegen_arm(IrProgram *prog) {
         /* __attribute__((constructor/destructor)): register the function address in .init_array/.fini_array;
          * the C runtime startup code iterates and calls them before/after main.
          * armcc/MDK uses .init_array (not .ctors), consistent with ARMCC5. */
-        if (f->is_constructor && !f->alias_target) {
+        if (f->is_constructor && !f->alias_target && (!g_xhcc_elf_mode || g_xhcc_listing_mode)) {
             asmbuf_puts(&buf, ".section .init_array, \"aw\"\n");
             asmbuf_puts(&buf, ".align 2\n");
             asmbuf_puts(&buf, ".word ");
@@ -9307,7 +9321,7 @@ static char *codegen_arm(IrProgram *prog) {
             asmbuf_putc(&buf, '\n');
             asmbuf_puts(&buf, ".text\n");
         }
-        if (f->is_destructor && !f->alias_target) {
+        if (f->is_destructor && !f->alias_target && (!g_xhcc_elf_mode || g_xhcc_listing_mode)) {
             asmbuf_puts(&buf, ".section .fini_array, \"aw\"\n");
             asmbuf_puts(&buf, ".align 2\n");
             asmbuf_puts(&buf, ".word ");

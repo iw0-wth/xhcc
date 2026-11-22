@@ -14,11 +14,11 @@ class PlatformTests(unittest.TestCase):
         r=subprocess.run(cmd,cwd=ROOT,capture_output=True,text=True,timeout=30)
         self.assertEqual(r.returncode==0,ok,r.stdout+r.stderr);return r
     def test_memory_and_wasi_contract(self):
-        result=audit(ROOT/'build/wasm/xhcc.wasm');self.assertEqual(result['memories'][0]['maximum_bytes'],3145728)
+        result=audit(ROOT/'build/wasm/xhcc.wasm');self.assertEqual(result['memories'][0]['maximum_bytes'],4194304)
     def test_nested_includes_and_dependency_escaping(self):
         d=self.dir/'space dir';d.mkdir();(d/'nested').mkdir();(d/'nested/b.h').write_text('#define VALUE 19\n');(d/'a.h').write_text('#include "nested/b.h"\n');(d/'main.c').write_text('#include "a.h"\nint answer(void){return VALUE;}\n')
         source=(d/'main.c').relative_to(ROOT).as_posix();dep=self.rel+'/result.d';out=self.rel+'/result.o'
-        self.run_cc('-c','-MMD','-MF',dep,'-MT','obj with space','-O0','-o',out,source)
+        self.run_cc('-c','-MMD','-MF',dep,'-MQ','obj with space','-O0','-o',out,source)
         text=(ROOT/dep).read_text();self.assertIn('obj\\ with\\ space:',text);self.assertIn('space\\ dir/nested/b.h',text)
     def test_errors_and_limits(self):
         source=self.dir/'large.c';source.write_text(' '*(32*1024));out=self.rel+'/bad.o'

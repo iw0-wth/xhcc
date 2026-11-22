@@ -190,6 +190,8 @@ void diag_command_line(int code, DiagSeverity sev,
 
 int diag_errors(void);
 int diag_warnings(void);
+void diag_set_warnings_as_errors(int enabled);
+void diag_set_warnings_disabled(int enabled);
 
 /* Non-zero once the error limit has been reached (further errors are dropped:
  * armcc neither prints nor counts them). The limit is a constant

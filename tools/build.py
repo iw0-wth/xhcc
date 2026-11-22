@@ -1,49 +1,58 @@
-"""Build xhcc using WASI SDK; no make or shell dependency."""
+"""Build the shared multi-target xhcc application and external configuration packs."""
 from pathlib import Path
 import argparse, os, shutil, subprocess, sys
-# An installed Python distribution may supply the VC runtime needed by clang.
-if os.name == 'nt':
-    python_dir = Path(sys.executable).parent
-    os.environ['PATH'] = os.pathsep.join([str(python_dir), str(python_dir/'Library/bin'), os.environ.get('PATH','')])
-ROOT = Path(__file__).resolve().parents[1]
-p = argparse.ArgumentParser()
-p.add_argument('--sdk', default=os.environ.get('WASI_SDK_PATH', r'D:\wasi-sdk-34.0-x86_64-windows'))
-p.add_argument('--cc', help='Override compiler (for native builds)')
-p.add_argument('--native', action='store_true')
-p.add_argument('--verbose', action='store_true')
-p.add_argument('--wasm-validate', default=os.environ.get('WASM_VALIDATE') or shutil.which('wasm-validate') or (r'D:\wabt-1.0.42\bin\wasm-validate.exe' if os.name=='nt' else 'wasm-validate'))
-p.add_argument('--wasm-opt', default=os.environ.get('WASM_OPT') or shutil.which('wasm-opt') or (r'D:\binaryen-version_133\bin\wasm-opt.exe' if os.name=='nt' else 'wasm-opt'))
-a = p.parse_args()
-cc = a.cc or str(Path(a.sdk) / 'bin' / ('clang.exe' if os.name == 'nt' else 'clang'))
-out = ROOT / 'build' / ('native' if a.native else 'wasm')
-out.mkdir(parents=True, exist_ok=True)
-sources = sorted((ROOT/'src').rglob('*.c')) + sorted((ROOT/'object').glob('*.c'))
-flags = ['-std=c99', '-Oz', '-g0', '-ffunction-sections', '-fdata-sections', '-include', str(ROOT/'include/xh_small.h'), '-I'+str(ROOT/'include'), '-I'+str(ROOT/'object'), '-Wno-unused-value', '-Wno-incompatible-pointer-types']
-if not a.native:
-    flags += ['--target=wasm32-wasip1', '-mno-bulk-memory', '-mno-sign-ext', '-mno-nontrapping-fptoint', '-mno-simd128', '-mno-atomics']
-objects = []
-for source in sources:
-    obj = out / (str(source.relative_to(ROOT)).replace('\\','_').replace('/','_') + '.o')
-    cmd = [cc, *flags, '-c', str(source), '-o', str(obj)]
-    if a.verbose: print(' '.join(cmd), flush=True)
-    result = subprocess.run(cmd)
-    if result.returncode: sys.exit(result.returncode)
-    objects.append(str(obj))
-output = out / ('xhcc.exe' if a.native and os.name=='nt' else 'xhcc' if a.native else 'xhcc.wasm')
-link = [cc, *objects, '-o', str(output)]
-if not a.native:
-    link += ['--target=wasm32-wasip1', '-Wl,--gc-sections', '-Wl,-z,stack-size=131072', '-Wl,--initial-memory=3145728', '-Wl,--max-memory=3145728', '-Wl,-Map='+str(out/'xhcc.map')]
-result = subprocess.run(link)
-if result.returncode: sys.exit(result.returncode)
-if not a.native:
-    lowered = out/'xhcc.lowered.wasm'
-    cmd = [a.wasm_opt, str(output), '-Oz', '--signext-lowering', '--llvm-nontrapping-fptoint-lowering', '--llvm-memory-copy-fill-lowering', '--disable-reference-types', '--disable-multivalue', '--disable-extended-const', '--disable-bulk-memory', '--disable-bulk-memory-opt', '--disable-sign-ext', '--disable-nontrapping-float-to-int', '-o', str(lowered)]
-    result = subprocess.run(cmd)
-    if result.returncode: sys.exit(result.returncode)
-    result = subprocess.run([a.wasm_validate, '--disable-bulk-memory', '--disable-reference-types', '--disable-multi-value', '--disable-sign-extension', '--disable-saturating-float-to-int', '--disable-simd', '--disable-extended-const', '--disable-tail-call', '--disable-memory64', '--disable-multi-memory', str(lowered)])
-    if result.returncode: sys.exit(result.returncode)
-    # Keep the linked artifact for diagnosis; atomically install the lowered module.
-    shutil.copy2(output, out/'xhcc.sdk.wasm')
-    os.replace(lowered, output)
-    shutil.copy2(output, ROOT/'packages/arm-cortex-m3/compiler.wasm')
-print(output)
+ROOT=Path(__file__).resolve().parents[1]
+TARGETS={'all':(0,'universal'),'arm':(1,'arm-cortex-m3'),'riscv32':(2,'riscv32'),'x86':(3,'x86'),'x86_64':(4,'x86_64'),'c':(5,'c')}
+if os.name=='nt':
+    pd=Path(sys.executable).parent
+    os.environ['PATH']=os.pathsep.join([str(pd),str(pd/'Library/bin'),os.environ.get('PATH','')])
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('--sdk',default=os.environ.get('WASI_SDK_PATH',r'D:\wasi-sdk-34.0-x86_64-windows'))
+p.add_argument('--cc');p.add_argument('--native',action='store_true');p.add_argument('--verbose',action='store_true')
+p.add_argument('--target',choices=TARGETS,default='all');p.add_argument('--all',action='store_true')
+p.add_argument('--memory-mib',type=int,default=4)
+p.add_argument('--wasm-validate',default=os.environ.get('WASM_VALIDATE') or shutil.which('wasm-validate') or (r'D:\wabt-1.0.42\bin\wasm-validate.exe' if os.name=='nt' else 'wasm-validate'))
+p.add_argument('--wasm-opt',default=os.environ.get('WASM_OPT') or shutil.which('wasm-opt') or (r'D:\binaryen-version_133\bin\wasm-opt.exe' if os.name=='nt' else 'wasm-opt'))
+a=p.parse_args()
+cc=a.cc or str(Path(a.sdk)/'bin'/('clang.exe' if os.name=='nt' else 'clang'))
+def run(cmd):
+    if a.verbose:print(' '.join(cmd),flush=True)
+    r=subprocess.run(cmd)
+    if r.returncode:raise SystemExit(r.returncode)
+def build(target):
+    num,package=TARGETS[target]
+    out=ROOT/'build'/('native' if a.native else 'wasm')
+    out=out/'dev'/target
+    out.mkdir(parents=True,exist_ok=True)
+    sources=[]
+    for source in sorted((ROOT/'src').rglob('*.c')):
+        rel=source.relative_to(ROOT/'src').as_posix()
+        if rel.startswith('stages/'):continue
+        if rel.startswith('backend/riscv32/') and target not in ('all','riscv32'):continue
+        if rel.startswith('backend/x86_64/') and target not in ('all','x86','x86_64'):continue
+        if rel.startswith('backend/c/') and target not in ('all','c'):continue
+        sources.append(source)
+    sources+=sorted((ROOT/'object').glob('*.c'))
+    flags=['-std=c99','-Oz','-g0','-ffunction-sections','-fdata-sections','-include',str(ROOT/'include/xh_small.h'),'-I'+str(ROOT/'include'),'-I'+str(ROOT/'object'),f'-DXH_TARGET={num}',f'-DXH_MODULE_TARGET="{target}"','-Wno-unused-value','-Wno-incompatible-pointer-types']
+    if not a.native:flags+=['--target=wasm32-wasip1','-mno-bulk-memory','-mno-sign-ext','-mno-nontrapping-fptoint','-mno-simd128','-mno-atomics']
+    objects=[]
+    for source in sources:
+        obj=out/(source.relative_to(ROOT).as_posix().replace('/','_')+'.o')
+        run([cc,*flags,'-c',str(source),'-o',str(obj)]);objects.append(str(obj))
+    output=out/('xhcc.exe' if a.native and os.name=='nt' else 'xhcc' if a.native else 'xhcc.wasm')
+    link=[cc,*objects,'-o',str(output)]
+    if not a.native:
+        budget=a.memory_mib*1024*1024
+        link+=['--target=wasm32-wasip1','-Wl,--gc-sections','-Wl,-z,stack-size=131072',f'-Wl,--initial-memory={budget}',f'-Wl,--max-memory={budget}','-Wl,-Map='+str(out/'xhcc.map')]
+    run(link)
+    if not a.native:
+        lowered=out/'xhcc.lowered.wasm'
+        run([a.wasm_opt,str(output),'-Oz','--signext-lowering','--llvm-nontrapping-fptoint-lowering','--llvm-memory-copy-fill-lowering','--disable-reference-types','--disable-multivalue','--disable-extended-const','--disable-bulk-memory','--disable-bulk-memory-opt','--disable-sign-ext','--disable-nontrapping-float-to-int','-o',str(lowered)])
+        run([a.wasm_validate,'--disable-bulk-memory','--disable-reference-types','--disable-multi-value','--disable-sign-extension','--disable-saturating-float-to-int','--disable-simd','--disable-extended-const','--disable-tail-call','--disable-memory64','--disable-multi-memory',str(lowered)])
+        shutil.copy2(output,out/'xhcc.sdk.wasm');os.replace(lowered,output)
+        if target=='all':
+            production=ROOT/'build/wasm/xhcc.wasm'
+            production.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copy2(output,production)
+    print(f'{target}: {output} ({output.stat().st_size} bytes)',flush=True)
+for target in (TARGETS if a.all else [a.target]):build(target)
