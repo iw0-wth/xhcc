@@ -114,8 +114,11 @@ compiler-name interface, target, ABI and backend rules; they do not load child
 compiler Wasm modules. The earlier adapter/frontend/backend staged prototype is
 not the production deployment. Its historical tests below are labeled separately.
 
-The backend rules engine is being integrated incrementally, beginning with
-external RISC-V instruction encoding rules. A configuration package alone does
+The backend rules engine is being integrated incrementally. All five backends
+now consume external packages: ARM, i386, AMD64 and C use a shared bounded
+template engine; ARM and RV32 also use the shared field encoder, and RV32 uses
+external scalar instruction sequences. See backend-externalization.md for the
+consumed rules, execution evidence and remaining compiled algorithms. A configuration package alone does
 not establish that every target's instruction selector and encoder have moved
 out of the main module. The code owner records the rules actually externalized;
 remaining compiled backend logic must not be described as arbitrary downloadable

@@ -19,7 +19,7 @@ HARNESS=r'''
 int fs_file_size(const char*p){FILE*f=fopen(p,"rb");long n;if(!f)return -1;fseek(f,0,SEEK_END);n=ftell(f);fclose(f);return(int)n;}
 int fs_read_file(const char*p,char*b,int cap){FILE*f=fopen(p,"rb");int n;if(!f)return -1;n=(int)fread(b,1,cap-1,f);b[n]=0;fclose(f);return n;}
 void diag_tool(int sev,const char*who,const char*msg,const char*a0,const char*a1,const char*a2,const char*a3,const char*a4,const char*a5){(void)sev;fprintf(stderr,"%s: %s\n",who,msg);}
-int main(int argc,char**argv){unsigned w;int a[8],i;if(argc<3)return 2;if(argc==4&&!strcmp(argv[2],"select")){char out[96];int r;if(xh_rules_set_selection_path(argv[1]))return 3;r=xh_rules_select_binary(argv[3],out,sizeof(out));if(r<0)return 1;if(r>0)fputs(out,stdout);else puts("FALLBACK");return 0;}if(xh_rules_set_path(argv[1]))return 3;for(i=3;i<argc;i++)a[i-3]=(int)strtol(argv[i],0,0);if(xh_rules_encode(argv[2],a,argc-3,&w))return 1;printf("%08x\n",w);xh_rules_release();return 0;}
+int main(int argc,char**argv){unsigned w;int a[8],i;if(argc<3)return 2;if(argc>=4&&!strcmp(argv[2],"armencode")){if(xh_encoding_set_path("arm",argv[1]))return 1;for(i=4;i<argc;i++)a[i-4]=(int)strtol(argv[i],0,0);if(xh_encoding_encode("arm",argv[3],a,argc-4,&w))return 1;printf("%08x\n",w);return 0;}if(argc==5&&!strcmp(argv[2],"switch")){int z[]={3};unsigned rv,first,second;if(xh_encoding_set_path("arm",argv[1])||xh_encoding_set_path("variant",argv[3])||xh_encoding_encode("arm","T",z,1,&first)||xh_encoding_encode("variant","T",z,1,&second)||xh_rules_encode("I",(int[]){1,0,0,10,19},5,&rv)||xh_encoding_encode("arm","T",z,1,&w))return 1;printf("%x %x %x %x\n",first,second,w,rv);return 0;}if(argc==4&&!strcmp(argv[2],"select")){char out[96];int r;if(xh_rules_set_selection_path(argv[1]))return 3;r=xh_rules_select_binary(argv[3],out,sizeof(out));if(r<0)return 1;if(r>0)fputs(out,stdout);else puts("FALLBACK");return 0;}if(xh_rules_set_path(argv[1]))return 3;for(i=3;i<argc;i++)a[i-3]=(int)strtol(argv[i],0,0);if(xh_rules_encode(argv[2],a,argc-3,&w))return 1;printf("%08x\n",w);xh_rules_release();return 0;}
 '''
 class EncodingRules(unittest.TestCase):
  @classmethod
@@ -31,6 +31,25 @@ class EncodingRules(unittest.TestCase):
   p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm',path,rule,*map(str,args)],cwd=ROOT,capture_output=True,text=True)
   if ok:self.assertEqual(p.returncode,0,p.stderr);return int(p.stdout.strip(),16)
   self.assertNotEqual(p.returncode,0);return p.stderr
+ def test_constant_encoding_rule(self):
+  path=OUT/'constant.encoding';path.write_text('XHENC 1\nrule NOP 0 0xbf00\nend\n')
+  p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm',str(path.relative_to(ROOT)),'armencode','NOP'],cwd=ROOT,capture_output=True,text=True)
+  self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(int(p.stdout.strip(),16),0xbf00)
+ def test_arm_rule_bytes_against_gnu(self):
+  import struct
+  arm=Path(os.environ.get('ARM_BIN',r'D:\arm-none-eabi\bin'))
+  if not (arm/'arm-none-eabi-as.exe').exists():self.skipTest('GNU ARM assembler not available')
+  cases=[('MOV_IMM',[3,219],'movs r3,#219',16),('MOV_REG',[9,12],'mov r9,r12',16),('ADD_IMM3',[1,2,7],'adds r1,r2,#7',16),('LSL_IMM',[2,5,17],'lsls r2,r5,#17',16),('MOVW',[9,0xabcd],'movw r9,#0xabcd',32),('MOVT',[11,0x8765],'movt r11,#0x8765',32),('ADDW',[9,10,4095],'addw r9,r10,#4095',32),('SUBW',[8,7,2049],'subw r8,r7,#2049',32),('SDIV',[9,10,11],'sdiv r9,r10,r11',32),('UDIV',[2,3,4],'udiv r2,r3,r4',32)]
+  expected=b'';source='.syntax unified\n.thumb\n.cpu cortex-m4\n.text\n'
+  for name,args,assembly,width in cases:
+   p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm','packages/arm-cortex-m3/arm.encoding.rules','armencode',name,*map(str,args)],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr);word=int(p.stdout.strip(),16);expected+=struct.pack('<H',word) if width==16 else struct.pack('<HH',word>>16,word&65535);source+=assembly+'\n'
+  (OUT/'gnu.s').write_text(source);subprocess.run([str(arm/'arm-none-eabi-as.exe'),str(OUT/'gnu.s'),'-o',str(OUT/'gnu.o')],check=True,capture_output=True);subprocess.run([str(arm/'arm-none-eabi-objcopy.exe'),'-O','binary','-j','.text',str(OUT/'gnu.o'),str(OUT/'gnu.bin')],check=True,capture_output=True);self.assertEqual((OUT/'gnu.bin').read_bytes(),expected)
+ def test_target_specific_encoding_cache(self):
+  arm=OUT/'arm.encoding';variant=OUT/'variant.encoding'
+  arm.write_text('XHENC 1\nrule T 1 0x2000\narg 0 3 0 1\nbits 0 0 3 0\nend\n')
+  variant.write_text('XHENC 1\nrule T 1 0x30000000\narg 0 3 0 1\nbits 0 0 3 16\nend\n')
+  p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm',str(arm.relative_to(ROOT)),'switch',str(variant.relative_to(ROOT)),'ignored'],cwd=ROOT,capture_output=True,text=True)
+  self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout.strip(),'2003 30030000 2003 100513')
  def test_selector_vm_and_fallback(self):
   p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm','packages/riscv32/selection.rules','select','ADD'],cwd=ROOT,capture_output=True,text=True)
   self.assertEqual(p.returncode,0,p.stderr);self.assertEqual(p.stdout,'    add t0, t0, t1\n')

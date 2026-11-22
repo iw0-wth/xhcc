@@ -26,6 +26,8 @@
 #include "ir.h"
 #include "diag.h"
 #include "agginit.h"
+#include "xh_x86_rules.h"
+#include <stdio.h>
 /* On host, <stdlib.h> provides getenv() for the ARKCC_DUMP_SYMS symbol map
  * (see x86_assemble_mode); on STM32 getenv() does not exist. */
 #if ARKCC_PROFILE != ARKCC_PROFILE_STM32_MIN
@@ -40,7 +42,7 @@ static const char *arg_reg(int i, int abi) {
 
 static int arg_reg_count(int abi) {
     (void)abi;
-    return 0;
+    return xh_x86_number("abi.integer.count");
 }
 
 /* Byte offset (from ebp) of the (reg_idx)-th stack argument.
@@ -48,7 +50,7 @@ static int arg_reg_count(int abi) {
  * each 4 bytes wide. */
 static int stack_arg_offset(int reg_idx, int abi) {
     (void)abi;
-    return 8 + reg_idx * 4;
+    return xh_x86_number("abi.stack.argument_base") + reg_idx * xh_x86_number("abi.stack.word");
 }
 
 static void emit_str_literal_x(AsmBuffer *b, const char *data, int len) {
@@ -57,15 +59,15 @@ static void emit_str_literal_x(AsmBuffer *b, const char *data, int len) {
     for (i = 0; i < len; i++) {
         unsigned char c = (unsigned char)data[i];
         switch (c) {
-            case '\n': asmbuf_puts(b, "\\n"); break;
-            case '\t': asmbuf_puts(b, "\\t"); break;
-            case '\r': asmbuf_puts(b, "\\r"); break;
-            case '\\': asmbuf_puts(b, "\\\\"); break;
-            case '"':  asmbuf_puts(b, "\\\""); break;
+            case '\n': asmbuf_puts(b, xh_x86_rule("text.a80e516bfb196e1c")); break;
+            case '\t': asmbuf_puts(b, xh_x86_rule("text.9e6ce97799490c6a")); break;
+            case '\r': asmbuf_puts(b, xh_x86_rule("text.156de42b059b0f09")); break;
+            case '\\': asmbuf_puts(b, xh_x86_rule("text.b11b4ca186c00769")); break;
+            case '"':  asmbuf_puts(b, xh_x86_rule("text.1ad070bb285bc0fd")); break;
             default:
                 if (c < 0x20 || c >= 0x7F) {
                     const char *hex = "0123456789abcdef";
-                    asmbuf_puts(b, "\\x");
+                    asmbuf_puts(b, xh_x86_rule("text.a86d6dedf5bd962e"));
                     asmbuf_putc(b, hex[(c>>4)&0xF]);
                     asmbuf_putc(b, hex[c&0xF]);
                 } else {
@@ -79,13 +81,28 @@ static void emit_str_literal_x(AsmBuffer *b, const char *data, int len) {
 
 static const char *binop_x(int op) {
     switch (op) {
-        case (int)TOK_PLUS:  return "add";
-        case (int)TOK_MINUS: return "sub";
-        case (int)TOK_BAND:  return "and";
-        case (int)TOK_BOR:   return "or";
-        case (int)TOK_BXOR:  return "xor";
+        case (int)TOK_PLUS:  return xh_x86_rule("text.7e9e5ac30f2216fd");
+        case (int)TOK_MINUS: return xh_x86_rule("text.ddc6e2b224d0fd82");
+        case (int)TOK_BAND:  return xh_x86_rule("text.6201111b83a0cb5b");
+        case (int)TOK_BOR:   return xh_x86_rule("text.7175517a370b5cd2");
+        case (int)TOK_BXOR:  return xh_x86_rule("text.1ad321bd42eb7199");
         default:             return 0;
     }
+}
+
+static void x86_scalar_rule(AsmBuffer *b,int op,int uns,int width) {
+ const char *name=0;char key[80];
+ switch(op){
+ case TOK_PLUS:name="add";break;case TOK_MINUS:name="sub";break;
+ case TOK_MUL:name="mul";break;case TOK_DIV:name="div";break;case TOK_MOD:name="mod";break;
+ case TOK_BAND:name="and";break;case TOK_BOR:name="or";break;case TOK_BXOR:name="xor";break;
+ case TOK_SHL:name="shl";break;case TOK_SHR:name="shr";break;
+ case TOK_EQ:name="eq";break;case TOK_NE:name="ne";break;
+ case TOK_LT:name="lt";break;case TOK_GT:name="gt";break;case TOK_LE:name="le";break;case TOK_GE:name="ge";break;
+ default:name="invalid";break;
+ }
+ snprintf(key,sizeof(key),"scalar%d.%c.%s",width,uns?'u':'s',name);
+ asmbuf_puts(b,xh_x86_rule(key));
 }
 
 /* === Aggregate initialisers ==============================================
@@ -128,10 +145,10 @@ static void x86_emit_byte_run(AsmBuffer *b, const unsigned char *p, int n,
         else if ((at % 2) == 0 && k + 2 <= n) chunk = 2;
         for (i = 0; i < chunk; i++)
             v |= (long long)((unsigned long long)p[k + i] << (8 * i));
-        asmbuf_puts(b, "    ");
-        asmbuf_puts(b, chunk <= 1 ? ".byte"
-                         : (chunk <= 2 ? ".word"
-                            : (chunk <= 4 ? ".long" : ".quad")));
+        asmbuf_puts(b, xh_x86_rule("text.1a0f564ddc603945"));
+        asmbuf_puts(b, chunk <= 1 ? xh_x86_rule("text.315cff705ce8e96c")
+                         : (chunk <= 2 ? xh_x86_rule("text.36316f60cbea771f")
+                            : (chunk <= 4 ? xh_x86_rule("text.46303c2508c7b7c8") : xh_x86_rule("text.894f405db0ceb0e2"))));
         asmbuf_putc(b, ' ');
         asmbuf_int(b, v);
         asmbuf_putc(b, '\n');
@@ -155,19 +172,19 @@ static void x86_emit_agg_bytes(AsmBuffer *b, const unsigned char *p, int n,
             if (g->init_refs[i].offset == k) { hit = i; break; }
         if (hit >= 0) {
             IrSymRef *r = &g->init_refs[hit];
-            asmbuf_puts(b, psz == 8 ? "    .quad " : "    .long ");
+            asmbuf_puts(b, psz == 8 ? xh_x86_rule("text.12e87f2cba994e97") : xh_x86_rule("text.7ad86ea132e66f36"));
             if (r->str) {
-                asmbuf_puts(b, ".Lgstr_");
+                asmbuf_puts(b, xh_x86_rule("text.2edd14ef94518f14"));
                 asmbuf_puts(b, g->name);
                 asmbuf_putc(b, '_');
                 asmbuf_int(b, r->offset);
             } else {
                 asmbuf_puts(b, r->sym);
                 if (r->add > 0) {
-                    asmbuf_puts(b, " + ");
+                    asmbuf_puts(b, xh_x86_rule("text.46209f696e32b548"));
                     asmbuf_int(b, (int)r->add);
                 } else if (r->add < 0) {
-                    asmbuf_puts(b, " - ");
+                    asmbuf_puts(b, xh_x86_rule("text.d3150495ce4f5d1a"));
                     asmbuf_int(b, (int)(-r->add));
                 }
             }
@@ -217,7 +234,7 @@ static void x86_emit_aggregate_init(AsmBuffer *b, IrGlobal *g) {
                   "and address constants into bytes -- this initialiser is "
                   "none of those",
                   be, g->name, 0,0,0,0);
-        asmbuf_puts(b, "    .zero ");
+        asmbuf_puts(b, xh_x86_rule("text.df9f53e29ab944ee"));
         asmbuf_int(b, sz);
         asmbuf_putc(b, '\n');
         return;
@@ -242,8 +259,8 @@ static void x86_emit_string_init(AsmBuffer *b, IrGlobal *g) {
             return;
         }
     } else if (t && t->kind == TYPE_PTR) {
-        asmbuf_puts(b, type_ptr_size() == 8 ? "    .quad .Lgstr_"
-                                            : "    .long .Lgstr_");
+        asmbuf_puts(b, type_ptr_size() == 8 ? xh_x86_rule("text.d4a3ff058ef4428a")
+                                            : xh_x86_rule("text.ded4af16bb21ec91"));
         asmbuf_puts(b, g->name);
         asmbuf_putc(b, '\n');
         return;
@@ -252,7 +269,7 @@ static void x86_emit_string_init(AsmBuffer *b, IrGlobal *g) {
               "the %s backend cannot place the string initialiser of the global "
               "'%s' in data; only a char array and a pointer take one",
               type_ptr_size() == 8 ? "x86-64" : "x86", g->name, 0,0,0,0);
-    asmbuf_puts(b, "    .zero ");
+    asmbuf_puts(b, xh_x86_rule("text.df9f53e29ab944ee"));
     asmbuf_int(b, sz > 0 ? sz : 4);
     asmbuf_putc(b, '\n');
 }
@@ -269,7 +286,7 @@ static int x86_emit_errors;
 static void x86_complex_unsupported(AsmBuffer *b, const char *what) {
     ark_log("[x86] error: _Complex value not supported by the x86 backend (%s)\n", what);
     x86_emit_errors++;
-    asmbuf_puts(b, "    # unsupported: _Complex ");
+    asmbuf_puts(b, xh_x86_rule("text.1f12afdaf3f980fb"));
     asmbuf_puts(b, what);
     asmbuf_putc(b, '\n');
 }
@@ -301,14 +318,14 @@ static int x86_global_size(IrProgram *prog, const char *name) {
  * hundreds of those lines; a two-object test never showed it because only one
  * side had literals.  A literal is per-object state, so its label is local. */
 static void x86_emit_data_sections(AsmBuffer *buf, IrProgram *prog) {
-    asmbuf_puts(buf, "    .section .rodata\n");
+    asmbuf_puts(buf, xh_x86_rule("text.cc8f05622986ef9c"));
     {
         int i;
         for (i = 0; i < prog->string_count; i++) {
             IrString *s = prog->strings[i];
-            asmbuf_puts(buf, ".Lark_str_");
+            asmbuf_puts(buf, xh_x86_rule("text.eaaf9f65c87c4410"));
             asmbuf_int(buf, s->id);
-            asmbuf_puts(buf, ":\n    .asciz ");
+            asmbuf_puts(buf, xh_x86_rule("text.e9e59ed0a331a459"));
             emit_str_literal_x(buf, s->data, s->len);
             asmbuf_putc(buf, '\n');
         }
@@ -325,9 +342,9 @@ static void x86_emit_data_sections(AsmBuffer *buf, IrProgram *prog) {
             if (g->has_init && g->init_str && g->type &&
                 g->type->kind != TYPE_ARRAY && g->type->kind != TYPE_STRUCT &&
                 g->type->kind != TYPE_UNION) {
-                asmbuf_puts(buf, ".Lgstr_");
+                asmbuf_puts(buf, xh_x86_rule("text.2edd14ef94518f14"));
                 asmbuf_puts(buf, g->name);
-                asmbuf_puts(buf, ":\n    .asciz ");
+                asmbuf_puts(buf, xh_x86_rule("text.e9e59ed0a331a459"));
                 emit_str_literal_x(buf, g->init_str, ark_strlen(g->init_str));
                 asmbuf_putc(buf, '\n');
             }
@@ -335,17 +352,17 @@ static void x86_emit_data_sections(AsmBuffer *buf, IrProgram *prog) {
             for (ri = 0; ri < g->init_ref_count; ri++) {
                 IrSymRef *r = &g->init_refs[ri];
                 if (!r->str) continue;
-                asmbuf_puts(buf, ".Lgstr_");
+                asmbuf_puts(buf, xh_x86_rule("text.2edd14ef94518f14"));
                 asmbuf_puts(buf, g->name);
                 asmbuf_putc(buf, '_');
                 asmbuf_int(buf, r->offset);
-                asmbuf_puts(buf, ":\n    .asciz ");
+                asmbuf_puts(buf, xh_x86_rule("text.e9e59ed0a331a459"));
                 emit_str_literal_x(buf, r->str, ark_strlen(r->str));
                 asmbuf_putc(buf, '\n');
             }
         }
     }
-    asmbuf_puts(buf, "    .data\n");
+    asmbuf_puts(buf, xh_x86_rule("text.7c91bedb5dfc818e"));
     {
         int i;
         for (i = 0; i < prog->global_count; i++) {
@@ -357,19 +374,19 @@ static void x86_emit_data_sections(AsmBuffer *buf, IrProgram *prog) {
              * toolchains); a plain label is already local, so statics need no
              * directive at all. The ARM backend guards the same way. */
             if (!g->is_static) {
-                asmbuf_puts(buf, "    .globl ");
+                asmbuf_puts(buf, xh_x86_rule("text.9bd395d67adffd1c"));
                 asmbuf_puts(buf, g->name);
                 asmbuf_putc(buf, '\n');
             }
-            asmbuf_puts(buf,"    .balign ");asmbuf_int(buf,g->align_bytes>type_align(g->type)?g->align_bytes:type_align(g->type));asmbuf_putc(buf,'\n');
+            asmbuf_puts(buf, xh_x86_rule("text.341e3bc0663e193f"));asmbuf_int(buf,g->align_bytes>type_align(g->type)?g->align_bytes:type_align(g->type));asmbuf_putc(buf,'\n');
             asmbuf_puts(buf, g->name);
-            asmbuf_puts(buf, ":\n");
+            asmbuf_puts(buf, xh_x86_rule("text.f3743a0a18e53d13"));
             /* The x86_64 backend does not implement _Complex at all; a global
              * of that type must not quietly get its real part written as one
              * .quad and the imaginary half dropped. */
             if (g->type && ARK_IS_CX(g->type)) {
                 x86_complex_unsupported(buf, "global object");
-                asmbuf_puts(buf, "    .zero ");
+                asmbuf_puts(buf, xh_x86_rule("text.df9f53e29ab944ee"));
                 asmbuf_int(buf, g->type && type_size(g->type) > 0 ? type_size(g->type) : 16);
                 asmbuf_putc(buf, '\n');
             } else if (g->is_float && g->has_init) {
@@ -379,20 +396,20 @@ static void x86_emit_data_sections(AsmBuffer *buf, IrProgram *prog) {
                 if (tsz <= 4) {
                     union { float f; int i; } u;
                     u.f = (float)g->init_float;
-                    asmbuf_puts(buf, "    .long ");
+                    asmbuf_puts(buf, xh_x86_rule("text.7ad86ea132e66f36"));
                     asmbuf_int(buf, u.i);
                     asmbuf_putc(buf, '\n');
                 } else {
                     union { double d; long long i; } u;
                     u.d = g->init_float;
-                    asmbuf_puts(buf, "    .quad ");
+                    asmbuf_puts(buf, xh_x86_rule("text.12e87f2cba994e97"));
                     asmbuf_int(buf, u.i);
                     asmbuf_putc(buf, '\n');
                 }
             } else if (g->init_sym && g->has_init) {
-                asmbuf_puts(buf,type_ptr_size()==8?"    .quad ":"    .long ");
+                asmbuf_puts(buf,type_ptr_size()==8?xh_x86_rule("text.12e87f2cba994e97"):xh_x86_rule("text.7ad86ea132e66f36"));
                 asmbuf_puts(buf,g->init_sym);
-                if(g->init_sym_off){asmbuf_puts(buf," + ");asmbuf_int(buf,g->init_sym_off);}
+                if(g->init_sym_off){asmbuf_puts(buf, xh_x86_rule("text.46209f696e32b548"));asmbuf_int(buf,g->init_sym_off);}
                 asmbuf_putc(buf,'\n');
             } else if (g->init_aggregate && g->has_init) {
                 x86_emit_aggregate_init(buf, g);
@@ -415,20 +432,20 @@ static void x86_emit_data_sections(AsmBuffer *buf, IrProgram *prog) {
                      * (static unsigned char g_pool[ARK_POOL_SIZE]) could not be
                      * compiled for x86 or x86_64 at all.  Semantics are
                      * unchanged -- .data still carries the same zero bytes. */
-                    asmbuf_puts(buf, "    .zero ");
+                    asmbuf_puts(buf, xh_x86_rule("text.df9f53e29ab944ee"));
                     asmbuf_int(buf, tsz);
                     asmbuf_putc(buf, '\n');
                 } else {
-                    asmbuf_puts(buf, "    ");
+                    asmbuf_puts(buf, xh_x86_rule("text.1a0f564ddc603945"));
                     asmbuf_puts(buf, dir);
-                    asmbuf_puts(buf, " ");
+                    asmbuf_puts(buf, xh_x86_rule("text.36a9e7f1c95b82ff"));
                     asmbuf_int(buf, g->has_init ? g->init_int : 0);
                     asmbuf_putc(buf, '\n');
                     if (tsz > 8) {
                         /* Tail of a wide scalar: still zero bytes, still one
                          * directive (a 16-byte initialized object used to need
                          * a second ".quad 0" line; now it is ".zero 8"). */
-                        asmbuf_puts(buf, "    .zero ");
+                        asmbuf_puts(buf, xh_x86_rule("text.df9f53e29ab944ee"));
                         asmbuf_int(buf, tsz - 8);
                         asmbuf_putc(buf, '\n');
                     }
@@ -460,15 +477,15 @@ static void x86_pair_swap_at(AsmBuffer *b, int off) {
      * one) read the SAME slot twice and "swapped" nothing.  Every 64-bit
      * `movq xmm, [esp]` then loaded high:low backwards, which is why
      * `double d = 7.9; (int)d;` answered 0 on the i386 target. */
-    asmbuf_puts(b, "    mov eax, [esp+");
+    asmbuf_puts(b, xh_x86_rule("text.3373df59b78890b1"));
     asmbuf_int(b, off);
-    asmbuf_puts(b, "]\n    mov edx, [esp+");
+    asmbuf_puts(b, xh_x86_rule("text.0a2ae89f61af0778"));
     asmbuf_int(b, off + 4);
-    asmbuf_puts(b, "]\n    mov [esp+");
+    asmbuf_puts(b, xh_x86_rule("text.7fe6edd93915d970"));
     asmbuf_int(b, off);
-    asmbuf_puts(b, "], edx\n    mov [esp+");
+    asmbuf_puts(b, xh_x86_rule("text.33a42d27bd462c00"));
     asmbuf_int(b, off + 4);
-    asmbuf_puts(b, "], eax\n");
+    asmbuf_puts(b, xh_x86_rule("text.44b5e9f85f2e61a3"));
 }
 
 /* A unique label inside one function.  The internal assembler has no numeric
@@ -479,12 +496,12 @@ static void x86_pair_swap_at(AsmBuffer *b, int off) {
 static void x86_elbl(AsmBuffer *b, const char *fname, const char *tag,
                      int n, int def) {
     char nb[24];
-    asmbuf_puts(b, ".L");
+    asmbuf_puts(b, xh_x86_rule("text.4b6d79fc377f87b4"));
     asmbuf_puts(b, fname);
     asmbuf_putc(b, '_');
     asmbuf_puts(b, tag);
     asmbuf_puts(b, diag_num(nb, n));
-    asmbuf_puts(b, def ? ":" : "");
+    asmbuf_puts(b, def ? xh_x86_rule("text.e7ac0786668e0ff0") : xh_x86_rule("text.e3b0c44298fc1c14"));
     asmbuf_putc(b, '\n');
 }
 
@@ -493,30 +510,31 @@ static void x86_elbl(AsmBuffer *b, const char *fname, const char *tag,
  * the answer is 2 * (u >> 1) + (u & 1).  Clobbers ecx, edx, xmm3; leaves eax
  * holding the original value again. */
 static void x86_u32_to_xmm(AsmBuffer *b, const char *dst) {
-    asmbuf_puts(b, "    mov ecx, eax\n    and ecx, 1\n    mov edx, eax\n    shr eax, 1\n    cvtsi2sd ");
+    asmbuf_puts(b, xh_x86_rule("text.661bf837b8ae2516"));
     asmbuf_puts(b, dst);
-    asmbuf_puts(b, ", eax\n    addsd ");
+    asmbuf_puts(b, xh_x86_rule("text.b68de343b23b037c"));
     asmbuf_puts(b, dst);
-    asmbuf_puts(b, ", ");
+    asmbuf_puts(b, xh_x86_rule("text.0a07f659461970d8"));
     asmbuf_puts(b, dst);
-    asmbuf_puts(b, "\n    cvtsi2sd xmm3, ecx\n    addsd ");
+    asmbuf_puts(b, xh_x86_rule("text.321df96026d848e1"));
     asmbuf_puts(b, dst);
-    asmbuf_puts(b, ", xmm3\n    mov eax, edx\n");
+    asmbuf_puts(b, xh_x86_rule("text.52eb16d9880540bf"));
 }
 
-static void xh_x86_inline_asm(AsmBuffer*b,IrInst*I,int wide){const char*regs[]={"eax","ecx","edx"};const char*pops[]={"rax","rcx","rdx"};int k,outs=I->aux&1;const char*s=I->name?I->name:"";for(k=(int)I->val-1;k>=0;k--){asmbuf_puts(b,"    pop ");asmbuf_puts(b,wide?pops[outs+k]:regs[outs+k]);asmbuf_putc(b,'\n');}asmbuf_puts(b,"    ");while(*s){if(*s=='%'&&s[1]=='%'){asmbuf_putc(b,'%');s+=2;}else if(*s=='%'&&s[1]>='0'&&s[1]<='2'){asmbuf_puts(b,regs[s[1]-'0']);s+=2;}else asmbuf_putc(b,*s++);}asmbuf_putc(b,'\n');if(outs)asmbuf_puts(b,wide?"    push rax\n":"    push eax\n");}
+static void xh_x86_inline_asm(AsmBuffer*b,IrInst*I,int wide){const char*regs[3];const char*pops[3];char key[40];int ri;for(ri=0;ri<3;ri++){snprintf(key,sizeof(key),"abi.inline32.%d",ri);regs[ri]=xh_x86_rule(key);snprintf(key,sizeof(key),"abi.inline64.%d",ri);pops[ri]=xh_x86_rule(key);}int k,outs=I->aux&1;const char*s=I->name?I->name:"";for(k=(int)I->val-1;k>=0;k--){asmbuf_puts(b, xh_x86_rule("text.361c2bed6cf28f5b"));asmbuf_puts(b,wide?pops[outs+k]:regs[outs+k]);asmbuf_putc(b,'\n');}asmbuf_puts(b, xh_x86_rule("text.1a0f564ddc603945"));while(*s){if(*s=='%'&&s[1]=='%'){asmbuf_putc(b,'%');s+=2;}else if(*s=='%'&&s[1]>='0'&&s[1]<='2'){asmbuf_puts(b,regs[s[1]-'0']);s+=2;}else asmbuf_putc(b,*s++);}asmbuf_putc(b,'\n');if(outs)asmbuf_puts(b,wide?xh_x86_rule("text.de1843ef75a9fb24"):xh_x86_rule("text.2ac65d444c4eb237"));}
 static IrProgram *xh_x86_prog;
 static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
+    if (xh_x86_rules_begin(0)) return -1;
     xh_x86_prog = prog;
     AsmBuffer buf;
     int fi;
     (void)abi;  /* cdecl only; abi is always ARK_ABI_SYSV (0) */
     asmbuf_init(&buf);
 
-    asmbuf_puts(&buf, "# Ark C Compiler - generated x86 32-bit (cdecl) assembly\n");
-    asmbuf_puts(&buf, "    .intel_syntax noprefix\n");
+    asmbuf_puts(&buf, xh_x86_rule("text.5662c0e931064efe"));
+    asmbuf_puts(&buf, xh_x86_rule("text.a8e02e4f5a197f3d"));
     x86_emit_data_sections(&buf, prog);
-    asmbuf_puts(&buf, "    .text\n");
+    asmbuf_puts(&buf, xh_x86_rule("text.a6b017eae27bd97f"));
 
     for (fi = 0; fi < prog->func_count; fi++) {
         IrFunc *f = prog->funcs[fi];
@@ -599,27 +617,27 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
         /* Static functions must stay file-local; exporting them as strong
          * globals made two translation units with same-named statics collide. */
         if (!f->is_static) {
-            asmbuf_puts(&buf, "    .globl ");
+            asmbuf_puts(&buf, xh_x86_rule("text.9bd395d67adffd1c"));
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
         }
         asmbuf_puts(&buf, f->name);
-        asmbuf_puts(&buf, ":\n");
+        asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
         /* cdecl prologue: push ebp; mov ebp, esp; save callee-saved (ebx, esi,
          * edi); sub esp for locals + scratch. 3 pushes (12 bytes) + 36 padding
          * = 48 byte gap before the local area, which spans
          * [ebp - framelo, ebp - 48) -- see the framelo comment above. */
-        asmbuf_puts(&buf, "    push ebp\n");
-        asmbuf_puts(&buf, "    mov ebp, esp\n");
-        asmbuf_puts(&buf, "    push ebx\n    push esi\n    push edi\n");
-        asmbuf_puts(&buf, "    sub esp, ");
+        asmbuf_puts(&buf, xh_x86_rule("text.04eeefb078138dc3"));
+        asmbuf_puts(&buf, xh_x86_rule("text.416ac8dda322036e"));
+        asmbuf_puts(&buf, xh_x86_rule("text.1a4679f5966a2009"));
+        asmbuf_puts(&buf, xh_x86_rule("text.35e4b15127f7957f"));
         asmbuf_int(&buf, frame_reserve);
         asmbuf_putc(&buf, '\n');
         /* Save sret pointer if this function uses sret */
         if (sret_off) {
-            asmbuf_puts(&buf, "    mov eax, [ebp+8]\n    mov [ebp-");
+            asmbuf_puts(&buf, xh_x86_rule("text.468360761906663c"));
             asmbuf_int(&buf, sret_off);
-            asmbuf_puts(&buf, "], eax\n");
+            asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
         }
 
         /* cdecl: all args on stack at [ebp + 8 + idx * 4].
@@ -662,7 +680,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                              * loudly instead of scribbling on the caller. */
                             ark_log("[x86] error: va_arg frame slot is an AMD64-only shape\n");
                             x86_emit_errors++;
-                            asmbuf_puts(&buf, "    # unsupported: va_arg frame slot on i386\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.60140dc629fa4eea"));
                         }
                         break;
                     }
@@ -710,44 +728,44 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             /* Named composite wider than 8 bytes: the slot holds
                              * a pointer, and the payload is copied into the
                              * frame -- same wire shape the caller emitted. */
-                            asmbuf_puts(&buf, "    mov esi, [ebp+");
+                            asmbuf_puts(&buf, xh_x86_rule("text.e70306ccc1c885dd"));
                             asmbuf_int(&buf, stk);
-                            asmbuf_puts(&buf, "]\n    lea edi, [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.515863caf431bf57"));
                             asmbuf_int(&buf, dst);
-                            asmbuf_puts(&buf, "]\n    mov ecx, ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.bf5c869475327afb"));
                             asmbuf_int(&buf, st_sz);
-                            asmbuf_puts(&buf, "\n    rep movsb\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.8d3fc2867d2efe58"));
                         } else if (st_sz > 4) {
                             /* 64-bit scalar or a 5..8 byte composite: two
                              * words, low word at the lower address. */
-                            asmbuf_puts(&buf, "    mov eax, [ebp+");
+                            asmbuf_puts(&buf, xh_x86_rule("text.f11eba8d7ffdb259"));
                             asmbuf_int(&buf, stk);
-                            asmbuf_puts(&buf, "]\n    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.435527643a0ff4db"));
                             asmbuf_int(&buf, dst);
-                            asmbuf_puts(&buf, "], eax\n    mov eax, [ebp+");
+                            asmbuf_puts(&buf, xh_x86_rule("text.31a585f1e3640137"));
                             asmbuf_int(&buf, stk + 4);
-                            asmbuf_puts(&buf, "]\n    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.435527643a0ff4db"));
                             asmbuf_int(&buf, dst - 4);
-                            asmbuf_puts(&buf, "], eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                         } else {
-                            asmbuf_puts(&buf, "    mov eax, [ebp+");
+                            asmbuf_puts(&buf, xh_x86_rule("text.f11eba8d7ffdb259"));
                             asmbuf_int(&buf, stk);
-                            asmbuf_puts(&buf, "]\n    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.435527643a0ff4db"));
                             asmbuf_int(&buf, dst);
-                            asmbuf_puts(&buf, "], eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                         }
                     }
                     break;
                 }
                 case IR_PUSH_INT:
-                    asmbuf_puts(&buf, "    push ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.276c8636c367c6c1"));
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, '\n');
                     break;
                 case IR_PUSH_STR:
-                    asmbuf_puts(&buf, "    lea eax, [.Lark_str_");
+                    asmbuf_puts(&buf, xh_x86_rule("text.8828c73fbe316b78"));
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "]\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     break;
                 case IR_PUSH_VAR:
                     if ((I->aux & 0xFF) == 16) {
@@ -768,21 +786,21 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * only the low dword lost the high half of every
                          * 64-bit local, which is why `double r = f(); return
                          * (int)r;` answered 0. */
-                        asmbuf_puts(&buf, "    push dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.6bd382e4237dd86d"));
                         asmbuf_int(&buf, framelo - (int)I->val);
-                        asmbuf_puts(&buf, "]\n    push dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.19c91e923eb5a4e0"));
                         asmbuf_int(&buf, framelo - (int)I->val - 4);
-                        asmbuf_puts(&buf, "]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
                     } else {
-                        asmbuf_puts(&buf, "    push dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.6bd382e4237dd86d"));
                         asmbuf_int(&buf, framelo - (int)I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
                     }
                     break;
                 case IR_PUSH_ADDR:
-                    asmbuf_puts(&buf, "    lea eax, [ebp-");
+                    asmbuf_puts(&buf, xh_x86_rule("text.137dbb4064852a52"));
                     asmbuf_int(&buf, framelo - (int)I->val);
-                    asmbuf_puts(&buf, "]\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     break;
                 case IR_PUSH_GLOBAL:
                     if (x86_global_size(prog, I->name) == 16) {
@@ -797,19 +815,19 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     /* Bug-X4: For variadic functions, _ark_va_ptr points to
                      * the variadic tail on the stack. */
                     if (f->is_variadic && I->name && ark_streq(I->name, "_ark_va_ptr")) {
-                        asmbuf_puts(&buf, "    lea eax, [ebp+");
+                        asmbuf_puts(&buf, xh_x86_rule("text.33cb64287aab8b51"));
                         asmbuf_int(&buf, 8 + f->param_count * 4);
-                        asmbuf_puts(&buf, "]\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     } else if (x86_global_size(prog, I->name) == 8) {
-                        asmbuf_puts(&buf, "    mov eax, [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ef531c7385208fe7"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    push eax\n    mov eax, [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.a891f632b224608d"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "+4]\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5f7fcd0f3f66393f"));
                     } else {
-                        asmbuf_puts(&buf, "    mov eax, [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ef531c7385208fe7"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     }
                     break;
                 case IR_STORE_GLOBAL:
@@ -823,19 +841,19 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         break;
                     }
                     if (x86_global_size(prog, I->name) == 8) {
-                        asmbuf_puts(&buf, "    pop edx\n    pop eax\n    mov [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c037dc4b55d9e75e"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "], eax\n    mov [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.27fe47257c0ddba9"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "+4], edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.a8e65c3e4bfced27"));
                     } else {
-                        asmbuf_puts(&buf, "    pop eax\n    mov [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.0bcc61c6f37c286f"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "], eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                     }
                     break;
                 case IR_POP:
-                    asmbuf_puts(&buf, "    add esp, 4\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.290450c437d66e16"));
                     break;
                 case IR_DUP:
                     if (I->val > 1) {
@@ -844,10 +862,10 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         x86_complex_unsupported(&buf, "duplicate");
                         break;
                     }
-                    asmbuf_puts(&buf, "    mov eax, [esp]\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.d46e72ff4e3a07dc"));
                     break;
                 case IR_SWAP:
-                    asmbuf_puts(&buf, "    pop eax\n    pop ecx\n    push eax\n    push ecx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.5982900ff1bbf03d"));
                     break;
                 case IR_STORE:
                     if ((I->aux & ~(IR_AUX_VOLATILE | IR_AUX_COMPLEX)) == 16) {
@@ -861,15 +879,15 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     }
                     if ((I->aux & ~(IR_AUX_VOLATILE | IR_AUX_COMPLEX)) == 8) {
                         /* double / long long: pop both words (high on top). */
-                        asmbuf_puts(&buf, "    pop edx\n    pop eax\n    mov [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.af0ef5ac0c7ee97d"));
                         asmbuf_int(&buf, framelo - (int)I->val);
-                        asmbuf_puts(&buf, "], eax\n    mov [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2954163038f96120"));
                         asmbuf_int(&buf, framelo - (int)I->val - 4);
-                        asmbuf_puts(&buf, "], edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.69b61f412b288a0a"));
                     } else {
-                        asmbuf_puts(&buf, "    pop eax\n    mov [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.75ab89ac001efdf8"));
                         asmbuf_int(&buf, framelo - (int)I->val);
-                        asmbuf_puts(&buf, "], eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                     }
                     break;
                 case IR_LOAD_IDX: {
@@ -886,38 +904,38 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         x86_complex_unsupported(&buf, "_Complex float array element load");
                         break;
                     }
-                    asmbuf_puts(&buf, "    pop ecx\n    pop eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.5c895cb3ddd81f93"));
                     if (es > 1) {
-                        asmbuf_puts(&buf, "    imul ecx, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5fbcbeada57c9106"));
                         asmbuf_int(&buf, es);
-                        asmbuf_puts(&buf, "\n    add eax, ecx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ebf104924e17f6a3"));
                     }
                     if (es == 1) {
                         if (is_unsigned)
-                            asmbuf_puts(&buf, "    movzx eax, byte ptr [eax]\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.9b1da4486bd2eb60"));
                         else
-                            asmbuf_puts(&buf, "    movsx eax, byte ptr [eax]\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.6a8395334660231c"));
                     } else if (es == 2) {
                         if (is_unsigned)
-                            asmbuf_puts(&buf, "    movzx eax, word ptr [eax]\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.060019c7f5acdbda"));
                         else
-                            asmbuf_puts(&buf, "    movsx eax, word ptr [eax]\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.2efe1d82233884e4"));
                     } else if (es == 8) {
                         /* 64-bit load: push low then high dword, so the high
                          * one ends up on top (canonical order). */
-                        asmbuf_puts(&buf, "    mov edx, dword ptr [eax]\n");
-                        asmbuf_puts(&buf, "    push edx\n");
-                        asmbuf_puts(&buf, "    mov eax, dword ptr [eax+4]\n");
-                        asmbuf_puts(&buf, "    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b5060857db8145cb"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.81deec0800941cf6"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.a5cb6273b64f6e59"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
                         break;
                     } else {
                         /* 4-byte (default): a dword load already writes all of
                          * eax, so signed and unsigned agree. "movsx eax, dword
                          * ptr [eax]" is a 32->32 sign extension, which does not
                          * exist and is rejected by GNU as, so never emit it. */
-                        asmbuf_puts(&buf, "    mov eax, dword ptr [eax]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cb61e4998ba6c4dc"));
                     }
-                    asmbuf_puts(&buf, "    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
                     break;
                 }
                 case IR_STORE_IDX: {
@@ -938,69 +956,26 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * back on the IR stack because an assignment is an
                          * expression -- the old code pushed one word only,
                          * which drifted the operand stack by 4 bytes. */
-                        asmbuf_puts(&buf, "    pop edx\n    pop ecx\n    pop eax\n");
-                        asmbuf_puts(&buf, "    mov dword ptr [eax], ecx\n");
-                        asmbuf_puts(&buf, "    mov dword ptr [eax+4], edx\n");
-                        asmbuf_puts(&buf, "    push ecx\n    push edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bca946fd76ebfa8a"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.6cd919c68ae2a155"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.1f46d6d8734ffe60"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.8ad98fe039692ddc"));
                     } else {
-                        asmbuf_puts(&buf, "    pop edx\n    pop eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.6f9c8b71fa5adc5a"));
                         if (es == 1)
-                            asmbuf_puts(&buf, "    mov byte ptr [eax], dl\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.70749b316408a8d4"));
                         else if (es == 2)
-                            asmbuf_puts(&buf, "    mov word ptr [eax], dx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.f7039d10f7efbef2"));
                         else
-                            asmbuf_puts(&buf, "    mov dword ptr [eax], edx\n");
-                        asmbuf_puts(&buf, "    push edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.4ed9f77143aebefe"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.81deec0800941cf6"));
                     }
                     break;
                 }
                 case IR_BINARY: {
-                    /* aux bit 0x100 = the operands are UNSIGNED; this is the
-                     * encoding irgen already used for the ARM and C backends.
-                     * It was ignored here, so on i386
-                     *   - every unsigned right shift ran as `sar`
-                     *     (0x80000000u >> 31 answered 0, not 1), and
-                     *   - every unsigned relational operator missed the
-                     *     switch below and fell into the `sete` default
-                     *     (0x80000000u > 1u answered "false").
-                     * Mask the flag off for dispatch and pick the unsigned
-                     * condition codes (b/a/be/ae) when it is set. */
-                    int bin_op  = I->aux & ~0x100;
-                    int bin_uns = (I->aux & 0x100) != 0;
-                    const char *op = binop_x(bin_op);
-                    if (op) {
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    ");
-                        asmbuf_puts(&buf, op);
-                        asmbuf_puts(&buf, " eax, ecx\n    push eax\n");
-                    } else if (bin_op == (int)TOK_MUL) {
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    imul eax, ecx\n    push eax\n");
-                    } else if (bin_op == (int)TOK_DIV) {
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    cdq\n    idiv ecx\n    push eax\n");
-                    } else if (bin_op == (int)TOK_MOD) {
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    cdq\n    idiv ecx\n    push edx\n");
-                    } else if (bin_op == (int)TOK_SHL) {
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    shl eax, cl\n    push eax\n");
-                    } else if (bin_op == (int)TOK_SHR) {
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    ");
-                        asmbuf_puts(&buf, bin_uns ? "shr eax, cl\n" : "sar eax, cl\n");
-                        asmbuf_puts(&buf, "    push eax\n");
-                    } else {
-                        const char *cc = 0;
-                        switch (bin_op) {
-                            case (int)TOK_EQ: cc = "sete";  break;
-                            case (int)TOK_NE: cc = "setne"; break;
-                            case (int)TOK_LT: cc = bin_uns ? "setb" : "setl";  break;
-                            case (int)TOK_GT: cc = bin_uns ? "seta" : "setg";  break;
-                            case (int)TOK_LE: cc = bin_uns ? "setbe" : "setle"; break;
-                            case (int)TOK_GE: cc = bin_uns ? "setae" : "setge"; break;
-                            default: cc = "sete"; break;
-                        }
-                        asmbuf_puts(&buf, "    pop ecx\n    pop eax\n    cmp eax, ecx\n    ");
-                        asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, " al\n    movzx eax, al\n    push eax\n");
-                    }
-                    break;
-                }
+ x86_scalar_rule(&buf,I->aux & 0xFF,(I->aux & 0x100)!=0,32);
+ break;
+ }
                 case IR_UNARY:
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* __builtin conj() of a _Complex value. */
@@ -1014,73 +989,66 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * signed 64-bit divide / shift derived from a negated
                          * literal was silently wrong. */
                         if (I->aux == (int)TOK_MINUS) {
-                            asmbuf_puts(&buf, "    pop edx\n    pop eax\n"
-                                              "    neg eax\n    adc edx, 0\n    neg edx\n"
-                                              "    push eax\n    push edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.b716e4426333894b"));
                         } else if (I->aux == (int)TOK_BNOT) {
-                            asmbuf_puts(&buf, "    pop edx\n    pop eax\n"
-                                              "    not eax\n    not edx\n"
-                                              "    push eax\n    push edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.662530fc69420395"));
                         } else if (I->aux == (int)TOK_NOT) {
-                            asmbuf_puts(&buf, "    pop edx\n    pop eax\n"
-                                              "    or eax, edx\n    test eax, eax\n"
-                                              "    sete al\n    movzx eax, al\n    push eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.a78df3bfcd4a7ecc"));
                         } else {
-                            asmbuf_puts(&buf, "    pop edx\n    pop eax\n"
-                                              "    push eax\n    push edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.ec2340ca8c1a28c7"));
                         }
                         break;
                     }
-                    asmbuf_puts(&buf, "    pop eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
                     /* val==1 is a float/double `-x`.  Both are held as a double
                      * on this stack with the HIGH dword on top, and that dword
                      * carries the sign bit, so the integer `neg` (which returns
                      * +0.0 for -0.0 and wrecks the exponent) is replaced by a
                      * sign-bit flip. */
                     if (I->val == 1 && I->aux == (int)TOK_MINUS)
-                        asmbuf_puts(&buf, "    xor eax, 0x80000000\n");
-                    else if (I->aux == (int)TOK_MINUS) asmbuf_puts(&buf, "    neg eax\n");
-                    else if (I->aux == (int)TOK_BNOT) asmbuf_puts(&buf, "    not eax\n");
-                    else if (I->aux == (int)TOK_NOT) asmbuf_puts(&buf, "    test eax, eax\n    sete al\n    movzx eax, al\n");
-                    asmbuf_puts(&buf, "    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.974cdc0414e43ced"));
+                    else if (I->aux == (int)TOK_MINUS) asmbuf_puts(&buf, xh_x86_rule("text.e29bd740543bbe7f"));
+                    else if (I->aux == (int)TOK_BNOT) asmbuf_puts(&buf, xh_x86_rule("text.cd9069b2dc376ed8"));
+                    else if (I->aux == (int)TOK_NOT) asmbuf_puts(&buf, xh_x86_rule("text.fecfa68ae8bbca42"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
                     break;
                 case IR_LABEL:
-                    asmbuf_puts(&buf, ".L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.4b6d79fc377f87b4"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ":\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     break;
                 case IR_LABEL_NAMED:
-                    asmbuf_puts(&buf, ".LN_");
+                    asmbuf_puts(&buf, xh_x86_rule("text.be1de5990bdec1cd"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, ":\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     break;
                 case IR_JMP:
-                    asmbuf_puts(&buf, "    jmp .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.02b129850dd58dc5"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, '\n');
                     break;
                 case IR_JMP_NAMED:
-                    asmbuf_puts(&buf, "    jmp .LN_");
+                    asmbuf_puts(&buf, xh_x86_rule("text.66fe547640031826"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_puts(&buf, I->name);
                     asmbuf_putc(&buf, '\n');
                     break;
                 case IR_JZ:
-                    asmbuf_puts(&buf, "    pop eax\n    test eax, eax\n    jz .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.209d29ef9eaf9e34"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, '\n');
                     break;
                 case IR_JNZ:
-                    asmbuf_puts(&buf, "    pop eax\n    test eax, eax\n    jnz .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.bf8c0396346ecd37"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
@@ -1092,11 +1060,11 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * `jne 1f` this used to emit never resolved.  Use a
                      * per-function name instead. */
                     int lcj = ++lbl64;
-                    asmbuf_puts(&buf, "    mov eax, [esp]\n    cmp eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.a9fdeff000117537"));
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "\n    jne ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.097c31cac98ba0d2"));
                     x86_elbl(&buf, f->name, "cj", lcj, 0);
-                    asmbuf_puts(&buf, "    add esp, 4\n    jmp .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6b3942073184b317"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->aux);
@@ -1134,7 +1102,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * (arg n-1 on the virtual stack). Pop it into ecx
                      * (caller-saved scratch register). */
                     if (is_indirect) {
-                        asmbuf_puts(&buf, "    pop ecx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.fe2690f9273802de"));
                         n = n - 1;
                     }
                     if (sret_call) {
@@ -1231,18 +1199,18 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         for (ai2 = 0; ai2 < n; ai2++) {
                             int w = (ai2 < 64) ? (wb[ai2] + 3) / 4 : 1;
                             if (w == 2) {
-                                asmbuf_puts(&buf, "    pop eax\n    mov [ebp-");
+                                asmbuf_puts(&buf, xh_x86_rule("text.75ab89ac001efdf8"));
                                 asmbuf_int(&buf, scratch_base + 16 + 4 * (stack_cnt + 1));
-                                asmbuf_puts(&buf, "], eax\n    pop eax\n    mov [ebp-");
+                                asmbuf_puts(&buf, xh_x86_rule("text.d67539bdfd59d10f"));
                                 asmbuf_int(&buf, scratch_base + 16 + 4 * stack_cnt);
-                                asmbuf_puts(&buf, "], eax\n");
+                                asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                                 stack_cnt += 2;
                             } else {
                                 int wi3;
                                 for (wi3 = 0; wi3 < w; wi3++) {
-                                    asmbuf_puts(&buf, "    pop eax\n    mov [ebp-");
+                                    asmbuf_puts(&buf, xh_x86_rule("text.75ab89ac001efdf8"));
                                     asmbuf_int(&buf, scratch_base + 16 + 4 * stack_cnt);
-                                    asmbuf_puts(&buf, "], eax\n");
+                                    asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                                     stack_cnt++;
                                 }
                             }
@@ -1250,9 +1218,9 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     }
 
                     /* Save esp before stack adjustments. */
-                    asmbuf_puts(&buf, "    mov [ebp-");
+                    asmbuf_puts(&buf, xh_x86_rule("text.fc1d629ae8b91275"));
                     asmbuf_int(&buf, scratch_base);
-                    asmbuf_puts(&buf, "], esp\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.cd62d6384497a495"));
 
                     /* 16-byte alignment for the call (an external cdecl callee
                      * may use movaps).  It has to happen *before* the
@@ -1263,28 +1231,28 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * already aligned.  With N arguments pushed, the pad is
                      * (esp - 4N) mod 16, which leaves esp a multiple of 16 at
                      * the call instruction. */
-                    asmbuf_puts(&buf, "    mov eax, esp\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.83259b2ffb2f8cc1"));
                     if (stack_cnt + (sret_call ? 1 : 0) > 0) {
-                        asmbuf_puts(&buf, "    sub eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4a0fe7f169d9b9fd"));
                         asmbuf_int(&buf, 4 * (stack_cnt + (sret_call ? 1 : 0)));
                         asmbuf_putc(&buf, '\n');
                     }
-                    asmbuf_puts(&buf, "    and eax, 15\n    sub esp, eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.d0a85d0a7a5f8b57"));
 
                     /* Push stack args in reverse order (right to left) so
                      * leftmost arg is at [esp] (lowest address). */
                     for (k = stack_cnt - 1; k >= 0; k--) {
-                        asmbuf_puts(&buf, "    push dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.6bd382e4237dd86d"));
                         asmbuf_int(&buf, scratch_base + 16 + 4 * k);
-                        asmbuf_puts(&buf, "]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
                     }
                     /* Hidden first argument: the address of this site's result
                      * buffer.  Pushed last so it sits at [esp] = [ebp+8] in the
                      * callee, where the sret prologue reads it. */
                     if (sret_call) {
-                        asmbuf_puts(&buf, "    lea eax, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.137dbb4064852a52"));
                         asmbuf_int(&buf, sret_area_off + sret_buf_off + sret_buf_sz);
-                        asmbuf_puts(&buf, "]\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     }
 
                     /* For direct calls, check if the callee returns void.
@@ -1308,18 +1276,18 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     }
 
                     if (is_indirect) {
-                        asmbuf_puts(&buf, "    call ecx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.039b60d9ab552cfd"));
                     } else {
-                        asmbuf_puts(&buf, "    call ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.7e873a94c44eeb9e"));
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, '\n');
                     }
 
                     /* Restore esp from saved value (cleans up pushed args +
                      * alignment padding in one step). */
-                    asmbuf_puts(&buf, "    mov esp, [ebp-");
+                    asmbuf_puts(&buf, xh_x86_rule("text.b237eaa684af0e1e"));
                     asmbuf_int(&buf, scratch_base);
-                    asmbuf_puts(&buf, "]\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
 
                     if (sret_call) is_void_ret = 0;
                     if (!is_void_ret) {
@@ -1331,20 +1299,20 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         int retfloat = (int)((I->val >> 53) & 1);
                         int ret2 = (int)((I->val >> 32) & 1);
                         if (retfloat && !ret2)
-                            asmbuf_puts(&buf, "    sub esp, 4\n    movss [esp], xmm0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.bfbf7eb10d65f0c1"));
                         else if (retfloat) {
                             /* A double comes back in xmm0; store it and flip the
                              * two dwords so the high one is on top, the order
                              * every other 64-bit value on this stack uses. */
-                            asmbuf_puts(&buf, "    sub esp, 8\n    movq [esp], xmm0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
                             x86_pair_swap_at(&buf, 0);
                         } else if (ret2) {
                             /* edx:eax is high:low, so the low word is pushed
                              * first and the high word ends up on top. */
-                            asmbuf_puts(&buf, "    push eax\n    push edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.a7a351cdc205c8ef"));
                         }
                         else
-                            asmbuf_puts(&buf, "    push eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
                     }
                     break;
                 }
@@ -1360,13 +1328,13 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * callee-saved and restored below, or dead here. */
                         int rsz = f->ret_type ? type_size(f->ret_type) : 0;
                         if (rsz <= 0) rsz = 8;
-                        asmbuf_puts(&buf, "    pop esi\n    mov edi, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2e89ab613cfb8cad"));
                         asmbuf_int(&buf, sret_off);
-                        asmbuf_puts(&buf, "]\n    mov ecx, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bf5c869475327afb"));
                         asmbuf_int(&buf, rsz);
-                        asmbuf_puts(&buf, "\n    rep movsb\n    mov eax, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ce846d3feb14f824"));
                         asmbuf_int(&buf, sret_off);
-                        asmbuf_puts(&buf, "]\n    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cf34b3c5e2d0a761"));
                     } else {
                         Type *rt = f->ret_type;
                         int is_fp = rt && (rt->kind == TYPE_FLOAT ||
@@ -1377,7 +1345,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                                            rt->kind == TYPE_UNION) &&
                                           type_size(rt) > 4 && type_size(rt) <= 8));
                         if (is_fp && rt->kind == TYPE_FLOAT) {
-                            asmbuf_puts(&buf, "    movss xmm0, [esp]\n    add esp, 4\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
                         } else if (is_fp) {
                             /* A double result travels in xmm0, the mirror of
                              * the call site's bit-53 handling.  `pop eax` used
@@ -1385,16 +1353,16 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                              * arrive high-dword-on-top, so they are flipped
                              * before movq reads them as a blob. */
                             x86_pair_swap_at(&buf, 0);
-                            asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
                         } else if (two) {
                             /* 64-bit scalars and 5..8 byte composites come back
                              * in edx:eax (high:low); the IR stack keeps the high
                              * word on top, so edx is popped first. */
-                            asmbuf_puts(&buf, "    pop edx\n    pop eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.6f9c8b71fa5adc5a"));
                         } else {
-                            asmbuf_puts(&buf, "    pop eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
                         }
-                        asmbuf_puts(&buf, "    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.1dae71cae98dd498"));
                     }
                     break;
                 /* === B1: Missing IR operations for completeness === */
@@ -1420,66 +1388,66 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                  * all), so `(long long)some_int` left the upper half as
                  * whatever happened to be below it on the IR stack. */
                 case IR_SEXT:
-                    asmbuf_puts(&buf, "    pop eax\n    cdq\n    push eax\n    push edx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.206a9e43d351ab6f"));
                     break;
                 case IR_ZEXT:
-                    asmbuf_puts(&buf, "    pop eax\n    xor edx, edx\n    push eax\n    push edx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.a001949c6c8f2386"));
                     break;
 
                 /* IR_TRUNC: val = target width, aux = 1 zero-extend. */
                 case IR_TRUNC:
-                    asmbuf_puts(&buf, "    pop eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
                     if (I->val == 8)
-                        asmbuf_puts(&buf, I->aux ? "    movzx eax, al\n" : "    movsx eax, al\n");
+                        asmbuf_puts(&buf, I->aux ? xh_x86_rule("text.344ade76d4acecae") : xh_x86_rule("text.fe88e51f8712bfcd"));
                     else if (I->val == 16)
-                        asmbuf_puts(&buf, I->aux ? "    movzx eax, ax\n" : "    movsx eax, ax\n");
-                    asmbuf_puts(&buf, "    push eax\n");
+                        asmbuf_puts(&buf, I->aux ? xh_x86_rule("text.edd53f9a0d5b9f63") : xh_x86_rule("text.8832c5e95cb1e8dd"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
                     break;
 
                 /* IR_PUSH_FUNC: push the address of a function symbol. */
                 case IR_PUSH_FUNC:
-                    asmbuf_puts(&buf, "    lea eax, [");
+                    asmbuf_puts(&buf, xh_x86_rule("text.98f95df9e907f704"));
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, "]\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     break;
 
                 /* IR_PUSH_GLOBAL_ADDR: push &global (no dereference). */
                 case IR_PUSH_GLOBAL_ADDR:
-                    asmbuf_puts(&buf, "    lea eax, [");
+                    asmbuf_puts(&buf, xh_x86_rule("text.98f95df9e907f704"));
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, "]\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.95b030d0ad1483d7"));
                     break;
 
                 /* IR_MEMCPY: pop dst, pop src, copy I->val bytes.
                  * Uses edi (dest), esi (src), ecx (count) — all saved in prologue. */
                 case IR_MEMCPY:
-                    asmbuf_puts(&buf, "    pop edi\n    pop esi\n    mov ecx, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.e71a0aee15f5fc12"));
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "\n    rep movsb\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.8d3fc2867d2efe58"));
                     break;
 
                 /* IR_ALLOCA: VLA dynamic stack alloc.
                  * Pop byte count, align to 16, subtract from esp, push base. */
                 case IR_ALLOCA:
-                    asmbuf_puts(&buf, "    pop eax\n    add eax, 15\n    and eax, -16\n");
-                    asmbuf_puts(&buf, "    sub esp, eax\n    mov eax, esp\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.8335dbd8a8d11c9e"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.0d64a5d6db372b81"));
                     break;
 
                 /* IR_DIV / IR_MOD: integer division.
                  * aux=0 signed, aux=1 unsigned. */
                 case IR_DIV:
-                    asmbuf_puts(&buf, "    pop ecx\n    pop eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.5c895cb3ddd81f93"));
                     if (I->aux & 1)
-                        asmbuf_puts(&buf, "    xor edx, edx\n    div ecx\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c03dab15d958e712"));
                     else
-                        asmbuf_puts(&buf, "    cdq\n    idiv ecx\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.794267a5f7c573da"));
                     break;
                 case IR_MOD:
-                    asmbuf_puts(&buf, "    pop ecx\n    pop eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.5c895cb3ddd81f93"));
                     if (I->aux & 1)
-                        asmbuf_puts(&buf, "    xor edx, edx\n    div ecx\n    push edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.a303d5ea75714959"));
                     else
-                        asmbuf_puts(&buf, "    cdq\n    idiv ecx\n    push edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.13386fbfacf1a09a"));
                     break;
 
                 /* IR_PUSH_FLOAT: push a float/double constant.
@@ -1499,32 +1467,32 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             double im = prog->complexes[cid].im;
                             union { double d; long long i; } ure, uim;
                             ure.d = re; uim.d = im;
-                            asmbuf_puts(&buf, "    mov eax, ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                             asmbuf_int(&buf, (int)(ure.i & 0xFFFFFFFF));
-                            asmbuf_puts(&buf, "\n    push eax\n");
-                            asmbuf_puts(&buf, "    mov eax, ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                             asmbuf_int(&buf, (int)((ure.i >> 32) & 0xFFFFFFFF));
-                            asmbuf_puts(&buf, "\n    push eax\n");
-                            asmbuf_puts(&buf, "    mov eax, ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                             asmbuf_int(&buf, (int)(uim.i & 0xFFFFFFFF));
-                            asmbuf_puts(&buf, "\n    push eax\n");
-                            asmbuf_puts(&buf, "    mov eax, ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                             asmbuf_int(&buf, (int)((uim.i >> 32) & 0xFFFFFFFF));
-                            asmbuf_puts(&buf, "\n    push eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
                         } else {
-                            asmbuf_puts(&buf, "    push 0\n    push 0\n    push 0\n    push 0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.2809e76015d3b65b"));
                         }
                     } else if (is_dbl) {
                         double v = (I->val >= 0 && I->val < prog->float_count) ?
                                    prog->floats[I->val] : 0.0;
                         union { double d; long long i; } u;
                         u.d = v;
-                        asmbuf_puts(&buf, "    mov eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                         asmbuf_int(&buf, (int)(u.i & 0xFFFFFFFF));
-                        asmbuf_puts(&buf, "\n    push eax\n");
-                        asmbuf_puts(&buf, "    mov eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                         asmbuf_int(&buf, (int)((u.i >> 32) & 0xFFFFFFFF));
-                        asmbuf_puts(&buf, "\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
                     } else {
                         /* float: one word, the single-precision bit pattern.
                          * This used to widen the constant to a double and push
@@ -1538,7 +1506,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                                    prog->floats[I->val] : 0.0);
                         union { float f; unsigned int i; } uf;
                         uf.f = fv;
-                        asmbuf_puts(&buf, "    push ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.276c8636c367c6c1"));
                         asmbuf_int(&buf, (int)uf.i);
                         asmbuf_putc(&buf, '\n');
                     }
@@ -1569,24 +1537,24 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     }
                     /* _Complex double: two ops on real/imag parts */
                     if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, "    movq xmm1, [esp]\n    add esp, 8\n");  /* imag b */
-                        asmbuf_puts(&buf, "    movq xmm3, [esp]\n    add esp, 8\n");  /* real b */
-                        asmbuf_puts(&buf, "    movq xmm2, [esp]\n    add esp, 8\n");  /* imag a */
-                        asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n");  /* real a */
-                        asmbuf_puts(&buf, "    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.010d4f88c41190b1"));  /* imag b */
+                        asmbuf_puts(&buf, xh_x86_rule("text.e709176edbc858bf"));  /* real b */
+                        asmbuf_puts(&buf, xh_x86_rule("text.94c200ba0642c541"));  /* imag a */
+                        asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));  /* real a */
+                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
                         asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, " xmm0, xmm3\n    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bd74230bfaf7212e"));
                         asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, " xmm2, xmm1\n");
-                        asmbuf_puts(&buf, "    sub esp, 8\n    movq [esp], xmm0\n");
-                        asmbuf_puts(&buf, "    sub esp, 8\n    movq [esp], xmm2\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.9668ff9261324f75"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.4a71ed58a4c7ae1d"));
                     } else if ((I->aux & 0x200) != 0) {
                         x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, "    movq xmm1, [esp]\n    add esp, 8\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.010d4f88c41190b1"));
                         x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.e7746556032f1280"));
                         asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, " xmm0, xmm1\n    sub esp, 8\n    movq [esp], xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cb3f8202914f1fde"));
                         x86_pair_swap_at(&buf, 0);
                     } else {
                         /* float: one word per operand, single precision.
@@ -1599,10 +1567,10 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             case IR_FDIV: ops = "divss"; break;
                             default: ops = "addss"; break;
                         }
-                        asmbuf_puts(&buf, "    movss xmm1, [esp]\n    add esp, 4\n");
-                        asmbuf_puts(&buf, "    movss xmm0, [esp]\n    add esp, 4\n    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4c1a9220c6b59e6a"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.ffe801bf0d7c4b9c"));
                         asmbuf_puts(&buf, ops);
-                        asmbuf_puts(&buf, " xmm0, xmm1\n    sub esp, 4\n    movss [esp], xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8827580b6366c49c"));
                     }
                     break;
                 }
@@ -1633,18 +1601,18 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             /* Flip each operand in place (high dword on top ->
                              * blob order) before reading it with movq. */
                             x86_pair_swap_at(&buf, 0);
-                            asmbuf_puts(&buf, "    movq xmm1, [esp]\n    add esp, 8\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.010d4f88c41190b1"));
                             x86_pair_swap_at(&buf, 0);
-                            asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n");
-                            asmbuf_puts(&buf, "    ucomisd xmm0, xmm1\n    ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.dffd78210d40c71d"));
                         } else {
                             /* float: one word per side, ucomiss. */
-                            asmbuf_puts(&buf, "    movss xmm1, [esp]\n    add esp, 4\n");
-                            asmbuf_puts(&buf, "    movss xmm0, [esp]\n    add esp, 4\n");
-                            asmbuf_puts(&buf, "    ucomiss xmm0, xmm1\n    ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.4c1a9220c6b59e6a"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.26f1e54784576a84"));
                         }
                         asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, " al\n    movzx eax, al\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8d145c1a3edd357d"));
                     }
                     break;
                 }
@@ -1658,9 +1626,9 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     }
                     if ((I->aux & 0x200) != 0) {
                         x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
                     } else {
-                        asmbuf_puts(&buf, "    movss xmm0, [esp]\n    add esp, 4\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
                     }
                     /* aux bit 0x400 = the destination is unsigned.  cvttsd2si
                      * is signed-only and answers 0xFFFFFFFE (the integer
@@ -1670,22 +1638,20 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     if (I->aux & 0x400) {
                         int lu = ++lbl64;
                         if (!(I->aux & 0x200))
-                            asmbuf_puts(&buf, "    cvtss2sd xmm0, xmm0\n");
-                        asmbuf_puts(&buf, "    mov ecx, 1073741824\n    cvtsi2sd xmm1, ecx\n"
-                                          "    addsd xmm1, xmm1\n    comisd xmm0, xmm1\n    jb ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.5d9f1cb0416a63f8"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.92e14fca1a661366"));
                         x86_elbl(&buf, f->name, "f2u", lu, 0);
-                        asmbuf_puts(&buf, "    subsd xmm0, xmm1\n    cvttsd2si eax, xmm0\n"
-                                          "    add eax, 0x80000000\n    jmp ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4d3b5fd5c4d94c07"));
                         x86_elbl(&buf, f->name, "f2u", lu, 1);
                         x86_elbl(&buf, f->name, "f2u", lu, 0);
-                        asmbuf_puts(&buf, "    cvttsd2si eax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
                         x86_elbl(&buf, f->name, "f2u", lu, 1);
                     } else if ((I->aux & 0x200) != 0) {
-                        asmbuf_puts(&buf, "    cvttsd2si eax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
                     } else {
-                        asmbuf_puts(&buf, "    cvttss2si eax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.397d9424d08c5ab8"));
                     }
-                    asmbuf_puts(&buf, "    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
                     break;
                 }
 
@@ -1698,7 +1664,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         break;
                     }
                     if (is_dbl) {
-                        asmbuf_puts(&buf, "    pop eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
                         /* aux bit 0x400 = the source is unsigned.  cvtsi2sd is
                          * signed-only, so `(double)4000000000u` used to
                          * produce -1610612736.0.  x86_u32_to_xmm splits the
@@ -1706,22 +1672,20 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         if (I->aux & 0x400)
                             x86_u32_to_xmm(&buf, "xmm0");
                         else
-                            asmbuf_puts(&buf, "    cvtsi2sd xmm0, eax\n");
-                        asmbuf_puts(&buf, "    sub esp, 8\n    movq [esp], xmm0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.59a1a43ff7880417"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
                         x86_pair_swap_at(&buf, 0);
                     } else {
                         /* float result: one word, genuinely single precision.
                          * The old code produced a 2-word double that merely
                          * had float-ish precision, so a float store popped one
                          * word and left the other on the IR stack. */
-                        asmbuf_puts(&buf, "    pop eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
                         if (I->aux & 0x400) {
                             x86_u32_to_xmm(&buf, "xmm0");
-                            asmbuf_puts(&buf, "    cvtsd2ss xmm0, xmm0\n"
-                                              "    sub esp, 4\n    movss [esp], xmm0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.c39b283d66519bbc"));
                         } else {
-                            asmbuf_puts(&buf, "    cvtsi2ss xmm0, eax\n"
-                                              "    sub esp, 4\n    movss [esp], xmm0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.8086d640eefab65a"));
                         }
                     }
                     break;
@@ -1744,13 +1708,9 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         /* Read the 2-word double as a blob (flip first, the
                          * high dword is on top), then narrow. */
                         x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n"
-                                          "    cvtsd2ss xmm0, xmm0\n"
-                                          "    sub esp, 4\n    movss [esp], xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c896dbafaae43e47"));
                     } else if (!src_dbl && dst_dbl) {
-                        asmbuf_puts(&buf, "    movss xmm0, [esp]\n    add esp, 4\n"
-                                          "    cvtss2sd xmm0, xmm0\n"
-                                          "    sub esp, 8\n    movq [esp], xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b7f0f3dfed7f198f"));
                         x86_pair_swap_at(&buf, 0);
                     }
                     break;
@@ -1761,12 +1721,12 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                  * high word ends up on top like every other 64-bit value. */
                 case IR_64PUSH: {
                     long long v = ((long long)(int)I->val << 32) | (unsigned int)I->aux;
-                    asmbuf_puts(&buf, "    mov eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                     asmbuf_int(&buf, (int)(v & 0xFFFFFFFF));
-                    asmbuf_puts(&buf, "\n    push eax\n");
-                    asmbuf_puts(&buf, "    mov eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.92b99704ac6bafbc"));
                     asmbuf_int(&buf, (int)((v >> 32) & 0xFFFFFFFF));
-                    asmbuf_puts(&buf, "\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
                     break;
                 }
 
@@ -1783,17 +1743,17 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     if (bop) {
                         int is_add = ark_streq(bop, "add");
                         int is_sub = ark_streq(bop, "sub");
-                        asmbuf_puts(&buf, "    pop edx\n    pop ecx\n    pop ebx\n    pop eax\n");
-                        asmbuf_puts(&buf, "    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
                         asmbuf_puts(&buf, bop);
-                        asmbuf_puts(&buf, " eax, ecx\n    ");
-                        if (is_add) asmbuf_puts(&buf, "adc ebx, edx\n");
-                        else if (is_sub) asmbuf_puts(&buf, "sbb ebx, edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2ce889bddde8feb8"));
+                        if (is_add) asmbuf_puts(&buf, xh_x86_rule("text.2825f4be58f40442"));
+                        else if (is_sub) asmbuf_puts(&buf, xh_x86_rule("text.0e56e366153b6e70"));
                         else {
                             asmbuf_puts(&buf, bop);
-                            asmbuf_puts(&buf, " ebx, edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.44f2696d1d3f8e69"));
                         }
-                        asmbuf_puts(&buf, "    push eax\n    push ebx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.0dd72d509b10fd37"));
                     } else if (op == (int)TOK_SHL || op == (int)TOK_SHR) {
                         /* 64-bit shift.  shld/shrd only move bits across the
                          * two dwords for a count below 32; the hardware masks
@@ -1805,38 +1765,38 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * n-32 == n & 31). */
                         int is_shr = (op == (int)TOK_SHR);
                         int lhi = ++lbl64, lend = ++lbl64;
-                        asmbuf_puts(&buf, "    pop ecx\n    pop esi\n    pop ebx\n    pop eax\n");
-                        asmbuf_puts(&buf, "    mov edx, esi\n    mov ecx, esi\n    and ecx, 31\n");
-                        asmbuf_puts(&buf, "    cmp edx, 32\n    jae ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.6406a1641d7fff65"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.679314bd2ff12b22"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.461f709172b494e2"));
                         x86_elbl(&buf, f->name, "sh", lhi, 0);
                         if (is_shr) {
-                            asmbuf_puts(&buf, "    shrd eax, ebx, cl\n    ");
-                            asmbuf_puts(&buf, uns ? "shr ebx, cl\n" : "sar ebx, cl\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.820dbde7748ee897"));
+                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.054bf5894365747f") : xh_x86_rule("text.5c8ed08f641c8a16"));
                         } else {
-                            asmbuf_puts(&buf, "    shld ebx, eax, cl\n    shl eax, cl\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.821b71e39855d198"));
                         }
-                        asmbuf_puts(&buf, "    jmp ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.69256272f003017d"));
                         x86_elbl(&buf, f->name, "sh", lend, 0);
                         x86_elbl(&buf, f->name, "sh", lhi, 1);
                         if (is_shr) {
-                            asmbuf_puts(&buf, "    mov eax, ebx\n    ");
-                            asmbuf_puts(&buf, uns ? "shr eax, cl\n    xor ebx, ebx\n"
-                                                  : "sar eax, cl\n    sar ebx, 31\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.dd90cd92b33d5573"));
+                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.6082778eecf4e8dd")
+                                                  : xh_x86_rule("text.2dfc378c712e8c2e"));
                         } else {
-                            asmbuf_puts(&buf, "    shl eax, cl\n    mov ebx, eax\n    xor eax, eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.9f5ead3407b2d8f5"));
                         }
                         x86_elbl(&buf, f->name, "sh", lend, 1);
-                        asmbuf_puts(&buf, "    push eax\n    push ebx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.0dd72d509b10fd37"));
                     } else if (op == (int)TOK_MUL) {
                         /* 64x64 -> low 64 bits:
                          *   lo = lo(a_lo*b_lo)
                          *   hi = hi32(a_lo*b_lo) + a_hi*b_lo + a_lo*b_hi */
-                        asmbuf_puts(&buf, "    pop edx\n    pop ecx\n    pop ebx\n    pop eax\n");
-                        asmbuf_puts(&buf, "    mov esi, edx\n    mov edi, eax\n");
-                        asmbuf_puts(&buf, "    mul ecx\n");
-                        asmbuf_puts(&buf, "    imul ebx, ecx\n    add edx, ebx\n");
-                        asmbuf_puts(&buf, "    imul edi, esi\n    add edx, edi\n");
-                        asmbuf_puts(&buf, "    push eax\n    push edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.c654558cc5c0ec8b"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.ff834093feaebb13"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.a60c6b789a6dfebd"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.6f6d010f0e5ab3c1"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.a7a351cdc205c8ef"));
                     } else if (op == (int)TOK_DIV || op == (int)TOK_MOD) {
                         /* Restoring shift-subtract, 64 rounds.  Registers:
                          *   a=|a| in ebx:eax   d=|b| in [divtmp+4:divtmp+0]
@@ -1849,15 +1809,15 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         int linit = ++lbl64, lloop = ++lbl64, lsub = ++lbl64;
                         int lnosub = ++lbl64, lqpos = ++lbl64, lrpos = ++lbl64;
                         int lend = ++lbl64;
-                        asmbuf_puts(&buf, "    pop edx\n    pop ecx\n    pop ebx\n    pop eax\n");
-                        asmbuf_puts(&buf, "    mov dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
                         asmbuf_int(&buf, divtmp + 12);
-                        asmbuf_puts(&buf, "], 0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.84ec6f047c3668dc"));
                         if (!uns) {
-                            asmbuf_puts(&buf, "    mov esi, ebx\n    shr esi, 31\n");
-                            asmbuf_puts(&buf, "    mov dword ptr [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.95fe33ef378a8bb4"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
                             asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, "], esi\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.47d93a4d497c04b5"));
                             /* esi holds the 0/1 sign BIT here, not the
                              * full high word: `sar esi, 31` on 1 gives 0, so
                              * |a| was never taken and every signed 64-bit
@@ -1865,46 +1825,46 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                              * raw two's-complement pattern.  `neg` turns the
                              * bit into the 0 / -1 mask the xor/sub pair
                              * needs. */
-                            asmbuf_puts(&buf, "    neg esi\n");
-                            asmbuf_puts(&buf, "    xor eax, esi\n    xor ebx, esi\n");
-                            asmbuf_puts(&buf, "    sub eax, esi\n    sbb ebx, esi\n");
-                            asmbuf_puts(&buf, "    mov esi, edx\n    shr esi, 31\n");
-                            asmbuf_puts(&buf, "    add esi, esi\n    mov edi, [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.3808d8f36f7d5daa"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.4b9c82419f56eeb1"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.d5a384c1f1fdbf16"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.b2214e0a3ab8f00c"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.d1ddcffec890c328"));
                             asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, "]\n    or edi, esi\n");
-                            asmbuf_puts(&buf, "    mov dword ptr [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.9360e8e3ce846e92"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
                             asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, "], edi\n");
-                            asmbuf_puts(&buf, "    mov esi, edx\n    sar esi, 31\n");
-                            asmbuf_puts(&buf, "    mov edi, ecx\n");
-                            asmbuf_puts(&buf, "    xor edi, esi\n    xor edx, esi\n");
-                            asmbuf_puts(&buf, "    sub edi, esi\n    sbb edx, esi\n");
-                            asmbuf_puts(&buf, "    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.2257aee5f583afe4"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.466239f8ebbb4beb"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.da0ba7457b56865b"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.e5389721d42955df"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.c1c3fdf0eab006ff"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.fc1d629ae8b91275"));
                             asmbuf_int(&buf, divtmp);
-                            asmbuf_puts(&buf, "], edi\n    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.5b6b86a4905e6f09"));
                             asmbuf_int(&buf, divtmp + 4);
-                            asmbuf_puts(&buf, "], edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.69b61f412b288a0a"));
                         } else {
-                            asmbuf_puts(&buf, "    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.fc1d629ae8b91275"));
                             asmbuf_int(&buf, divtmp);
-                            asmbuf_puts(&buf, "], ecx\n    mov [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.8b3deb472083fd10"));
                             asmbuf_int(&buf, divtmp + 4);
-                            asmbuf_puts(&buf, "], edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.69b61f412b288a0a"));
                         }
-                        asmbuf_puts(&buf, "    mov esi, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cb41f02a263e8616"));
                         asmbuf_int(&buf, divtmp);
-                        asmbuf_puts(&buf, "]\n    or esi, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2fa01da70f59e71a"));
                         asmbuf_int(&buf, divtmp + 4);
-                        asmbuf_puts(&buf, "]\n    jnz ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.9dd9f2a58c42e6d8"));
                         x86_elbl(&buf, f->name, "dv", linit, 0);
-                        asmbuf_puts(&buf, "    push 0\n    push 0\n    jmp ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5bd3862d8a7849ba"));
                         x86_elbl(&buf, f->name, "dv", lend, 0);
                         x86_elbl(&buf, f->name, "dv", linit, 1);
-                        asmbuf_puts(&buf, "    xor esi, esi\n    xor edi, edi\n");
-                        asmbuf_puts(&buf, "    xor ecx, ecx\n    xor edx, edx\n");
-                        asmbuf_puts(&buf, "    mov dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b627985a9623b001"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.8a70b7986310d9ec"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
                         asmbuf_int(&buf, divtmp + 8);
-                        asmbuf_puts(&buf, "], 64\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b3f3de66f4c956d4"));
                         x86_elbl(&buf, f->name, "dv", lloop, 1);
                         /* Shift the 128-bit (r:n) pair left by one the
                          * way the restoring algorithm needs it: the bit
@@ -1912,54 +1872,54 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * which is what adc (not add) does here.  With
                          * `add` the dividend's high bits were dropped and
                          * every 64-bit division answered 0. */
-                        asmbuf_puts(&buf, "    add eax, eax\n    adc ebx, ebx\n");
-                        asmbuf_puts(&buf, "    adc ecx, ecx\n    adc edx, edx\n");
-                        asmbuf_puts(&buf, "    add edi, edi\n    adc esi, esi\n");
-                        asmbuf_puts(&buf, "    cmp edx, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.3c2ce573bc6f8bda"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.1ac27aeafa036104"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.617fb65c4da207c8"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.cd95285901a5a647"));
                         asmbuf_int(&buf, divtmp + 4);
-                        asmbuf_puts(&buf, "]\n    jb ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.0a9294436a104c5a"));
                         x86_elbl(&buf, f->name, "dv", lnosub, 0);
-                        asmbuf_puts(&buf, "    ja ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.a66f7e10984df850"));
                         x86_elbl(&buf, f->name, "dv", lsub, 0);
-                        asmbuf_puts(&buf, "    cmp ecx, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.596cabe39f20ca06"));
                         asmbuf_int(&buf, divtmp);
-                        asmbuf_puts(&buf, "]\n    jb ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.0a9294436a104c5a"));
                         x86_elbl(&buf, f->name, "dv", lnosub, 0);
                         x86_elbl(&buf, f->name, "dv", lsub, 1);
-                        asmbuf_puts(&buf, "    sub ecx, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.667532ad6b467194"));
                         asmbuf_int(&buf, divtmp);
-                        asmbuf_puts(&buf, "]\n    sbb edx, [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ca9cbd7b617c471b"));
                         asmbuf_int(&buf, divtmp + 4);
-                        asmbuf_puts(&buf, "]\n    or edi, 1\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.115bb8c5c2542394"));
                         x86_elbl(&buf, f->name, "dv", lnosub, 1);
-                        asmbuf_puts(&buf, "    sub dword ptr [ebp-");
+                        asmbuf_puts(&buf, xh_x86_rule("text.26fc695c40f28fce"));
                         asmbuf_int(&buf, divtmp + 8);
-                        asmbuf_puts(&buf, "], 1\n    jnz ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ec8924392ea7f046"));
                         x86_elbl(&buf, f->name, "dv", lloop, 0);
                         if (!uns) {
                             /* Quotient is negative iff exactly one operand was
                              * (sign word 1 or 2); the remainder follows
                              * dividend's sign (bit 0). */
-                            asmbuf_puts(&buf, "    mov eax, [ebp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.6eaf51aaec0d1d8a"));
                             asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, "]\n    mov ebx, eax\n    and ebx, 1\n");
-                            asmbuf_puts(&buf, "    cmp eax, 0\n    je ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.3b12671c027655a7"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.30dc593803195a56"));
                             x86_elbl(&buf, f->name, "dv", lqpos, 0);
-                            asmbuf_puts(&buf, "    cmp eax, 3\n    je ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.800b436f470e1d12"));
                             x86_elbl(&buf, f->name, "dv", lqpos, 0);
-                            asmbuf_puts(&buf, "    not edi\n    not esi\n");
-                            asmbuf_puts(&buf, "    add edi, 1\n    adc esi, 0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.fd89fd8a166f247a"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.0d62446613963db2"));
                             x86_elbl(&buf, f->name, "dv", lqpos, 1);
-                            asmbuf_puts(&buf, "    test ebx, ebx\n    jz ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.360586a4672c9c1f"));
                             x86_elbl(&buf, f->name, "dv", lrpos, 0);
-                            asmbuf_puts(&buf, "    not ecx\n    not edx\n");
-                            asmbuf_puts(&buf, "    add ecx, 1\n    adc edx, 0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.f71fe4d2f1a5f9c1"));
+                            asmbuf_puts(&buf, xh_x86_rule("text.1a04608c358721c5"));
                             x86_elbl(&buf, f->name, "dv", lrpos, 1);
                         }
                         if (op == (int)TOK_DIV)
-                            asmbuf_puts(&buf, "    push edi\n    push esi\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.ea9aa9b6855ae4fa"));
                         else
-                            asmbuf_puts(&buf, "    push ecx\n    push edx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.8ad98fe039692ddc"));
                         x86_elbl(&buf, f->name, "dv", lend, 1);
                     } else {
                         int uns2 = uns;
@@ -1979,14 +1939,14 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                          * same condition code.  Comparing only the low words
                          * (what this used to do) answered 0 for every ordering
                          * question on 64-bit values. */
-                        asmbuf_puts(&buf, "    pop edx\n    pop ecx\n    pop ebx\n    pop eax\n");
-                        asmbuf_puts(&buf, "    cmp ebx, edx\n    jne ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.0cf03c3bc7f8e844"));
                         x86_elbl(&buf, f->name, "cm", ld, 0);
-                        asmbuf_puts(&buf, "    cmp eax, ecx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.9e89a698ecb49a06"));
                         x86_elbl(&buf, f->name, "cm", ld, 1);
-                        asmbuf_puts(&buf, "    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
                         asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, " al\n    movzx eax, al\n    push eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8d145c1a3edd357d"));
                     }
                     break;
                 }
@@ -2008,14 +1968,14 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     }
                     /* High dwords first, then the low ones when they tie; the
                      * condition code is the same for both halves. */
-                    asmbuf_puts(&buf, "    pop edx\n    pop ecx\n    pop ebx\n    pop eax\n");
-                    asmbuf_puts(&buf, "    cmp ebx, edx\n    jne ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.0cf03c3bc7f8e844"));
                     x86_elbl(&buf, f->name, "cm", ld, 0);
-                    asmbuf_puts(&buf, "    cmp eax, ecx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.9e89a698ecb49a06"));
                     x86_elbl(&buf, f->name, "cm", ld, 1);
-                    asmbuf_puts(&buf, "    ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
                     asmbuf_puts(&buf, cc);
-                    asmbuf_puts(&buf, " al\n    movzx eax, al\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.8d145c1a3edd357d"));
                     break;
                 }
 
@@ -2040,59 +2000,59 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     int lw = ++lbl64;
                     if (I->aux & 0x200) {
                         x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, "    movq xmm0, [esp]\n    add esp, 8\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
                     } else {
-                        asmbuf_puts(&buf, "    movss xmm0, [esp]\n    add esp, 4\n");
-                        asmbuf_puts(&buf, "    cvtss2sd xmm0, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.5d9f1cb0416a63f8"));
                     }
                     /* xmm2 = 2^32, xmm3 = 2^31 */
-                    asmbuf_puts(&buf, "    mov ecx, 65536\n    cvtsi2sd xmm2, ecx\n    mulsd xmm2, xmm2\n");
-                    asmbuf_puts(&buf, "    mov ecx, 1073741824\n    cvtsi2sd xmm3, ecx\n    addsd xmm3, xmm3\n");
-                    asmbuf_puts(&buf, "    xor edi, edi\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6e94a4c258ef9ff0"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.a85fde474c053be0"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.59ac07dd691e82c6"));
                     if (I->aux & 0x400) {
                         /* Unsigned destination: values at or above 2^63 do not
                          * fit a signed conversion, so they lose 2^63 up front
                          * and get that bit put back at the end. */
-                        asmbuf_puts(&buf, "    movapd xmm1, xmm2\n    mulsd xmm1, xmm3\n");
-                        asmbuf_puts(&buf, "    comisd xmm0, xmm1\n    jb ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.25c3185bc4002855"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.a3318c44ef5a1b4e"));
                         x86_elbl(&buf, f->name, "f2i", lu, 0);
-                        asmbuf_puts(&buf, "    subsd xmm0, xmm1\n    mov edi, 1\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4a901af6a9ce5827"));
                         x86_elbl(&buf, f->name, "f2i", lu, 1);
                     } else {
                         /* Signed destination: take the magnitude first, then
                          * re-apply the sign. |x| < 2^63 always fits. */
-                        asmbuf_puts(&buf, "    xorpd xmm7, xmm7\n    comisd xmm0, xmm7\n    jae ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f303df9e4dea9593"));
                         x86_elbl(&buf, f->name, "f2i", lp, 0);
-                        asmbuf_puts(&buf, "    mov edi, 1\n    subsd xmm7, xmm0\n    movapd xmm0, xmm7\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b323dcde75821ec9"));
                         x86_elbl(&buf, f->name, "f2i", lp, 1);
                     }
                     /* Shared: xmm0 = |x| in [0, 2^63).  High half = floor(x /
                      * 2^32); the quotient is non-negative so cvttsd2si is a
                      * floor.  The remainder is in [0, 2^32), so it needs the
                      * same 2^31 split, again on a non-negative operand. */
-                    asmbuf_puts(&buf, "    movapd xmm1, xmm0\n    divsd xmm1, xmm2\n");
-                    asmbuf_puts(&buf, "    cvttsd2si edx, xmm1\n");
-                    asmbuf_puts(&buf, "    cvtsi2sd xmm1, edx\n    mulsd xmm1, xmm2\n");
-                    asmbuf_puts(&buf, "    subsd xmm0, xmm1\n");
-                    asmbuf_puts(&buf, "    comisd xmm0, xmm3\n    jb ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.18b4bd5cca1366a6"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.bf57062e79a57deb"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.23c4ded4321ef5c6"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.1571b586265e2bfa"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.4d294fbe16d34d51"));
                     x86_elbl(&buf, f->name, "f2i", lv, 0);
-                    asmbuf_puts(&buf, "    subsd xmm0, xmm3\n    cvttsd2si eax, xmm0\n    add eax, 0x80000000\n    jmp ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.3d2e1813919f5f02"));
                     x86_elbl(&buf, f->name, "f2i", lw, 0);
                     x86_elbl(&buf, f->name, "f2i", lv, 1);
-                    asmbuf_puts(&buf, "    cvttsd2si eax, xmm0\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
                     x86_elbl(&buf, f->name, "f2i", lw, 1);
                     if (I->aux & 0x400) {
-                        asmbuf_puts(&buf, "    test edi, edi\n    jz ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bf53b61ffa4748cd"));
                         x86_elbl(&buf, f->name, "f2i", ld, 0);
-                        asmbuf_puts(&buf, "    or edx, 0x80000000\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.18456b0dc84465a1"));
                         x86_elbl(&buf, f->name, "f2i", ld, 1);
                     } else {
-                        asmbuf_puts(&buf, "    test edi, edi\n    jz ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bf53b61ffa4748cd"));
                         x86_elbl(&buf, f->name, "f2i", ld, 0);
-                        asmbuf_puts(&buf, "    not eax\n    not edx\n    add eax, 1\n    adc edx, 0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.e927fc829b5b2ad2"));
                         x86_elbl(&buf, f->name, "f2i", ld, 1);
                     }
-                    asmbuf_puts(&buf, "    push eax\n    push edx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.a7a351cdc205c8ef"));
                     break;
                 }
                 case IR_64I2F: {
@@ -2101,28 +2061,28 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * hi*2^32 + lo with each half converted as unsigned
                      * (cvtsi2sd is signed only), then the sign is applied as a
                      * multiply. */
-                    asmbuf_puts(&buf, "    pop edx\n    pop eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6f9c8b71fa5adc5a"));
                     if (!(I->aux & 0x400)) {
-                        asmbuf_puts(&buf, "    mov esi, edx\n    sar esi, 31\n");
-                        asmbuf_puts(&buf, "    xor eax, esi\n    xor edx, esi\n");
-                        asmbuf_puts(&buf, "    sub eax, esi\n    sbb edx, esi\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.466239f8ebbb4beb"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.24620940121cebad"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.c1678ecc06d8c119"));
                     } else {
-                        asmbuf_puts(&buf, "    xor esi, esi\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ae4c7e27bb40fc19"));
                     }
-                    asmbuf_puts(&buf, "    mov ebx, eax\n    mov eax, edx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.0e2163b0183a2bf5"));
                     x86_u32_to_xmm(&buf, "xmm1");
-                    asmbuf_puts(&buf, "    mov eax, ebx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.42a37330107db660"));
                     x86_u32_to_xmm(&buf, "xmm0");
-                    asmbuf_puts(&buf, "    mov ecx, 65536\n    cvtsi2sd xmm2, ecx\n    mulsd xmm2, xmm2\n");
-                    asmbuf_puts(&buf, "    mulsd xmm1, xmm2\n    addsd xmm0, xmm1\n");
-                    asmbuf_puts(&buf, "    mov ecx, esi\n    add ecx, ecx\n    add ecx, 1\n");
-                    asmbuf_puts(&buf, "    cvtsi2sd xmm2, ecx\n    mulsd xmm0, xmm2\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6e94a4c258ef9ff0"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.c17e0c0d27c3d7ee"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.f3204e6546e0591b"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.12fd0b0927f0e8a7"));
                     if (I->aux & 0x200) {
-                        asmbuf_puts(&buf, "    sub esp, 8\n    movq [esp], xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
                         x86_pair_swap_at(&buf, 0);
                     } else {
-                        asmbuf_puts(&buf, "    cvtsd2ss xmm0, xmm0\n");
-                        asmbuf_puts(&buf, "    sub esp, 4\n    movss [esp], xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.57b0860be9389b8b"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.bfbf7eb10d65f0c1"));
                     }
                     break;
                 }
@@ -2140,16 +2100,16 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * neighbouring fields; the old code kept only the bits
                      * below the field and wiped everything above it (measured:
                      * `s.b++` zeroed the upper field `s.c`). */
-                    asmbuf_puts(&buf, "    pop eax\n    pop ecx\n");  /* value, addr */
-                    asmbuf_puts(&buf, "    and eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.eea0363f8ddf278d"));  /* value, addr */
+                    asmbuf_puts(&buf, xh_x86_rule("text.7ef30c4fffaf7a16"));
                     asmbuf_int(&buf, (int)mask);
                     if (bit_off > 0) {
-                        asmbuf_puts(&buf, "\n    shl eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8b3cc64fba698ba0"));
                         asmbuf_int(&buf, bit_off);
                     }
-                    asmbuf_puts(&buf, "\n    mov edx, dword ptr [ecx]\n    and edx, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.7fdab8b49978ea66"));
                     asmbuf_int(&buf, (int)(unsigned)(~field));
-                    asmbuf_puts(&buf, "\n    or eax, edx\n    mov dword ptr [ecx], eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.5d13c6795d5acd81"));
                     break;
                 }
 
@@ -2164,21 +2124,21 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     int bw = I->aux & 0xFF;
                     int is_signed = (I->aux & 0x100) != 0;
                     unsigned mask = (bw >= 32) ? 0xFFFFFFFFu : ((1u << bw) - 1u);
-                    asmbuf_puts(&buf, "    pop eax\n    mov eax, dword ptr [eax]\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6f8fe5caa080b1fd"));
                     if (bit_off > 0) {
-                        asmbuf_puts(&buf, "    shr eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b28953ccda3e8afd"));
                         asmbuf_int(&buf, bit_off);
-                        asmbuf_puts(&buf, "\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.01ba4719c80b6fe9"));
                     }
-                    asmbuf_puts(&buf, "    and eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.7ef30c4fffaf7a16"));
                     asmbuf_int(&buf, (int)mask);
                     if (is_signed && bw > 0 && bw < 32) {
-                        asmbuf_puts(&buf, "\n    shl eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8b3cc64fba698ba0"));
                         asmbuf_int(&buf, 32 - bw);
-                        asmbuf_puts(&buf, "\n    sar eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ceda75f1be4f9e1a"));
                         asmbuf_int(&buf, 32 - bw);
                     }
-                    asmbuf_puts(&buf, "\n    push eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.686bd128725fa74d"));
                     break;
                 }
 
@@ -2226,33 +2186,33 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                 case IR_SIMD_SUB16:
                 case IR_SIMD_ADD8:
                 case IR_SIMD_SUB8:
-                    asmbuf_puts(&buf, "    # ARM-specific op (");
+                    asmbuf_puts(&buf, xh_x86_rule("text.ab3f82bd50fcee78"));
                     asmbuf_puts(&buf, ir_op_name(I->op));
-                    asmbuf_puts(&buf, ") - not applicable on x86\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.b1e5c265f2e5c87b"));
                     break;
 
                 default:
-                    asmbuf_puts(&buf, "    # unknown IR op: ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.35815f9c362b56b9"));
                     asmbuf_puts(&buf, ir_op_name(I->op));
-                    asmbuf_puts(&buf, "\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.01ba4719c80b6fe9"));
                     break;
             }
         }
         /* Function-end epilogue (fallthrough return). For sret functions,
          * return the saved sret pointer in eax instead of 0. */
         if (sret_off) {
-            asmbuf_puts(&buf, "    mov eax, [ebp-");
+            asmbuf_puts(&buf, xh_x86_rule("text.6eaf51aaec0d1d8a"));
             asmbuf_int(&buf, sret_off);
-            asmbuf_puts(&buf, "]\n    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n\n");
+            asmbuf_puts(&buf, xh_x86_rule("text.bc8bdd6524c78086"));
         } else {
-            asmbuf_puts(&buf, "    xor eax, eax\n    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n\n");
+            asmbuf_puts(&buf, xh_x86_rule("text.72d99589caf320eb"));
         }
     }
 
     {
         int n = buf.len;
         int i;
-        int errs = x86_emit_errors;
+        int errs = x86_emit_errors + xh_x86_rules_failed();
         x86_emit_errors = 0;
         if (errs) {
             ark_log("[x86] error: %d unsupported construct(s), no output written\n", errs);
@@ -2310,14 +2270,14 @@ static int g_amd64_errors;
 static void amd_unsupported(AsmBuffer *b, const char *what) {
     ark_log("[x86-64] error: %s is not supported by the x86_64 backend\n", what);
     g_amd64_errors++;
-    asmbuf_puts(b, "    # unsupported: ");
+    asmbuf_puts(b, xh_x86_rule("text.a4b40e685f7daa97"));
     asmbuf_puts(b, what);
     asmbuf_putc(b, '\n');
 }
 
 /* "[rbp+delta]" / "[rbp-delta]" / "[rbp]" */
 static void amd_addr(AsmBuffer *b, int delta) {
-    asmbuf_puts(b, "[rbp");
+    asmbuf_puts(b, xh_x86_rule("text.3b0cfa93737d146f"));
     if (delta > 0) {
         asmbuf_putc(b, '+');
         asmbuf_int(b, delta);
@@ -2331,14 +2291,14 @@ static void amd_addr(AsmBuffer *b, int delta) {
 /* "    <mn> <reg>, [<size> ptr] [rbp+delta]" */
 static void amd_mem_rd(AsmBuffer *b, const char *mn, const char *reg,
                        const char *sz, int delta) {
-    asmbuf_puts(b, "    ");
+    asmbuf_puts(b, xh_x86_rule("text.1a0f564ddc603945"));
     asmbuf_puts(b, mn);
     asmbuf_putc(b, ' ');
     asmbuf_puts(b, reg);
-    asmbuf_puts(b, ", ");
+    asmbuf_puts(b, xh_x86_rule("text.0a07f659461970d8"));
     if (sz && sz[0]) {
         asmbuf_puts(b, sz);
-        asmbuf_puts(b, " ptr ");
+        asmbuf_puts(b, xh_x86_rule("text.93a01d56bd803c43"));
     }
     amd_addr(b, delta);
     asmbuf_putc(b, '\n');
@@ -2347,15 +2307,15 @@ static void amd_mem_rd(AsmBuffer *b, const char *mn, const char *reg,
 /* "    <mn> [<size> ptr] [rbp+delta], <reg>" */
 static void amd_rd_mem(AsmBuffer *b, const char *mn, const char *sz,
                        int delta, const char *reg) {
-    asmbuf_puts(b, "    ");
+    asmbuf_puts(b, xh_x86_rule("text.1a0f564ddc603945"));
     asmbuf_puts(b, mn);
     asmbuf_putc(b, ' ');
     if (sz && sz[0]) {
         asmbuf_puts(b, sz);
-        asmbuf_puts(b, " ptr ");
+        asmbuf_puts(b, xh_x86_rule("text.93a01d56bd803c43"));
     }
     amd_addr(b, delta);
-    asmbuf_puts(b, ", ");
+    asmbuf_puts(b, xh_x86_rule("text.0a07f659461970d8"));
     asmbuf_puts(b, reg);
     asmbuf_putc(b, '\n');
 }
@@ -2363,23 +2323,23 @@ static void amd_rd_mem(AsmBuffer *b, const char *mn, const char *sz,
 /* Push a 32-bit immediate as one zero-extended 8-byte slot. */
 static void amd_push_imm32(AsmBuffer *b, long long v) {
     if (v >= -2147483648LL && v <= 2147483647LL) {
-        asmbuf_puts(b, "    mov eax, ");
+        asmbuf_puts(b, xh_x86_rule("text.92b99704ac6bafbc"));
         asmbuf_int(b, v);
-        asmbuf_puts(b, "\n    push rax\n");
+        asmbuf_puts(b, xh_x86_rule("text.475f15810fba1372"));
     } else {
-        asmbuf_puts(b, "    mov rax, ");
+        asmbuf_puts(b, xh_x86_rule("text.ee500dc20d14c1ab"));
         asmbuf_int(b, v);
-        asmbuf_puts(b, "\n    push rax\n");
+        asmbuf_puts(b, xh_x86_rule("text.475f15810fba1372"));
     }
 }
 
 /* Push a 64-bit constant as TWO words: low first, high on top. */
 static void amd_push_imm64(AsmBuffer *b, unsigned long long v) {
-    asmbuf_puts(b, "    mov eax, ");
+    asmbuf_puts(b, xh_x86_rule("text.92b99704ac6bafbc"));
     asmbuf_int(b, (long long)(int)(unsigned int)(v & 0xFFFFFFFFULL));
-    asmbuf_puts(b, "\n    push rax\n    mov eax, ");
+    asmbuf_puts(b, xh_x86_rule("text.a4cd08031c40ca5f"));
     asmbuf_int(b, (long long)(int)(unsigned int)((v >> 32) & 0xFFFFFFFFULL));
-    asmbuf_puts(b, "\n    push rax\n");
+    asmbuf_puts(b, xh_x86_rule("text.475f15810fba1372"));
 }
 
 /* [.., lo, hi] -> r64 = (hi << 32) | lo.  r32 is r64's 32-bit name. */
@@ -2390,69 +2350,40 @@ static void amd_push_imm64(AsmBuffer *b, unsigned long long v) {
  * pushed onto the stack was (hi, hi) with the low word lost.  Pick a scratch
  * that is not the value register. */
 static const char *amd_scratch_for(const char *r64) {
-    return ark_streq(r64, "rdx") ? "rcx" : "rdx";
+    char key[80];
+    snprintf(key,sizeof(key),"abi.pair_scratch.%s",r64);
+    return xh_x86_rule(key);
 }
-
-static void amd_pop64(AsmBuffer *b, const char *r64, const char *r32) {
-    const char *s = amd_scratch_for(r64);
-    asmbuf_puts(b, "    pop ");
-    asmbuf_puts(b, s);
-    asmbuf_puts(b, "\n    pop ");
-    asmbuf_puts(b, r64);
-    asmbuf_puts(b, "\n    mov ");
-    asmbuf_puts(b, r32);
-    asmbuf_puts(b, ", ");
-    asmbuf_puts(b, r32);
-    asmbuf_puts(b, "\n    shl ");
-    asmbuf_puts(b, s);
-    asmbuf_puts(b, ", 32\n    or ");
-    asmbuf_puts(b, r64);
-    asmbuf_puts(b, ", ");
-    asmbuf_puts(b, s);
-    asmbuf_puts(b, "\n");
+static void amd_pop64(AsmBuffer *b,const char *r64,const char *r32) {
+    const char *args[3];args[0]=r64;args[1]=r32;args[2]=amd_scratch_for(r64);
+    asmbuf_puts(b,xh_x86_expand("sequence.pair.pop64",args,3));
 }
-
-/* r64 -> push lo, then hi on top.  r32 is r64's 32-bit name. */
-static void amd_push64(AsmBuffer *b, const char *r64, const char *r32) {
-    const char *s = amd_scratch_for(r64);
-    asmbuf_puts(b, "    mov ");
-    asmbuf_puts(b, s);
-    asmbuf_puts(b, ", ");
-    asmbuf_puts(b, r64);
-    asmbuf_puts(b, "\n    shr ");
-    asmbuf_puts(b, s);
-    asmbuf_puts(b, ", 32\n    mov ");
-    asmbuf_puts(b, r32);
-    asmbuf_puts(b, ", ");
-    asmbuf_puts(b, r32);
-    asmbuf_puts(b, "\n    push ");
-    asmbuf_puts(b, r64);
-    asmbuf_puts(b, "\n    push ");
-    asmbuf_puts(b, s);
-    asmbuf_puts(b, "\n");
+static void amd_push64(AsmBuffer *b,const char *r64,const char *r32) {
+    const char *args[3];args[0]=r64;args[1]=r32;args[2]=amd_scratch_for(r64);
+    asmbuf_puts(b,xh_x86_expand("sequence.pair.push64",args,3));
 }
 
 /* Load <size> ptr [rbp+delta] into a 64-bit register, zero-extending a narrow
  * load.  Used for a 1/2/4-byte local whose slot has to become one full word. */
 static void amd_load_ext(AsmBuffer *b, int sz, int delta, int is_unsigned) {
     if (sz == 1) {
-        asmbuf_puts(b, is_unsigned ? "    movzx eax, byte ptr " : "    movsx eax, byte ptr ");
+        asmbuf_puts(b, is_unsigned ? xh_x86_rule("text.d382154c42ac8a78") : xh_x86_rule("text.57f7fa00b5a14b35"));
         amd_addr(b, delta);
         asmbuf_putc(b, '\n');
     } else if (sz == 2) {
-        asmbuf_puts(b, is_unsigned ? "    movzx eax, word ptr " : "    movsx eax, word ptr ");
+        asmbuf_puts(b, is_unsigned ? xh_x86_rule("text.adc6c614f58d2450") : xh_x86_rule("text.96b670cf0b0d1b8b"));
         amd_addr(b, delta);
         asmbuf_putc(b, '\n');
     } else {
-        asmbuf_puts(b, "    mov eax, dword ptr ");
+        asmbuf_puts(b, xh_x86_rule("text.babe0163fc9bcbdb"));
         amd_addr(b, delta);
         asmbuf_putc(b, '\n');
     }
 }
 
 /* The SysV integer argument registers, in order. */
-static const char *amd_argreg64[6] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
-static const char *amd_argreg32[6] = { "edi", "esi", "edx", "ecx", "r8d", "r9d" };
+static const char *amd_argreg64(int i) { char key[40]; snprintf(key,sizeof(key),"abi.arg64.%d",i); return xh_x86_rule(key); }
+static const char *amd_argreg32(int i) { char key[40]; snprintf(key,sizeof(key),"abi.arg32.%d",i); return xh_x86_rule(key); }
 
 /* The type of a named global, or NULL. */
 static Type *amd_global_type(IrProgram *prog, const char *name) {
@@ -2469,43 +2400,43 @@ static Type *amd_global_type(IrProgram *prog, const char *name) {
  * PF for unordered operands, so ==/!=/<... each need the parity flag folded
  * in; the i386 emitter ignored it and answered "1" for NaN != NaN. */
 static void amd_fcmp(AsmBuffer *b, int op) {
-    asmbuf_puts(b, "    ucomisd xmm0, xmm1\n    ");
+    asmbuf_puts(b, xh_x86_rule("text.dffd78210d40c71d"));
     switch (op) {
         case (int)TOK_EQ:
-            asmbuf_puts(b, "sete al\n    setnp cl\n    and al, cl\n");
+            asmbuf_puts(b, xh_x86_rule("text.6f40fdb1899ad972"));
             break;
         case (int)TOK_NE:
-            asmbuf_puts(b, "setne al\n    setp cl\n    or al, cl\n");
+            asmbuf_puts(b, xh_x86_rule("text.dc1ee4fca2c0b953"));
             break;
         case (int)TOK_LT:
-            asmbuf_puts(b, "setb al\n    setnp cl\n    and al, cl\n");
+            asmbuf_puts(b, xh_x86_rule("text.37bcbbde02db20af"));
             break;
         case (int)TOK_LE:
-            asmbuf_puts(b, "setbe al\n    setnp cl\n    and al, cl\n");
+            asmbuf_puts(b, xh_x86_rule("text.6647cb3551b948a1"));
             break;
         case (int)TOK_GT:
-            asmbuf_puts(b, "seta al\n");
+            asmbuf_puts(b, xh_x86_rule("text.c63b3fd74236bee8"));
             break;
         case (int)TOK_GE:
-            asmbuf_puts(b, "setae al\n");
+            asmbuf_puts(b, xh_x86_rule("text.f006002c7d0d6e08"));
             break;
         default:
-            asmbuf_puts(b, "sete al\n    setnp cl\n    and al, cl\n");
+            asmbuf_puts(b, xh_x86_rule("text.6f40fdb1899ad972"));
             break;
     }
-    asmbuf_puts(b, "    movzx eax, al\n    push rax\n");
+    asmbuf_puts(b, xh_x86_rule("text.3e4445ee301b6bc6"));
 }
 
 /* Which TOK_* condition a 2-operand compare should use. */
 static const char *amd_cc(int op, int is_unsigned) {
     switch (op) {
-        case (int)TOK_EQ: return "sete";
-        case (int)TOK_NE: return "setne";
-        case (int)TOK_LT: return is_unsigned ? "setb" : "setl";
-        case (int)TOK_GT: return is_unsigned ? "seta" : "setg";
-        case (int)TOK_LE: return is_unsigned ? "setbe" : "setle";
-        case (int)TOK_GE: return is_unsigned ? "setae" : "setge";
-        default: return "sete";
+        case (int)TOK_EQ: return xh_x86_rule("text.7e974de45fbf7089");
+        case (int)TOK_NE: return xh_x86_rule("text.2ebfda629113f6bc");
+        case (int)TOK_LT: return is_unsigned ? xh_x86_rule("text.45b0a30471aa0a40") : xh_x86_rule("text.c0f9a68a1e1d46ec");
+        case (int)TOK_GT: return is_unsigned ? xh_x86_rule("text.8c8978cd7982d691") : xh_x86_rule("text.50c15039fd24925d");
+        case (int)TOK_LE: return is_unsigned ? xh_x86_rule("text.52842a6b5054f646") : xh_x86_rule("text.9c24a172eeb3546c");
+        case (int)TOK_GE: return is_unsigned ? xh_x86_rule("text.f29a01dcd9f9f0d0") : xh_x86_rule("text.b39541bead413722");
+        default: return xh_x86_rule("text.7e974de45fbf7089");
     }
 }
 
@@ -2513,24 +2444,24 @@ static const char *amd_cc(int op, int is_unsigned) {
  * destination is a float (one word) or a double (two words). */
 static void amd_store_fp(AsmBuffer *b, int is_double) {
     if (is_double) {
-        asmbuf_puts(b, "    movq rax, xmm0\n");
+        asmbuf_puts(b, xh_x86_rule("text.71125b5563b4d27f"));
         amd_push64(b, "rax", "eax");
     } else {
-        asmbuf_puts(b, "    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n"
-                       "    mov eax, eax\n    push rax\n");
+        asmbuf_puts(b, xh_x86_rule("text.b50044e3a1414928"));
     }
 }
 
 static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
+    if (xh_x86_rules_begin(1)) return -1;
     xh_x86_prog = prog;
     AsmBuffer buf;
     int fi;
     asmbuf_init(&buf);
 
-    asmbuf_puts(&buf, "# Ark C Compiler - generated x86-64 (System V AMD64) assembly\n");
-    asmbuf_puts(&buf, "    .intel_syntax noprefix\n");
+    asmbuf_puts(&buf, xh_x86_rule("text.7780d9617252be9e"));
+    asmbuf_puts(&buf, xh_x86_rule("text.a8e02e4f5a197f3d"));
     x86_emit_data_sections(&buf, prog);
-    asmbuf_puts(&buf, "    .text\n");
+    asmbuf_puts(&buf, xh_x86_rule("text.a6b017eae27bd97f"));
 
     for (fi = 0; fi < prog->func_count; fi++) {
         IrFunc *f = prog->funcs[fi];
@@ -2619,17 +2550,17 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
             sret_used = 1;
 
         if (!f->is_static) {
-            asmbuf_puts(&buf, "    .globl ");
+            asmbuf_puts(&buf, xh_x86_rule("text.9bd395d67adffd1c"));
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
         }
         asmbuf_puts(&buf, f->name);
-        asmbuf_puts(&buf, ":\n");
-        asmbuf_puts(&buf, "    push rbp\n    mov rbp, rsp\n    sub rsp, ");
+        asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
+        asmbuf_puts(&buf, xh_x86_rule("text.b886aa64e2df5b28"));
         asmbuf_int(&buf, frame);
         asmbuf_putc(&buf, '\n');
         if (sret_used) {
-            asmbuf_puts(&buf, "    mov qword ptr [rbp-8], rdi\n");
+            asmbuf_puts(&buf, xh_x86_rule("text.33d123687cb27a9e"));
         }
 
         /* A variadic definition saves every incoming argument register before
@@ -2640,13 +2571,13 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
          * System V AMD64 convention spelled out in figure 3.34 of the psABI. */
         if (f->is_variadic) {
             int rj;
-            for (rj = 0; rj < 6; rj++)
+            for (rj = 0; rj < xh_x86_number("abi.integer.count"); rj++)
                 amd_rd_mem(&buf, "mov", "qword", -rs_off + 8 * rj,
-                           amd_argreg64[rj]);
-            for (rj = 0; rj < 8; rj++) {
-                asmbuf_puts(&buf, "    movups xmmword ptr [rbp-");
+                           amd_argreg64(rj));
+            for (rj = 0; rj < xh_x86_number("abi.vector.count"); rj++) {
+                asmbuf_puts(&buf, xh_x86_rule("text.9c2b4f48512425bd"));
                 asmbuf_int(&buf, rs_off - 48 - 16 * rj);
-                asmbuf_puts(&buf, "], xmm");
+                asmbuf_puts(&buf, xh_x86_rule("text.c5a10134862f0f36"));
                 asmbuf_int(&buf, rj);
                 asmbuf_putc(&buf, '\n');
             }
@@ -2673,10 +2604,10 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 tmp = -framelo - 8 * (k + 1);
                 k++;
                 if (is_sse) {
-                    if (sse_used < 8) {
-                        asmbuf_puts(&buf, "    movq rax, xmm");
+                    if (sse_used < xh_x86_number("abi.vector.count")) {
+                        asmbuf_puts(&buf, xh_x86_rule("text.38456c9cf2daa5cd"));
                         asmbuf_int(&buf, sse_used);
-                        asmbuf_puts(&buf, "\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.01ba4719c80b6fe9"));
                         amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
                         sse_used++;
                     } else {
@@ -2685,8 +2616,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         stk += 8;
                     }
                 } else {
-                    if (int_used < 6) {
-                        amd_rd_mem(&buf, "mov", "qword", tmp, amd_argreg64[int_used]);
+                    if (int_used < xh_x86_number("abi.integer.count")) {
+                        amd_rd_mem(&buf, "mov", "qword", tmp, amd_argreg64(int_used));
                         int_used++;
                     } else {
                         amd_mem_rd(&buf, "mov", "rax", "qword", stk);
@@ -2719,8 +2650,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                  * the upper 32, matching amd_pop64's (hi << 32) | lo. */
                 case IR_SEXT:
                     if (I->aux & IR_AUX_SLOT64) {
-                        asmbuf_puts(&buf, "    pop rax\n    mov rdx, rax\n    shr rdx, 32\n"
-                                          "    mov eax, eax\n    push rax\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.fcc09ed83b78d922"));
                     }
                     break;
                 case IR_ZEXT:
@@ -2731,8 +2661,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * instead would keep only the low 32 bits of the address
                      * (measured: `(char *)0x300000000LL != 0` answered 0). */
                     if (I->aux & IR_AUX_SLOT64) {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n    mov eax, eax\n"
-                                          "    shl rdx, 32\n    or rax, rdx\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8adea96e84baae87"));
                     }
                     break;
                 case IR_CDECL64:
@@ -2754,12 +2683,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (sz > 8) {
                         /* The wire carried the aggregate's address. */
                         amd_mem_rd(&buf, "mov", "rsi", "qword", tmp);
-                        asmbuf_puts(&buf, "    lea rdi, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.e8358e3e66032f77"));
                         amd_addr(&buf, dst);
                         asmbuf_putc(&buf, '\n');
-                        asmbuf_puts(&buf, "    mov ecx, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.d392d939b942f07c"));
                         asmbuf_int(&buf, sz);
-                        asmbuf_puts(&buf, "\n    rep movsb\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8d3fc2867d2efe58"));
                     } else if (sz >= 5) {
                         amd_mem_rd(&buf, "mov", "rax", "qword", tmp);
                         amd_rd_mem(&buf, "mov", "qword", dst, "rax");
@@ -2781,9 +2710,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     break;
 
                 case IR_PUSH_STR:
-                    asmbuf_puts(&buf, "    lea rax, [.Lark_str_");
+                    asmbuf_puts(&buf, xh_x86_rule("text.e9e669e41d52b9b2"));
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "]\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     break;
 
                 case IR_PUSH_VAR: {
@@ -2800,22 +2729,22 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     }
                     if (slot64) {
                         amd_mem_rd(&buf, "mov", "rax", "qword", d);
-                        asmbuf_puts(&buf, "    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     } else if (w == 8) {
                         amd_mem_rd(&buf, "mov", "rax", "qword", d);
                         amd_push64(&buf, "rax", "eax");
                     } else {
                         amd_load_ext(&buf, w, d, (I->aux & 0x100) != 0);
-                        asmbuf_puts(&buf, "    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     }
                     break;
                 }
 
                 case IR_PUSH_ADDR: {
                     int d = (int)I->val - framelo;
-                    asmbuf_puts(&buf, "    lea rax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.35bbb883dbc56169"));
                     amd_addr(&buf, d);
-                    asmbuf_puts(&buf, "\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.475f15810fba1372"));
                     break;
                 }
 
@@ -2828,27 +2757,27 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * function being compiled, so they cannot live in data. */
                     if (f->is_variadic && I->name) {
                         if (ark_streq(I->name, "_ark_va__gp_offset")) {
-                            asmbuf_puts(&buf, "    push ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.276c8636c367c6c1"));
                             asmbuf_int(&buf, 8 * int_used);
                             asmbuf_putc(&buf, '\n');
                             break;
                         }
                         if (ark_streq(I->name, "_ark_va__fp_offset")) {
-                            asmbuf_puts(&buf, "    push ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.276c8636c367c6c1"));
                             asmbuf_int(&buf, 48 + 16 * sse_used);
                             asmbuf_putc(&buf, '\n');
                             break;
                         }
                         if (ark_streq(I->name, "_ark_va__overflow_area")) {
-                            asmbuf_puts(&buf, "    lea rax, [rbp+");
+                            asmbuf_puts(&buf, xh_x86_rule("text.dfc15ab0f0df0a24"));
                             asmbuf_int(&buf, stk);
-                            asmbuf_puts(&buf, "]\n    push rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                             break;
                         }
                         if (ark_streq(I->name, "_ark_va__reg_save_area")) {
-                            asmbuf_puts(&buf, "    lea rax, [rbp-");
+                            asmbuf_puts(&buf, xh_x86_rule("text.6361c380597f7fe7"));
                             asmbuf_int(&buf, rs_off);
-                            asmbuf_puts(&buf, "]\n    push rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                             break;
                         }
                     }
@@ -2863,26 +2792,26 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         break;
                     }
                     if (t && t->kind == TYPE_PTR) {
-                        asmbuf_puts(&buf, "    mov rax, qword ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.7dc7b89e01dd0887"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     } else if (sz >= 8) {
-                        asmbuf_puts(&buf, "    mov rax, qword ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.7dc7b89e01dd0887"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
                         amd_push64(&buf, "rax", "eax");
                     } else if (sz == 1) {
-                        asmbuf_puts(&buf, uns ? "    movzx eax, byte ptr [" : "    movsx eax, byte ptr [");
+                        asmbuf_puts(&buf, uns ? xh_x86_rule("text.6d4d1dcbcda76ecd") : xh_x86_rule("text.719d4e0b279b0046"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     } else if (sz == 2) {
-                        asmbuf_puts(&buf, uns ? "    movzx eax, word ptr [" : "    movsx eax, word ptr [");
+                        asmbuf_puts(&buf, uns ? xh_x86_rule("text.1a1f6255007ca43a") : xh_x86_rule("text.b862f0104b5e524d"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     } else {
-                        asmbuf_puts(&buf, "    mov eax, dword ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2fa68fea27ac0180"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     }
                     break;
                 }
@@ -2899,34 +2828,33 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         break;
                     }
                     if (t && t->kind == TYPE_PTR) {
-                        asmbuf_puts(&buf, "    pop rax\n    mov qword ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.9167fb0b226f1420"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "], rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.42ade291e14ed386"));
                     } else if (sz >= 8) {
                         /* mode64 rejects "[sym+disp]", so materialise the
                          * address first and use a register-relative form. */
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n    lea rcx, [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.d9fff63b74c3fc83"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "]\n    mov dword ptr [rcx], eax\n"
-                                          "    mov dword ptr [rcx+4], edx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.93336d78c9066192"));
                     } else if (sz == 1) {
-                        asmbuf_puts(&buf, "    pop rax\n    mov byte ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8dabc6fad806881f"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "], al\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4e43d6d10f959fcb"));
                     } else if (sz == 2) {
-                        asmbuf_puts(&buf, "    pop rax\n    mov word ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f59599ca3be9e93a"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "], ax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2dbd1dc71e0212d3"));
                     } else {
-                        asmbuf_puts(&buf, "    pop rax\n    mov dword ptr [");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2ac11892bbd77222"));
                         asmbuf_puts(&buf, I->name);
-                        asmbuf_puts(&buf, "], eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                     }
                     break;
                 }
 
                 case IR_POP:
-                    asmbuf_puts(&buf, "    add rsp, 8\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.757e527cdcff9451"));
                     break;
 
                 case IR_DUP: {
@@ -2939,20 +2867,20 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     }
                     /* Snapshot first: pushing shifts rsp under the reads. */
                     for (k = 0; k < nw; k++) {
-                        asmbuf_puts(&buf, "    mov rax, qword ptr [rsp+");
+                        asmbuf_puts(&buf, xh_x86_rule("text.15ff3752709e02fd"));
                         asmbuf_int(&buf, 8 * k);
-                        asmbuf_puts(&buf, "]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
                         amd_rd_mem(&buf, "mov", "qword", -24 - 8 * k, "rax");
                     }
                     for (k = nw - 1; k >= 0; k--) {
                         amd_mem_rd(&buf, "mov", "rax", "qword", -24 - 8 * k);
-                        asmbuf_puts(&buf, "    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     }
                     break;
                 }
 
                 case IR_SWAP:
-                    asmbuf_puts(&buf, "    pop rax\n    pop rcx\n    push rax\n    push rcx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.b2e9d9f67f0ae551"));
                     break;
 
                 case IR_STORE: {
@@ -2968,20 +2896,20 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         break;
                     }
                     if (slot64) {
-                        asmbuf_puts(&buf, "    pop rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                         amd_rd_mem(&buf, "mov", "qword", d, "rax");
                     } else if (w == 8) {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c792e5f5e47b5303"));
                         amd_rd_mem(&buf, "mov", "dword", d, "eax");
                         amd_rd_mem(&buf, "mov", "dword", d + 4, "edx");
                     } else if (w == 1) {
-                        asmbuf_puts(&buf, "    pop rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                         amd_rd_mem(&buf, "mov", "byte", d, "al");
                     } else if (w == 2) {
-                        asmbuf_puts(&buf, "    pop rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                         amd_rd_mem(&buf, "mov", "word", d, "ax");
                     } else {
-                        asmbuf_puts(&buf, "    pop rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                         amd_rd_mem(&buf, "mov", "dword", d, "eax");
                     }
                     break;
@@ -2999,26 +2927,26 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         amd_unsupported(&buf, "_Complex float array element load");
                         break;
                     }
-                    asmbuf_puts(&buf, "    pop rcx\n    pop rax\n    movsxd rcx, ecx\n");
-                    if (es == 2) asmbuf_puts(&buf, "    shl rcx, 1\n");
-                    else if (es == 4) asmbuf_puts(&buf, "    shl rcx, 2\n");
-                    else if (es == 8) asmbuf_puts(&buf, "    shl rcx, 3\n");
-                    asmbuf_puts(&buf, "    add rax, rcx\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.10be0a705c528063"));
+                    if (es == 2) asmbuf_puts(&buf, xh_x86_rule("text.414872d99b4c53b6"));
+                    else if (es == 4) asmbuf_puts(&buf, xh_x86_rule("text.2baa3a2a80560c83"));
+                    else if (es == 8) asmbuf_puts(&buf, xh_x86_rule("text.2f51ac6010cd6939"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.4d13042fcef9d73c"));
                     if (slot64) {
-                        asmbuf_puts(&buf, "    mov rdx, qword ptr [rax]\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.34c0511551df6359"));
                     } else if (es == 1) {
-                        asmbuf_puts(&buf, uns ? "    movzx eax, byte ptr [rax]\n"
-                                              : "    movsx eax, byte ptr [rax]\n");
-                        asmbuf_puts(&buf, "    push rax\n");
+                        asmbuf_puts(&buf, uns ? xh_x86_rule("text.320286e1233ba360")
+                                              : xh_x86_rule("text.f43341e99fe36f5d"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     } else if (es == 2) {
-                        asmbuf_puts(&buf, uns ? "    movzx eax, word ptr [rax]\n"
-                                              : "    movsx eax, word ptr [rax]\n");
-                        asmbuf_puts(&buf, "    push rax\n");
+                        asmbuf_puts(&buf, uns ? xh_x86_rule("text.d3364f83450cc6cb")
+                                              : xh_x86_rule("text.e9559e54b3b4eded"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     } else if (es == 8) {
-                        asmbuf_puts(&buf, "    mov rdx, qword ptr [rax]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4d067f21ecf956da"));
                         amd_push64(&buf, "rdx", "edx");
                     } else {
-                        asmbuf_puts(&buf, "    mov eax, dword ptr [rax]\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c8b44b422dea869a"));
                     }
                     break;
                 }
@@ -3035,148 +2963,82 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         break;
                     }
                     if (slot64) {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n"
-                                          "    mov qword ptr [rax], rdx\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.3a90bcf5e794e695"));
                     } else if (es == 8) {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rcx\n    pop rax\n"
-                                          "    mov dword ptr [rax], ecx\n"
-                                          "    mov dword ptr [rax+4], edx\n"
-                                          "    push rcx\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.96c9447543ed5477"));
                     } else if (es == 1) {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n"
-                                          "    mov byte ptr [rax], dl\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ec94bfa1fb7aa1bb"));
                     } else if (es == 2) {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n"
-                                          "    mov word ptr [rax], dx\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.275a1dac401948e8"));
                     } else {
-                        asmbuf_puts(&buf, "    pop rdx\n    pop rax\n"
-                                          "    mov dword ptr [rax], edx\n    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.7ceb7f570d0878aa"));
                     }
                     break;
                 }
 
                 case IR_BINARY: {
-                    int op = (int)(I->aux & 0xFF);
-                    int uns = (I->aux & 0x100) != 0;
-                    /* IR_AUX_SLOT64 says both operands are ONE word holding a
-                     * full 64-bit value (a pointer on this ABI).  The plain
-                     * 32-bit forms below wrote eax, which zero-extends into
-                     * rax and threw the upper half of the address away. */
-                    int w64 = (I->aux & IR_AUX_SLOT64) != 0;
-                    const char *bop = binop_x(op);
-                    asmbuf_puts(&buf, "    pop rcx\n    pop rax\n");
-                    if (w64) {
-                        if (bop) {
-                            asmbuf_puts(&buf, "    ");
-                            asmbuf_puts(&buf, bop);
-                            asmbuf_puts(&buf, " rax, rcx\n    push rax\n");
-                        } else if (op == (int)TOK_MUL) {
-                            asmbuf_puts(&buf, "    imul rax, rcx\n    push rax\n");
-                        } else if (op == (int)TOK_DIV || op == (int)TOK_MOD) {
-                            asmbuf_puts(&buf, uns ? "    xor edx, edx\n    div rcx\n"
-                                                  : "    cqo\n    idiv rcx\n");
-                            asmbuf_puts(&buf, op == (int)TOK_DIV ? "    push rax\n"
-                                                                 : "    push rdx\n");
-                        } else if (op == (int)TOK_SHL) {
-                            asmbuf_puts(&buf, "    shl rax, cl\n    push rax\n");
-                        } else if (op == (int)TOK_SHR) {
-                            asmbuf_puts(&buf, uns ? "    shr rax, cl\n    push rax\n"
-                                                  : "    sar rax, cl\n    push rax\n");
-                        } else {
-                            const char *cc64 = amd_cc(op, uns);
-                            asmbuf_puts(&buf, "    cmp rax, rcx\n    ");
-                            asmbuf_puts(&buf, cc64);
-                            asmbuf_puts(&buf, " al\n    movzx eax, al\n    push rax\n");
-                        }
-                        break;
-                    }
-                    if (bop) {
-                        asmbuf_puts(&buf, "    ");
-                        asmbuf_puts(&buf, bop);
-                        asmbuf_puts(&buf, " eax, ecx\n    push rax\n");
-                    } else if (op == (int)TOK_MUL) {
-                        asmbuf_puts(&buf, "    imul eax, ecx\n    push rax\n");
-                    } else if (op == (int)TOK_DIV) {
-                        asmbuf_puts(&buf, uns ? "    xor edx, edx\n    div ecx\n"
-                                              : "    cdq\n    idiv ecx\n");
-                        asmbuf_puts(&buf, "    push rax\n");
-                    } else if (op == (int)TOK_MOD) {
-                        asmbuf_puts(&buf, uns ? "    xor edx, edx\n    div ecx\n"
-                                              : "    cdq\n    idiv ecx\n");
-                        asmbuf_puts(&buf, "    push rdx\n");
-                    } else if (op == (int)TOK_SHL) {
-                        asmbuf_puts(&buf, "    shl eax, cl\n    push rax\n");
-                    } else if (op == (int)TOK_SHR) {
-                        asmbuf_puts(&buf, uns ? "    shr eax, cl\n    push rax\n"
-                                              : "    sar eax, cl\n    push rax\n");
-                    } else {
-                        const char *cc = amd_cc(op, uns);
-                        asmbuf_puts(&buf, "    cmp eax, ecx\n    ");
-                        asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, " al\n    movzx eax, al\n    push rax\n");
-                    }
-                    break;
-                }
+ x86_scalar_rule(&buf,I->aux & 0xFF,(I->aux & 0x100)!=0,(I->aux & IR_AUX_SLOT64)?64:32);
+ break;
+ }
 
                 case IR_UNARY: {
                     if (I->aux & IR_AUX_COMPLEX) {
                         amd_unsupported(&buf, "conj");
                         break;
                     }
-                    asmbuf_puts(&buf, "    pop rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                     if (I->val == 1 && (int)I->aux == (int)TOK_MINUS) {
                         /* float: the only word holds the sign bit; double: the
                          * high word (on top) does.  Either way the top word is
                          * the one to flip. */
-                        asmbuf_puts(&buf, "    xor eax, 0x80000000\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.49eecb5894f48969"));
                     } else if (I->val == 2 &&
                                ((int)I->aux == (int)TOK_MINUS || (int)I->aux == (int)TOK_BNOT)) {
-                        asmbuf_puts(&buf, "    mov rdx, rax\n");
-                        asmbuf_puts(&buf, "    pop rax\n    mov eax, eax\n"
-                                          "    shl rdx, 32\n    or rax, rdx\n");
-                        asmbuf_puts(&buf, (int)I->aux == (int)TOK_MINUS ? "    neg rax\n"
-                                                                       : "    not rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b6ac13acdc833d31"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.473243e770661c83"));
+                        asmbuf_puts(&buf, (int)I->aux == (int)TOK_MINUS ? xh_x86_rule("text.329878c2358781a6")
+                                                                       : xh_x86_rule("text.4be3e7f0ae2e026e"));
                         amd_push64(&buf, "rax", "eax");
                     } else {
                         if ((int)I->aux == (int)TOK_MINUS)
-                            asmbuf_puts(&buf, "    neg eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.e29bd740543bbe7f"));
                         else if ((int)I->aux == (int)TOK_BNOT)
-                            asmbuf_puts(&buf, "    not eax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.cd9069b2dc376ed8"));
                         else
-                            asmbuf_puts(&buf, "    test eax, eax\n    sete al\n    movzx eax, al\n");
-                        asmbuf_puts(&buf, "    push rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.fecfa68ae8bbca42"));
+                        asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     }
                     break;
                 }
 
                 case IR_TRUNC: {
-                    asmbuf_puts(&buf, "    pop rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                     if (I->val == 8)
-                        asmbuf_puts(&buf, I->aux ? "    movzx eax, al\n" : "    movsx eax, al\n");
+                        asmbuf_puts(&buf, I->aux ? xh_x86_rule("text.344ade76d4acecae") : xh_x86_rule("text.fe88e51f8712bfcd"));
                     else if (I->val == 16)
-                        asmbuf_puts(&buf, I->aux ? "    movzx eax, ax\n" : "    movsx eax, ax\n");
-                    asmbuf_puts(&buf, "    push rax\n");
+                        asmbuf_puts(&buf, I->aux ? xh_x86_rule("text.edd53f9a0d5b9f63") : xh_x86_rule("text.8832c5e95cb1e8dd"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     break;
                 }
 
                 case IR_LABEL:
-                    asmbuf_puts(&buf, ".L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.4b6d79fc377f87b4"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ":\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     break;
 
                 case IR_LABEL_NAMED:
-                    asmbuf_puts(&buf, ".LN_");
+                    asmbuf_puts(&buf, xh_x86_rule("text.be1de5990bdec1cd"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, ":\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     break;
 
                 case IR_JMP:
-                    asmbuf_puts(&buf, "    jmp .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.02b129850dd58dc5"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
@@ -3184,7 +3046,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     break;
 
                 case IR_JMP_NAMED:
-                    asmbuf_puts(&buf, "    jmp .LN_");
+                    asmbuf_puts(&buf, xh_x86_rule("text.66fe547640031826"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_puts(&buf, I->name);
@@ -3193,8 +3055,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
 
                 case IR_JZ:
                 case IR_JNZ:
-                    asmbuf_puts(&buf, "    pop rax\n    test rax, rax\n    ");
-                    asmbuf_puts(&buf, I->op == IR_JZ ? "jz .L" : "jnz .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.e04c6c878bc1cbdf"));
+                    asmbuf_puts(&buf, I->op == IR_JZ ? xh_x86_rule("text.7c5dca04b91ccf52") : xh_x86_rule("text.a472f8f0f8e38a6a"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->val);
@@ -3202,21 +3064,21 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     break;
 
                 case IR_CMP_JMP_EQ:
-                    asmbuf_puts(&buf, "    mov rax, qword ptr [rsp]\n    cmp eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.611f0f285fc162a0"));
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "\n    jne .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.30a89a7de4ba7b85"));
                     asmbuf_puts(&buf, f->name);
-                    asmbuf_puts(&buf, "_cje");
+                    asmbuf_puts(&buf, xh_x86_rule("text.1ac5c327b8b33635"));
                     asmbuf_int(&buf, i);
-                    asmbuf_puts(&buf, "\n    add rsp, 8\n    jmp .L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.3fb9af8ed22e7a0c"));
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_int(&buf, I->aux);
-                    asmbuf_puts(&buf, "\n.L");
+                    asmbuf_puts(&buf, xh_x86_rule("text.c54b801b3c7f4a0c"));
                     asmbuf_puts(&buf, f->name);
-                    asmbuf_puts(&buf, "_cje");
+                    asmbuf_puts(&buf, xh_x86_rule("text.1ac5c327b8b33635"));
                     asmbuf_int(&buf, i);
-                    asmbuf_puts(&buf, ":\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     break;
 
                 case IR_CALL: {
@@ -3250,7 +3112,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (sret_call) int_used = 1;
 
                     if (is_indirect) {
-                        asmbuf_puts(&buf, "    pop r11\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ccee9788ee630a91"));
                         n -= 1;
                     }
                     if (n < 0) n = 0;
@@ -3273,12 +3135,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         w = slot64 ? 1 : (b > 4 ? 2 : 1);
                         tmp = -framelo - 8 * (k + 1);
                         if (w == 2) {
-                            asmbuf_puts(&buf, "    pop rdx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.d0aef66727d08b37"));
                             amd_rd_mem(&buf, "mov", "dword", tmp + 4, "edx");
-                            asmbuf_puts(&buf, "    pop rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                             amd_rd_mem(&buf, "mov", "dword", tmp, "eax");
                         } else {
-                            asmbuf_puts(&buf, "    pop rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                             amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
                         }
                         same[k] = (k < 16 && ((argmask >> (2 * k)) & 1)) ? 1 : 0;
@@ -3299,17 +3161,17 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * stack argument was loaded into rdi/rsi/... and the real
                      * registers were overwritten. */
                     for (k = 0; k < n; k++) {
-                        if (same[k] && sse_used < 8) {
+                        if (same[k] && sse_used < xh_x86_number("abi.vector.count")) {
                             cls[k] = 1; where[k] = sse_used++;
-                        } else if (!same[k] && int_used < 6) {
+                        } else if (!same[k] && int_used < xh_x86_number("abi.integer.count")) {
                             cls[k] = 0; where[k] = int_used++;
                         } else {
                             cls[k] = 2; where[k] = nstk++;
                         }
                     }
-                    asmbuf_puts(&buf, "    mov qword ptr [rbp-16], rsp\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.d142bbe448005ce7"));
                     if (nstk > 0) {
-                        asmbuf_puts(&buf, "    sub rsp, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cb03efe8ee360a4b"));
                         asmbuf_int(&buf, (8 * nstk + 15) & ~15);
                         asmbuf_putc(&buf, '\n');
                     }
@@ -3324,9 +3186,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             (void)b;
                             tmp = -framelo - 8 * (k + 1);
                             amd_mem_rd(&buf, "mov", "rax", "qword", tmp);
-                            asmbuf_puts(&buf, "    mov qword ptr [rsp+");
+                            asmbuf_puts(&buf, xh_x86_rule("text.e4109461abaf377f"));
                             asmbuf_int(&buf, 8 * next);
-                            asmbuf_puts(&buf, "], rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.42ade291e14ed386"));
                             next++;
                         }
                     }
@@ -3338,9 +3200,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         else b = (k < 16 && ((argmask >> (2 * k + 1)) & 1)) ? 8 : 4;
                         tmp = -framelo - 8 * (k + 1);
                         if (cls[k] == 1) {
-                            asmbuf_puts(&buf, "    movq xmm");
+                            asmbuf_puts(&buf, xh_x86_rule("text.cc3836120ed5ecf8"));
                             asmbuf_int(&buf, where[k]);
-                            asmbuf_puts(&buf, ", qword ptr ");
+                            asmbuf_puts(&buf, xh_x86_rule("text.d5ab32bec840f3fe"));
                             amd_addr(&buf, tmp);
                             asmbuf_putc(&buf, '\n');
                         } else {
@@ -3354,7 +3216,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                              * argument of a callback came in truncated.  SysV
                              * leaves the upper half of a register unspecified
                              * for narrower arguments, so widening is legal. */
-                            amd_mem_rd(&buf, "mov", amd_argreg64[where[k]], "qword", tmp);
+                            amd_mem_rd(&buf, "mov", amd_argreg64(where[k]), "qword", tmp);
                         }
                     }
                     /* The hidden result buffer goes into rdi last: the
@@ -3363,30 +3225,30 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * earlier write.  rax is free here -- the next use is
                      * `mov al, sse_used`. */
                     if (sret_call) {
-                        asmbuf_puts(&buf, "    lea rax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.35bbb883dbc56169"));
                         amd_addr(&buf, -sret_buf);
                         asmbuf_putc(&buf, '\n');
-                        asmbuf_puts(&buf, "    mov rdi, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.d4aa8d11e462616f"));
                     }
                     /* al = number of vector registers used (SysV varargs). */
-                    asmbuf_puts(&buf, "    mov al, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.112b8d88b530b012"));
                     asmbuf_int(&buf, sse_used);
                     asmbuf_putc(&buf, '\n');
                     if (is_indirect) {
-                        asmbuf_puts(&buf, "    call r11\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.02d54d9705b644c1"));
                     } else {
-                        asmbuf_puts(&buf, "    call ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.7e873a94c44eeb9e"));
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, '\n');
                     }
-                    asmbuf_puts(&buf, "    mov rsp, qword ptr [rbp-16]\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.b0d7482d199fb842"));
                     if (sret_call) {
                         /* The IR value of a struct-returning call is the
                          * address of the result, and the front end copies the
                          * object out of it.  SysV does promise the address
                          * back in rax, but re-deriving it from the frame costs
                          * one lea and removes any dependence on the callee. */
-                        asmbuf_puts(&buf, "    lea rax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.35bbb883dbc56169"));
                         amd_addr(&buf, -sret_buf);
                         asmbuf_putc(&buf, '\n');
                     }
@@ -3406,11 +3268,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                              * frame slot -- f_add(9.5,5.5), f_mul, g1, g5 and g8 all
                              * read 0 on x86_64 after the bit-53 encoding fix made
                              * this branch reachable for the first time. */
-                            asmbuf_puts(&buf, "    movq rax, xmm0\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.71125b5563b4d27f"));
                             if (ret2)
                                 amd_push64(&buf, "rax", "eax");
                             else
-                                asmbuf_puts(&buf, "    mov eax, eax\n    push rax\n");
+                                asmbuf_puts(&buf, xh_x86_rule("text.3520170c55ba558b"));
                         } else if (ret2) {
                             /* A two-word result comes back as one full 64-bit
                              * value in rax (see IR_RETURN: amd_pop64 rebuilds
@@ -3420,10 +3282,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                              * there instead, so the high word read back as 0
                              * and every 64-bit result was truncated to its
                              * low 32 bits.  Split rax explicitly. */
-                            asmbuf_puts(&buf, "    mov rdx, rax\n    shr rdx, 32\n"
-                                              "    mov eax, eax\n    push rax\n    push rdx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.5448a6e84572d981"));
                         } else {
-                            asmbuf_puts(&buf, "    push rax\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                         }
                     }
                     break;
@@ -3449,55 +3310,52 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                          * already uses exactly these three. */
                         int rsz = type_size(rt);
                         if (rsz <= 0) rsz = 8;
-                        asmbuf_puts(&buf, "    pop rsi\n    mov rdi, qword ptr [rbp-8]\n"
-                                          "    mov ecx, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.975d1ac3de00bf49"));
                         asmbuf_int(&buf, rsz);
-                        asmbuf_puts(&buf, "\n    rep movsb\n"
-                                          "    mov rax, qword ptr [rbp-8]\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c129ba0807158854"));
                     } else if (two) {
                         amd_pop64(&buf, "rax", "eax");
                     } else {
-                        asmbuf_puts(&buf, "    pop rax\n    mov eax, eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5e083d46fce61f03"));
                     }
                     if (rt && (rt->kind == TYPE_FLOAT || rt->kind == TYPE_DOUBLE))
-                        asmbuf_puts(&buf, "    movq xmm0, rax\n");
-                    asmbuf_puts(&buf, "    mov rsp, rbp\n    pop rbp\n    ret\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.433c6caaac074862"));
                     break;
                 }
 
                 case IR_PUSH_FUNC:
-                    asmbuf_puts(&buf, "    lea rax, [");
+                    asmbuf_puts(&buf, xh_x86_rule("text.ba1d0a3c1a91e644"));
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, "]\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     break;
 
                 case IR_PUSH_GLOBAL_ADDR:
-                    asmbuf_puts(&buf, "    lea rax, [");
+                    asmbuf_puts(&buf, xh_x86_rule("text.ba1d0a3c1a91e644"));
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, "]\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f4b1b72c766f9a05"));
                     break;
 
                 case IR_MEMCPY:
                     /* irgen pushes dst, src and then dst again, so the two pops
                      * below are the whole cleanup. */
-                    asmbuf_puts(&buf, "    pop rdi\n    pop rsi\n    mov ecx, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6a557a74cc347725"));
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "\n    rep movsb\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.8d3fc2867d2efe58"));
                     break;
 
                 case IR_ALLOCA:
-                    asmbuf_puts(&buf, "    pop rax\n    add rax, 15\n    and rax, -16\n"
-                                      "    sub rsp, rax\n    mov rax, rsp\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.e0a9440bd43c1f8a"));
                     break;
 
                 case IR_DIV:
                 case IR_MOD:
-                    asmbuf_puts(&buf, "    pop rcx\n    pop rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.96f5981a878f5fa4"));
                     if (I->aux & 1)
-                        asmbuf_puts(&buf, "    xor edx, edx\n    div ecx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ad142bfd1df4af66"));
                     else
-                        asmbuf_puts(&buf, "    cdq\n    idiv ecx\n");
-                    asmbuf_puts(&buf, I->op == IR_DIV ? "    push rax\n" : "    push rdx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.767d3f8a4f58efa7"));
+                    asmbuf_puts(&buf, I->op == IR_DIV ? xh_x86_rule("text.de1843ef75a9fb24") : xh_x86_rule("text.d030bef8d2dfffbe"));
                     break;
 
                 case IR_PUSH_FLOAT: {
@@ -3547,19 +3405,17 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (is_dbl) {
                         amd_pop64(&buf, "rax", "eax");   /* b */
                         amd_pop64(&buf, "rcx", "ecx");   /* a */
-                        asmbuf_puts(&buf, "    movq xmm0, rcx\n    movq xmm1, rax\n    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.fdf5cf8fa9ab9307"));
                         asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, " xmm0, xmm1\n    movq rax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.90bc70c67f005071"));
                         amd_push64(&buf, "rax", "eax");
                     } else {
                         /* No single-precision ALU in this assembler: widen both
                          * operands, compute in double, narrow back.  Rounding
                          * twice is exact for + - * / because 53 >= 2*24 + 2. */
-                        asmbuf_puts(&buf, "    pop rax\n    pop rcx\n"
-                                          "    movq xmm0, rcx\n    movq xmm1, rax\n"
-                                          "    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.4cc8939188beca23"));
                         asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, " xmm0, xmm1\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.78576d88a1d6d704"));
                         amd_store_fp(&buf, 0);
                     }
                     break;
@@ -3575,11 +3431,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (is_dbl) {
                         amd_pop64(&buf, "rax", "eax");
                         amd_pop64(&buf, "rcx", "ecx");
-                        asmbuf_puts(&buf, "    movq xmm0, rcx\n    movq xmm1, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.af40109a3e4c5b8d"));
                     } else {
-                        asmbuf_puts(&buf, "    pop rax\n    pop rcx\n"
-                                          "    movq xmm0, rcx\n    movq xmm1, rax\n"
-                                          "    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bf90b28855981548"));
                     }
                     amd_fcmp(&buf, op);
                     break;
@@ -3594,19 +3448,18 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     }
                     if (src_dbl) {
                         amd_pop64(&buf, "rax", "eax");
-                        asmbuf_puts(&buf, "    movq xmm0, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
                     } else {
-                        asmbuf_puts(&buf, "    pop rax\n    movq xmm0, rax\n"
-                                          "    cvtss2sd xmm0, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.efbd6e805ebcde33"));
                     }
                     if (dst_uns) {
                         /* The 64-bit form covers the whole unsigned 32-bit
                          * range; the low half is then the answer. */
-                        asmbuf_puts(&buf, "    cvttsd2si rax, xmm0\n    mov eax, eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b984325137f3b5f0"));
                     } else {
-                        asmbuf_puts(&buf, "    cvttsd2si eax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
                     }
-                    asmbuf_puts(&buf, "    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     break;
                 }
 
@@ -3617,12 +3470,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         amd_unsupported(&buf, "real to complex conversion");
                         break;
                     }
-                    asmbuf_puts(&buf, "    pop rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                     if (src_uns)
-                        asmbuf_puts(&buf, "    mov eax, eax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5829b49189e5d8da"));
                     else
-                        asmbuf_puts(&buf, "    movsxd rax, eax\n");
-                    asmbuf_puts(&buf, "    cvtsi2sd xmm0, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.806e40da505153d5"));
+                    asmbuf_puts(&buf, xh_x86_rule("text.e90ca0e5f84313f1"));
                     amd_store_fp(&buf, dst_dbl);
                     break;
                 }
@@ -3631,12 +3484,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (I->aux & 0x200) {
                         /* double -> float */
                         amd_pop64(&buf, "rax", "eax");
-                        asmbuf_puts(&buf, "    movq xmm0, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
                         amd_store_fp(&buf, 0);
                     } else if (I->aux & 0x100) {
                         /* float -> double */
-                        asmbuf_puts(&buf, "    pop rax\n    movq xmm0, rax\n"
-                                          "    cvtss2sd xmm0, xmm0\n    movq rax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.2a7b9abdcdd1df24"));
                         amd_push64(&buf, "rax", "eax");
                     } else {
                         /* Same width: irgen does not emit it, but keep the
@@ -3658,31 +3510,31 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     amd_pop64(&buf, "rcx", "ecx");   /* b */
                     amd_pop64(&buf, "rax", "eax");   /* a */
                     if (bop) {
-                        asmbuf_puts(&buf, "    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
                         asmbuf_puts(&buf, bop);
-                        asmbuf_puts(&buf, " rax, rcx\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.9bb2ec8aa477608c"));
                         amd_push64(&buf, "rax", "eax");
                     } else if (op == (int)TOK_MUL || op == (int)TOK_DIV ||
                                op == (int)TOK_MOD || op == (int)TOK_SHL ||
                                op == (int)TOK_SHR) {
                         if (op == (int)TOK_MUL) {
-                            asmbuf_puts(&buf, "    imul rax, rcx\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.dd74d87037e1c8a8"));
                         } else if (op == (int)TOK_DIV || op == (int)TOK_MOD) {
-                            asmbuf_puts(&buf, uns ? "    xor edx, edx\n    div rcx\n"
-                                                  : "    cqo\n    idiv rcx\n");
+                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.8bda95a54d415775")
+                                                  : xh_x86_rule("text.bc370da3c4dbbf24"));
                             if (op == (int)TOK_MOD)
-                                asmbuf_puts(&buf, "    mov rax, rdx\n");
+                                asmbuf_puts(&buf, xh_x86_rule("text.d729da48110992c8"));
                         } else if (op == (int)TOK_SHL) {
-                            asmbuf_puts(&buf, "    shl rax, cl\n");
+                            asmbuf_puts(&buf, xh_x86_rule("text.3425d160c827d5dc"));
                         } else {
-                            asmbuf_puts(&buf, uns ? "    shr rax, cl\n" : "    sar rax, cl\n");
+                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.b0d97196713fb33b") : xh_x86_rule("text.b3ad277704da6177"));
                         }
                         amd_push64(&buf, "rax", "eax");
                     } else {
                         const char *cc = amd_cc(op, uns);
-                        asmbuf_puts(&buf, "    cmp rax, rcx\n    ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5bd62f2b9392f0ab"));
                         asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, " al\n    movzx eax, al\n    push rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.bd3376dd310a01b5"));
                     }
                     break;
                 }
@@ -3693,9 +3545,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     const char *cc = amd_cc(op, uns);
                     amd_pop64(&buf, "rcx", "ecx");
                     amd_pop64(&buf, "rax", "eax");
-                    asmbuf_puts(&buf, "    cmp rax, rcx\n    ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.5bd62f2b9392f0ab"));
                     asmbuf_puts(&buf, cc);
-                    asmbuf_puts(&buf, " al\n    movzx eax, al\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.bd3376dd310a01b5"));
                     break;
                 }
 
@@ -3704,36 +3556,30 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     int dst_uns = (I->aux & 0x400) != 0;
                     if (src_dbl) {
                         amd_pop64(&buf, "rax", "eax");
-                        asmbuf_puts(&buf, "    movq xmm0, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
                     } else {
-                        asmbuf_puts(&buf, "    pop rax\n    movq xmm0, rax\n"
-                                          "    cvtss2sd xmm0, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.efbd6e805ebcde33"));
                     }
                     if (dst_uns) {
-                        asmbuf_puts(&buf, "    mov rax, 0x43E0000000000000\n"
-                                          "    movq xmm1, rax\n    ucomisd xmm0, xmm1\n"
-                                          "    jb .L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.207af587925b69e5"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_u2i");
+                        asmbuf_puts(&buf, xh_x86_rule("text.35961bcff24ffbb8"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, "\n    subsd xmm0, xmm1\n"
-                                          "    cvttsd2si rax, xmm0\n"
-                                          "    mov rcx, 0x8000000000000000\n"
-                                          "    or rax, rcx\n    jmp .L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.9ed4773e60445886"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_u2id");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f93897535644328c"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, "\n.L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c54b801b3c7f4a0c"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_u2i");
+                        asmbuf_puts(&buf, xh_x86_rule("text.35961bcff24ffbb8"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, ":\n    cvttsd2si rax, xmm0\n.L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c78cc2578921b416"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_u2id");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f93897535644328c"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, ":\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     } else {
-                        asmbuf_puts(&buf, "    cvttsd2si rax, xmm0\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.83267ea010e4594c"));
                     }
                     amd_push64(&buf, "rax", "eax");
                     break;
@@ -3744,28 +3590,25 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     int src_uns = (I->aux & 0x400) != 0;
                     amd_pop64(&buf, "rax", "eax");
                     if (src_uns) {
-                        asmbuf_puts(&buf, "    test rax, rax\n    jns .L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.403bf3de62279b59"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_i2u");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cb0a2fa0d24b4edc"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, "\n    mov rcx, rax\n    and eax, 1\n"
-                                          "    shr rcx, 1\n    or rcx, rax\n"
-                                          "    cvtsi2sd xmm0, rcx\n    addsd xmm0, xmm0\n"
-                                          "    jmp .L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.195beb5ae1d61c37"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_i2ud");
+                        asmbuf_puts(&buf, xh_x86_rule("text.80656b170c4f469a"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, "\n.L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.c54b801b3c7f4a0c"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_i2u");
+                        asmbuf_puts(&buf, xh_x86_rule("text.cb0a2fa0d24b4edc"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, ":\n    cvtsi2sd xmm0, rax\n.L");
+                        asmbuf_puts(&buf, xh_x86_rule("text.5c67d0d3b542f472"));
                         asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, "_i2ud");
+                        asmbuf_puts(&buf, xh_x86_rule("text.80656b170c4f469a"));
                         asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, ":\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
                     } else {
-                        asmbuf_puts(&buf, "    cvtsi2sd xmm0, rax\n");
+                        asmbuf_puts(&buf, xh_x86_rule("text.e90ca0e5f84313f1"));
                     }
                     amd_store_fp(&buf, dst_dbl);
                     break;
@@ -3778,15 +3621,15 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     unsigned field = (unsigned)(mask << bit_off);
                     /* Same contract as the emitter above: consume
                      * [addr, value], push nothing, keep the neighbouring bits. */
-                    asmbuf_puts(&buf, "    pop rax\n    pop rcx\n    and eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.d42526e17a4315a9"));
                     asmbuf_int(&buf, (long long)mask);
                     if (bit_off > 0) {
-                        asmbuf_puts(&buf, "\n    shl eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8b3cc64fba698ba0"));
                         asmbuf_int(&buf, bit_off);
                     }
-                    asmbuf_puts(&buf, "\n    mov edx, dword ptr [rcx]\n    and edx, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f6e886e4901ed44b"));
                     asmbuf_int(&buf, (long long)(unsigned int)(~field));
-                    asmbuf_puts(&buf, "\n    or eax, edx\n    mov dword ptr [rcx], eax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.f7ba77dc30202797"));
                     break;
                 }
 
@@ -3795,21 +3638,21 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     int bw = (int)I->aux & 0xFF;
                     int is_signed = ((int)I->aux & 0x100) != 0;
                     unsigned mask = (bw >= 32) ? 0xFFFFFFFFu : ((1u << bw) - 1u);
-                    asmbuf_puts(&buf, "    pop rax\n    mov eax, dword ptr [rax]\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.6d0b3fef17dcd889"));
                     if (bit_off > 0) {
-                        asmbuf_puts(&buf, "    shr eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.b28953ccda3e8afd"));
                         asmbuf_int(&buf, bit_off);
                         asmbuf_putc(&buf, '\n');
                     }
-                    asmbuf_puts(&buf, "    and eax, ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.7ef30c4fffaf7a16"));
                     asmbuf_int(&buf, (long long)mask);
                     if (is_signed && bw > 0 && bw < 32) {
-                        asmbuf_puts(&buf, "\n    shl eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.8b3cc64fba698ba0"));
                         asmbuf_int(&buf, 32 - bw);
-                        asmbuf_puts(&buf, "\n    sar eax, ");
+                        asmbuf_puts(&buf, xh_x86_rule("text.ceda75f1be4f9e1a"));
                         asmbuf_int(&buf, 32 - bw);
                     }
-                    asmbuf_puts(&buf, "\n    push rax\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.475f15810fba1372"));
                     break;
                 }
 
@@ -3850,13 +3693,13 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 case IR_SIMD_SUB16:
                 case IR_SIMD_ADD8:
                 case IR_SIMD_SUB8:
-                    asmbuf_puts(&buf, "    # ARM-specific op (");
+                    asmbuf_puts(&buf, xh_x86_rule("text.ab3f82bd50fcee78"));
                     asmbuf_puts(&buf, ir_op_name(I->op));
-                    asmbuf_puts(&buf, ") - not applicable on x86-64\n");
+                    asmbuf_puts(&buf, xh_x86_rule("text.0ab8a5dbb336271c"));
                     break;
 
                 default:
-                    asmbuf_puts(&buf, "    # unknown IR op: ");
+                    asmbuf_puts(&buf, xh_x86_rule("text.35815f9c362b56b9"));
                     asmbuf_puts(&buf, ir_op_name(I->op));
                     asmbuf_putc(&buf, '\n');
                     break;
@@ -3864,19 +3707,19 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
         }
         if (body_ok) {
             if (sret_used)
-                asmbuf_puts(&buf, "    mov rax, qword ptr [rbp-8]\n");
+                asmbuf_puts(&buf, xh_x86_rule("text.e888ee0df925654a"));
             else
-                asmbuf_puts(&buf, "    xor eax, eax\n");
-            asmbuf_puts(&buf, "    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+                asmbuf_puts(&buf, xh_x86_rule("text.e57fab16113b0a0c"));
+            asmbuf_puts(&buf, xh_x86_rule("text.43cbd64c703a3e68"));
         } else {
-            asmbuf_puts(&buf, "    mov rsp, rbp\n    pop rbp\n    ret\n\n");
+            asmbuf_puts(&buf, xh_x86_rule("text.43cbd64c703a3e68"));
         }
     }
 
     {
         int n = buf.len;
         int i;
-        int errs = g_amd64_errors;
+        int errs = g_amd64_errors + xh_x86_rules_failed();
         g_amd64_errors = 0;
         if (errs) {
             ark_log("[x86-64] error: %d unsupported construct(s), no output written\n", errs);
@@ -4135,11 +3978,11 @@ static void xa_emit64(X86Asm *a, long long v) {
 static void xa_rex(X86Asm *a, int w, int regf, int base, int index) {
     int r, x, b;
     if (!a->mode64) return;
-    r = (regf >= 8);
-    x = (index >= 8);
-    b = (base >= 8);
+    r = (regf >= xh_x86_number("encoding.rex.extended_start"));
+    x = (index >= xh_x86_number("encoding.rex.extended_start"));
+    b = (base >= xh_x86_number("encoding.rex.extended_start"));
     if (!w && !r && !x && !b) return;
-    xa_emit(a, (unsigned char)(0x40 | (w ? 8 : 0) | (r ? 4 : 0) | (x ? 2 : 0) | (b ? 1 : 0)));
+    xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.40") | (w ? xh_x86_number("encoding.rex.w") : 0) | (r ? xh_x86_number("encoding.rex.r") : 0) | (x ? xh_x86_number("encoding.rex.x") : 0) | (b ? xh_x86_number("encoding.rex.b") : 0)));
 }
 /* REX for an instruction whose rm operand is a memory operand (or a reg). */
 static void xa_rex_rm(X86Asm *a, int w, int regf, X86Operand *rm) {
@@ -4173,86 +4016,7 @@ static int xa_parse_reg(const char **p, int *size) {
     while (xa_is_alnum(**p) && n < (int)sizeof(w) - 1) { w[n++] = **p; (*p)++; }
     w[n] = 0;
     if (n == 0) return -1;
-    /* SSE registers exist in 32-bit mode as well: xmm0..xmm7 (xmm8..xmm15 are
-     * AMD64-only).  Leaving this inside the g_xa64 gate made every i386
-     * floating-point shape unassemblable -- `movq xmm0, [esp]`, the form the
-     * 32-bit float path emits, failed to parse and reported the misleading
-     * "movq needs an xmm operand".  reg_size 16 marks "SSE register". */
-    if (n >= 4 && w[0] == 'x' && w[1] == 'm' && w[2] == 'm') {
-        int i = 3, v = 0, digits = 0;
-        while (i < n && w[i] >= '0' && w[i] <= '9') { v = v * 10 + (w[i] - '0'); i++; digits++; }
-        if (i == n && digits >= 1 && v <= (g_xa64 ? 15 : 7)) { *size = 16; return v; }
-    }
-    /* --- AMD64-only register names (gated so i386 output is unchanged) --- */
-    if (g_xa64) {
-        /* r8 .. r15 (with optional d / w / b suffix) */
-        if (w[0] == 'r' && n >= 2 && n <= 4) {
-            int i = 1, v = 0, digits = 0;
-            int sfx = 0;  /* 0=none(64), 'd'=32, 'w'=16, 'b'=8 */
-            while (i < n && w[i] >= '0' && w[i] <= '9') { v = v * 10 + (w[i] - '0'); i++; digits++; }
-            if (digits >= 1 && i < n) {
-                if (i == n - 1) {
-                    if (w[i] == 'd') sfx = 4;
-                    else if (w[i] == 'w') sfx = 2;
-                    else if (w[i] == 'b') sfx = 1;
-                    else sfx = -1;
-                } else sfx = -1;
-                i = n;
-            }
-            if (digits >= 1 && i == n && sfx >= 0 && v >= 8 && v <= 15) {
-                *size = sfx ? sfx : 8;
-                return v;
-            }
-        }
-        /* rax rcx rdx rbx rsp rbp rsi rdi  (rip is not a general register) */
-        if (n == 3 && w[0] == 'r') {
-            if (w[1] == 'a' && w[2] == 'x') { *size = 8; return 0; }
-            if (w[1] == 'c' && w[2] == 'x') { *size = 8; return 1; }
-            if (w[1] == 'd' && w[2] == 'x') { *size = 8; return 2; }
-            if (w[1] == 'b' && w[2] == 'x') { *size = 8; return 3; }
-            if (w[1] == 's' && w[2] == 'p') { *size = 8; return 4; }
-            if (w[1] == 'b' && w[2] == 'p') { *size = 8; return 5; }
-            if (w[1] == 's' && w[2] == 'i') { *size = 8; return 6; }
-            if (w[1] == 'd' && w[2] == 'i') { *size = 8; return 7; }
-            if (w[1] == 'i' && w[2] == 'p') { *p = s; return -1; }
-        }
-    }
-    /* 32-bit registers (3 chars).  This used to test w[1]=='a' only, i.e. it
-     * recognised eax and nothing else, so a line as ordinary as
-     * "mov ecx, [rbp-8]" failed to parse and the emitter reported
-     * "unsupported mov operand combination".  Match the whole name. */
-    if (n == 3 && w[0] == 'e') {
-        if (w[1] == 'a' && w[2] == 'x') { *size = 4; return 0; }
-        if (w[1] == 'c' && w[2] == 'x') { *size = 4; return 1; }
-        if (w[1] == 'd' && w[2] == 'x') { *size = 4; return 2; }
-        if (w[1] == 'b' && w[2] == 'x') { *size = 4; return 3; }
-        if (w[1] == 's' && w[2] == 'p') { *size = 4; return 4; }
-        if (w[1] == 'b' && w[2] == 'p') { *size = 4; return 5; }
-        if (w[1] == 's' && w[2] == 'i') { *size = 4; return 6; }
-        if (w[1] == 'd' && w[2] == 'i') { *size = 4; return 7; }
-    }
-    /* 16-bit registers (2 chars) */
-    if (n == 2) {
-        if (w[0] == 'a' && w[1] == 'x') { *size = 2; return 0; }
-        if (w[0] == 'c' && w[1] == 'x') { *size = 2; return 1; }
-        if (w[0] == 'd' && w[1] == 'x') { *size = 2; return 2; }
-        if (w[0] == 'b' && w[1] == 'x') { *size = 2; return 3; }
-        if (w[0] == 's' && w[1] == 'p') { *size = 2; return 4; }
-        if (w[0] == 'b' && w[1] == 'p') { *size = 2; return 5; }
-        if (w[0] == 's' && w[1] == 'i') { *size = 2; return 6; }
-        if (w[0] == 'd' && w[1] == 'i') { *size = 2; return 7; }
-    }
-    /* 8-bit registers (2 chars) */
-    if (n == 2) {
-        if (w[0] == 'a' && w[1] == 'l') { *size = 1; return 0; }
-        if (w[0] == 'c' && w[1] == 'l') { *size = 1; return 1; }
-        if (w[0] == 'd' && w[1] == 'l') { *size = 1; return 2; }
-        if (w[0] == 'b' && w[1] == 'l') { *size = 1; return 3; }
-        if (w[0] == 'a' && w[1] == 'h') { *size = 1; return 4; }
-        if (w[0] == 'c' && w[1] == 'h') { *size = 1; return 5; }
-        if (w[0] == 'd' && w[1] == 'h') { *size = 1; return 6; }
-        if (w[0] == 'b' && w[1] == 'h') { *size = 1; return 7; }
-    }
+    { int code=xh_x86_register(w,size); if(code>=0)return code; }
     /* Not a register - restore position */
     *p = s;
     return -1;
@@ -4494,7 +4258,7 @@ static int xa_parse_operand(const char **p, X86Operand *op) {
 /* --- ModR/M encoding --- */
 /* Emit ModR/M for reg-reg (mod=11). */
 static void xa_modrm_reg(X86Asm *a, int reg, int rm) {
-    xa_emit(a, (unsigned char)(0xC0 | ((reg & 7) << 3) | (rm & 7)));
+    xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.c0") | ((reg & 7) << 3) | (rm & 7)));
 }
 
 /* Emit ModR/M + optional SIB + displacement for a memory operand.
@@ -4532,7 +4296,7 @@ static void xa_modrm_mem(X86Asm *a, int reg_field, X86Operand *mem) {
     }
     /* [symbol + base]: symbol contributes to disp32 (absolute reloc). */
     if (mem->has_sym && base >= 0) {
-        xa_emit(a, (unsigned char)((0x02 << 6) | ((reg_field & 7) << 3) | (needs_sib ? 4 : (base & 7))));
+        xa_emit(a, (unsigned char)((xh_x86_number("encoding.constant.02") << 6) | ((reg_field & 7) << 3) | (needs_sib ? 4 : (base & 7))));
         if (needs_sib) {
             int sb = (base >= 0) ? base : 5;
             int si = (index >= 0) ? index : 4;
@@ -4614,7 +4378,7 @@ static void xa_alu(X86Asm *a, int op_rm_r, int op_r_rm, int op_eax, int sub_op,
         }
         if (imm >= -128 && imm <= 127) {
             xa_rex(a, w, sub_op, dst->reg, -1);
-            xa_emit(a, 0x83);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.83"));
             xa_modrm_reg(a, sub_op, dst->reg);
             xa_emit(a, (unsigned char)(imm & 0xFF));
         } else if ((dst->reg & 7) == 0) {  /* eax/rax */
@@ -4623,7 +4387,7 @@ static void xa_alu(X86Asm *a, int op_rm_r, int op_r_rm, int op_eax, int sub_op,
             xa_emit32(a, (int)imm);
         } else {
             xa_rex(a, w, sub_op, dst->reg, -1);
-            xa_emit(a, 0x81);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.81"));
             xa_modrm_reg(a, sub_op, dst->reg);
             xa_emit32(a, (int)imm);
         }
@@ -4644,12 +4408,12 @@ static void xa_alu(X86Asm *a, int op_rm_r, int op_r_rm, int op_eax, int sub_op,
         }
         if (imm >= -128 && imm <= 127) {
             xa_rex_rm(a, w, sub_op, dst);
-            xa_emit(a, 0x83);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.83"));
             xa_modrm_mem(a, sub_op, dst);
             xa_emit(a, (unsigned char)(imm & 0xFF));
         } else {
             xa_rex_rm(a, w, 0, dst);
-            xa_emit(a, 0xC7);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c7"));
             xa_modrm_mem(a, 0, dst);
             xa_emit32(a, (int)imm);
         }
@@ -4663,7 +4427,7 @@ static void xa_alu(X86Asm *a, int op_rm_r, int op_r_rm, int op_eax, int sub_op,
 static void xa_branch(X86Asm *a, unsigned char op1, unsigned char op2, const char *label) {
     int disp_pc;
     if (op2) {
-        xa_emit(a, 0x0F);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f"));
         xa_emit(a, op2);
     } else {
         xa_emit(a, op1);
@@ -4763,33 +4527,33 @@ static void xa_emit_movq(X86Asm *a, X86Operand *d, X86Operand *s) {
     int s_xmm = (s->kind == XOP_REG && s->reg_size == 16);
     if (d_xmm && s_xmm) {
         /* F3 0F 7E /r : movq xmm, xmm */
-        xa_emit(a, 0xF3);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.f3"));
         xa_rex(a, 0, d->reg, s->reg, -1);
-        xa_emit(a, 0x0F); xa_emit(a, 0x7E);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.7e"));
         xa_modrm_reg(a, d->reg, s->reg);
     } else if (d_xmm && s->kind == XOP_REG) {
         /* 66 REX.W 0F 6E /r : movq xmm, r64 */
-        xa_emit(a, 0x66);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66"));
         xa_rex(a, 1, d->reg, s->reg, -1);
-        xa_emit(a, 0x0F); xa_emit(a, 0x6E);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.6e"));
         xa_modrm_reg(a, d->reg, s->reg);
     } else if (d_xmm && s->kind == XOP_MEM) {
         /* F3 0F 7E /r : movq xmm, m64 */
-        xa_emit(a, 0xF3);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.f3"));
         xa_rex_rm(a, 0, d->reg, s);
-        xa_emit(a, 0x0F); xa_emit(a, 0x7E);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.7e"));
         xa_modrm_mem(a, d->reg, s);
     } else if (d->kind == XOP_REG && s_xmm) {
         /* 66 REX.W 0F 7E /r : movq r64, xmm */
-        xa_emit(a, 0x66);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66"));
         xa_rex(a, 1, s->reg, d->reg, -1);
-        xa_emit(a, 0x0F); xa_emit(a, 0x7E);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.7e"));
         xa_modrm_reg(a, s->reg, d->reg);
     } else if (d->kind == XOP_MEM && s_xmm) {
         /* 66 0F D6 /r : movq m64, xmm */
-        xa_emit(a, 0x66);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66"));
         xa_rex_rm(a, 0, s->reg, d);
-        xa_emit(a, 0x0F); xa_emit(a, 0xD6);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.d6"));
         xa_modrm_mem(a, s->reg, d);
     } else {
         a->error_count++;
@@ -4803,7 +4567,7 @@ static void xa_sse(X86Asm *a, int pfx, int op2, X86Operand *d, X86Operand *s) {
     int regf = (d->kind == XOP_REG) ? d->reg : 0;
     if (pfx) xa_emit(a, (unsigned char)pfx);
     xa_rex_rm(a, w, regf, s);
-    xa_emit(a, 0x0F);
+    xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f"));
     xa_emit(a, (unsigned char)op2);
     if (s->kind == XOP_REG) xa_modrm_reg(a, regf, s->reg);
     else xa_modrm_mem(a, regf, s);
@@ -4815,10 +4579,10 @@ static void xa_shift(X86Asm *a, int ext, X86Operand *d, X86Operand *s) {
     int by_cl = (s->kind == XOP_REG && s->reg_size == 1 && (s->reg & 7) == 1);
     if (by_cl) {
         xa_rex_rm(a, w, ext, d);
-        xa_emit(a, 0xD3);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.d3"));
     } else if (s->kind == XOP_IMM) {
         xa_rex_rm(a, w, ext, d);
-        xa_emit(a, 0xC1);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c1"));
     } else {
         a->error_count++;
         diag_tool(DIAG_SEV_ERROR, "arkcc", "shift needs cl or an immediate", 0,0,0,0,0,0);
@@ -4841,7 +4605,7 @@ static void xa_shxd(X86Asm *a, int op_imm, int op_cl, X86Operand *d,
         return;
     }
     xa_rex_rm(a, w, s->reg, d);
-    xa_emit(a, 0x0F);
+    xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f"));
     xa_emit(a, (unsigned char)(by_cl ? op_cl : op_imm));
     if (d->kind == XOP_REG) xa_modrm_reg(a, s->reg, d->reg);
     else xa_modrm_mem(a, s->reg, d);
@@ -4861,7 +4625,7 @@ static void xa_grp3(X86Asm *a, int ext, X86Operand *d) {
 static void xa_setcc(X86Asm *a, int op2, X86Operand *d) {
     int r = (d->kind == XOP_REG) ? d->reg : 0;
     xa_rex(a, 0, 0, r, -1);
-    xa_emit(a, 0x0F);
+    xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f"));
     xa_emit(a, (unsigned char)op2);
     xa_modrm_reg(a, 0, r);
 }
@@ -4886,14 +4650,14 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
             xa_emit(a, (unsigned char)(0xB0 + (d->reg & 7)));
             xa_emit(a, (unsigned char)(imm & 0xFF));
         } else if (sz == 2) {
-            xa_emit(a, 0x66);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66"));
             xa_rex(a, 0, 0, d->reg, -1);
             xa_emit(a, (unsigned char)(0xB8 + (d->reg & 7)));
             xa_emit16(a, (int)(imm & 0xFFFF));
         } else if (w) {
             if (xa_imm_fits32(imm)) {
                 xa_rex(a, 1, 0, d->reg, -1);
-                xa_emit(a, 0xC7);
+                xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c7"));
                 xa_modrm_reg(a, 0, d->reg);
                 xa_emit32(a, (int)imm);
             } else {
@@ -4929,18 +4693,18 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
         }
         if (msz == 1) {
             xa_rex_rm(a, 0, 0, d);
-            xa_emit(a, 0xC6);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c6"));
             xa_modrm_mem(a, 0, d);
             xa_emit(a, (unsigned char)(imm & 0xFF));
         } else if (msz == 2) {
-            xa_emit(a, 0x66);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66"));
             xa_rex_rm(a, 0, 0, d);
-            xa_emit(a, 0xC7);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c7"));
             xa_modrm_mem(a, 0, d);
             xa_emit16(a, (int)(imm & 0xFFFF));
         } else {
             xa_rex_rm(a, (msz == 8) ? 1 : 0, 0, d);
-            xa_emit(a, 0xC7);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c7"));
             xa_modrm_mem(a, 0, d);
             xa_emit32(a, (int)imm);
         }
@@ -5077,25 +4841,25 @@ static void xa_process_line(X86Asm *a, const char *line) {
         xa_emit_movq(a, &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "movsxd")) {
         xa_rex_rm(a, 1, ops[0].reg, &ops[1]);
-        xa_emit(a, 0x63);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.63"));
         if (ops[1].kind == XOP_REG) xa_modrm_reg(a, ops[0].reg, ops[1].reg);
         else xa_modrm_mem(a, ops[0].reg, &ops[1]);
     } else if (xa_strieq(mn, "add")) {
-        xa_alu(a, 0x01, 0x03, 0x05, 0, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.1.3.5.0.0"), xh_x86_number("encoding.xa_alu.1.3.5.0.1"), xh_x86_number("encoding.xa_alu.1.3.5.0.2"), xh_x86_number("encoding.xa_alu.1.3.5.0.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "sub")) {
-        xa_alu(a, 0x29, 0x2B, 0x2D, 5, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.41.43.45.5.0"), xh_x86_number("encoding.xa_alu.41.43.45.5.1"), xh_x86_number("encoding.xa_alu.41.43.45.5.2"), xh_x86_number("encoding.xa_alu.41.43.45.5.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cmp")) {
-        xa_alu(a, 0x39, 0x3B, 0x3D, 7, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.57.59.61.7.0"), xh_x86_number("encoding.xa_alu.57.59.61.7.1"), xh_x86_number("encoding.xa_alu.57.59.61.7.2"), xh_x86_number("encoding.xa_alu.57.59.61.7.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "xor")) {
-        xa_alu(a, 0x31, 0x33, 0x35, 6, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.49.51.53.6.0"), xh_x86_number("encoding.xa_alu.49.51.53.6.1"), xh_x86_number("encoding.xa_alu.49.51.53.6.2"), xh_x86_number("encoding.xa_alu.49.51.53.6.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "and")) {
-        xa_alu(a, 0x21, 0x23, 0x25, 4, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.33.35.37.4.0"), xh_x86_number("encoding.xa_alu.33.35.37.4.1"), xh_x86_number("encoding.xa_alu.33.35.37.4.2"), xh_x86_number("encoding.xa_alu.33.35.37.4.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "or")) {
-        xa_alu(a, 0x09, 0x0B, 0x0D, 1, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.9.11.13.1.0"), xh_x86_number("encoding.xa_alu.9.11.13.1.1"), xh_x86_number("encoding.xa_alu.9.11.13.1.2"), xh_x86_number("encoding.xa_alu.9.11.13.1.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "adc")) {
-        xa_alu(a, 0x11, 0x13, 0x15, 2, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.17.19.21.2.0"), xh_x86_number("encoding.xa_alu.17.19.21.2.1"), xh_x86_number("encoding.xa_alu.17.19.21.2.2"), xh_x86_number("encoding.xa_alu.17.19.21.2.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "sbb")) {
-        xa_alu(a, 0x19, 0x1B, 0x1D, 3, &ops[0], &ops[1]);
+        xa_alu(a, xh_x86_number("encoding.xa_alu.25.27.29.3.0"), xh_x86_number("encoding.xa_alu.25.27.29.3.1"), xh_x86_number("encoding.xa_alu.25.27.29.3.2"), xh_x86_number("encoding.xa_alu.25.27.29.3.3"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "push")) {
         if (ops[0].kind == XOP_REG) {
             xa_rex(a, 0, 0, ops[0].reg, -1);
@@ -5103,15 +4867,15 @@ static void xa_process_line(X86Asm *a, const char *line) {
         } else if (ops[0].kind == XOP_IMM) {
             int imm = (int)ops[0].imm;
             if (imm >= -128 && imm <= 127) {
-                xa_emit(a, 0x6A);
+                xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.6a"));
                 xa_emit(a, (unsigned char)(imm & 0xFF));
             } else {
-                xa_emit(a, 0x68);
+                xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.68"));
                 xa_emit32(a, imm);
             }
         } else if (ops[0].kind == XOP_MEM) {
             xa_rex_rm(a, 0, 6, &ops[0]);
-            xa_emit(a, 0xFF);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff"));
             xa_modrm_mem(a, 6, &ops[0]);
         } else {
             a->error_count++;
@@ -5122,7 +4886,7 @@ static void xa_process_line(X86Asm *a, const char *line) {
             xa_emit(a, (unsigned char)(0x58 + (ops[0].reg & 7)));
         } else if (ops[0].kind == XOP_MEM) {
             xa_rex_rm(a, 0, 0, &ops[0]);
-            xa_emit(a, 0x8F);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.8f"));
             xa_modrm_mem(a, 0, &ops[0]);
         } else {
             a->error_count++;
@@ -5130,31 +4894,31 @@ static void xa_process_line(X86Asm *a, const char *line) {
     } else if (xa_strieq(mn, "lea")) {
         if (ops[0].kind == XOP_REG && ops[1].kind == XOP_MEM) {
             xa_rex_rm(a, (xa_opsize(&ops[0]) == 8) ? 1 : 0, ops[0].reg, &ops[1]);
-            xa_emit(a, 0x8D);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.8d"));
             xa_modrm_mem(a, ops[0].reg, &ops[1]);
         } else {
             a->error_count++;
             diag_tool(DIAG_SEV_ERROR, "arkcc", "lea needs reg, mem", 0,0,0,0,0,0);
         }
     } else if (xa_strieq(mn, "not")) {
-        xa_grp3(a, 2, &ops[0]);
+        xa_grp3(a, xh_x86_number("encoding.xa_grp3.2.0"), &ops[0]);
     } else if (xa_strieq(mn, "neg")) {
-        xa_grp3(a, 3, &ops[0]);
+        xa_grp3(a, xh_x86_number("encoding.xa_grp3.3.0"), &ops[0]);
     } else if (xa_strieq(mn, "test")) {
         int w = xa_is64(&ops[0], &ops[1]) ? 1 : 0;
         if (ops[0].kind == XOP_REG && ops[1].kind == XOP_REG) {
             xa_rex(a, w, ops[1].reg, ops[0].reg, -1);
-            xa_emit(a, 0x85);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.85"));
             xa_modrm_reg(a, ops[1].reg, ops[0].reg);
         } else if (ops[0].kind == XOP_REG && ops[1].kind == XOP_IMM) {
             long long imm = ops[1].imm;
             if (!xa_imm_fits32(imm)) { a->error_count++; diag_tool(DIAG_SEV_ERROR, "arkcc", "test immediate out of range", 0,0,0,0,0,0); return; }
             if ((ops[0].reg & 7) == 0 && !w) {  /* eax */
-                xa_emit(a, 0xA9);
+                xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.a9"));
                 xa_emit32(a, (int)imm);
             } else {
                 xa_rex_rm(a, w, 0, &ops[0]);
-                xa_emit(a, 0xF7);
+                xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.f7"));
                 xa_modrm_reg(a, 0, ops[0].reg);
                 xa_emit32(a, (int)imm);
             }
@@ -5162,7 +4926,7 @@ static void xa_process_line(X86Asm *a, const char *line) {
             long long imm = ops[1].imm;
             if (!xa_imm_fits32(imm)) { a->error_count++; diag_tool(DIAG_SEV_ERROR, "arkcc", "test immediate out of range", 0,0,0,0,0,0); return; }
             xa_rex_rm(a, w, 0, &ops[0]);
-            xa_emit(a, 0xF7);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.f7"));
             xa_modrm_mem(a, 0, &ops[0]);
             xa_emit32(a, (int)imm);
         } else {
@@ -5173,60 +4937,60 @@ static void xa_process_line(X86Asm *a, const char *line) {
         int w = xa_is64(&ops[0], &ops[1]) ? 1 : 0;
         if (ops[0].kind == XOP_REG && ops[1].kind == XOP_REG) {
             xa_rex(a, w, ops[0].reg, ops[1].reg, -1);
-            xa_emit(a, 0x0F); xa_emit(a, 0xAF);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.af"));
             xa_modrm_reg(a, ops[0].reg, ops[1].reg);
         } else if (ops[0].kind == XOP_REG && ops[1].kind == XOP_IMM) {
             long long imm = ops[1].imm;
             if (!xa_imm_fits32(imm)) { a->error_count++; diag_tool(DIAG_SEV_ERROR, "arkcc", "imul immediate out of range", 0,0,0,0,0,0); return; }
             xa_rex(a, w, ops[0].reg, ops[0].reg, -1);
-            xa_emit(a, 0x69);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.69"));
             xa_modrm_reg(a, ops[0].reg, ops[0].reg);
             xa_emit32(a, (int)imm);
         } else if (ops[0].kind == XOP_REG && ops[1].kind == XOP_MEM) {
             xa_rex_rm(a, w, ops[0].reg, &ops[1]);
-            xa_emit(a, 0x0F); xa_emit(a, 0xAF);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.af"));
             xa_modrm_mem(a, ops[0].reg, &ops[1]);
         } else {
             a->error_count++;
             diag_tool(DIAG_SEV_ERROR, "arkcc", "unsupported imul form", 0,0,0,0,0,0);
         }
     } else if (xa_strieq(mn, "mul")) {
-        xa_grp3(a, 4, &ops[0]);
+        xa_grp3(a, xh_x86_number("encoding.xa_grp3.4.0"), &ops[0]);
     } else if (xa_strieq(mn, "shld")) {
         xa_shxd(a, 0xA4, 0xA5, &ops[0], &ops[1], &ops[2]);
     } else if (xa_strieq(mn, "shrd")) {
         xa_shxd(a, 0xAC, 0xAD, &ops[0], &ops[1], &ops[2]);
     } else if (xa_strieq(mn, "idiv")) {
-        xa_grp3(a, 7, &ops[0]);
+        xa_grp3(a, xh_x86_number("encoding.xa_grp3.7.0"), &ops[0]);
     } else if (xa_strieq(mn, "div")) {
-        xa_grp3(a, 6, &ops[0]);
+        xa_grp3(a, xh_x86_number("encoding.xa_grp3.6.0"), &ops[0]);
     } else if (xa_strieq(mn, "cdq")) {
-        xa_emit(a, 0x99);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.99"));
     } else if (xa_strieq(mn, "cqo")) {
         xa_rex(a, 1, -1, -1, -1);
-        xa_emit(a, 0x99);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.99"));
     } else if (xa_strieq(mn, "cdqe")) {
         xa_rex(a, 1, -1, -1, -1);
-        xa_emit(a, 0x98);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.98"));
     } else if (xa_strieq(mn, "cbw")) {
-        xa_emit(a, 0x66); xa_emit(a, 0x98);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66")); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.98"));
     } else if (xa_strieq(mn, "cwd") || xa_strieq(mn, "cwde")) {
-        xa_emit(a, 0x98);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.98"));
     } else if (xa_strieq(mn, "shl") || xa_strieq(mn, "sal")) {
-        xa_shift(a, 4, &ops[0], &ops[1]);
+        xa_shift(a, xh_x86_number("encoding.xa_shift.4.0"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "shr")) {
-        xa_shift(a, 5, &ops[0], &ops[1]);
+        xa_shift(a, xh_x86_number("encoding.xa_shift.5.0"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "sar")) {
-        xa_shift(a, 7, &ops[0], &ops[1]);
+        xa_shift(a, xh_x86_number("encoding.xa_shift.7.0"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "rol")) {
-        xa_shift(a, 0, &ops[0], &ops[1]);
+        xa_shift(a, xh_x86_number("encoding.xa_shift.0.0"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "ror")) {
-        xa_shift(a, 1, &ops[0], &ops[1]);
+        xa_shift(a, xh_x86_number("encoding.xa_shift.1.0"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "movzx")) {
         int w = (xa_opsize(&ops[0]) == 8) ? 1 : 0;
         unsigned char op2 = (xa_opsize(&ops[1]) == 2) ? 0xB7 : 0xB6;
         xa_rex_rm(a, w, ops[0].reg, &ops[1]);
-        xa_emit(a, 0x0F); xa_emit(a, op2);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, op2);
         if (ops[1].kind == XOP_REG) xa_modrm_reg(a, ops[0].reg, ops[1].reg);
         else xa_modrm_mem(a, ops[0].reg, &ops[1]);
     } else if (xa_strieq(mn, "movsx") || xa_strieq(mn, "movsxd")) {
@@ -5237,106 +5001,106 @@ static void xa_process_line(X86Asm *a, const char *line) {
         if (dsz == 8 && ssz != 2 && ssz != 1 && ssz != 8) {
             /* movsxd: 63 /r */
             xa_rex_rm(a, 1, ops[0].reg, &ops[1]);
-            xa_emit(a, 0x63);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.63"));
             if (ops[1].kind == XOP_REG) xa_modrm_reg(a, ops[0].reg, ops[1].reg);
             else xa_modrm_mem(a, ops[0].reg, &ops[1]);
             return;
         }
         op2 = (ssz == 2) ? 0xBF : 0xBE;
         xa_rex_rm(a, w, ops[0].reg, &ops[1]);
-        xa_emit(a, 0x0F); xa_emit(a, op2);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.0f")); xa_emit(a, op2);
         if (ops[1].kind == XOP_REG) xa_modrm_reg(a, ops[0].reg, ops[1].reg);
         else xa_modrm_mem(a, ops[0].reg, &ops[1]);
     } else if (xa_strieq(mn, "jmp")) {
         if (ops[0].kind == XOP_REG) {
             xa_rex(a, 0, 0, ops[0].reg, -1);
-            xa_emit(a, 0xFF); xa_modrm_reg(a, 4, ops[0].reg);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff")); xa_modrm_reg(a, 4, ops[0].reg);
         } else if (ops[0].has_sym) {
-            xa_branch(a, 0xE9, 0, ops[0].sym);
+            xa_branch(a, xh_x86_number("encoding.xa_branch.233.0.0"), xh_x86_number("encoding.xa_branch.233.0.1"), ops[0].sym);
         } else { a->error_count++; }
     } else if (xa_strieq(mn, "je") || xa_strieq(mn, "jz")) {
-        xa_branch(a, 0, 0x84, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.132.0"), xh_x86_number("encoding.xa_branch.0.132.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jne") || xa_strieq(mn, "jnz")) {
-        xa_branch(a, 0, 0x85, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.133.0"), xh_x86_number("encoding.xa_branch.0.133.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jl")) {
-        xa_branch(a, 0, 0x8C, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.140.0"), xh_x86_number("encoding.xa_branch.0.140.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jge")) {
-        xa_branch(a, 0, 0x8D, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.141.0"), xh_x86_number("encoding.xa_branch.0.141.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jle")) {
-        xa_branch(a, 0, 0x8E, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.142.0"), xh_x86_number("encoding.xa_branch.0.142.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jg")) {
-        xa_branch(a, 0, 0x8F, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.143.0"), xh_x86_number("encoding.xa_branch.0.143.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jb") || xa_strieq(mn, "jc")) {
-        xa_branch(a, 0, 0x82, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.130.0"), xh_x86_number("encoding.xa_branch.0.130.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jae") || xa_strieq(mn, "jnc")) {
-        xa_branch(a, 0, 0x83, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.131.0"), xh_x86_number("encoding.xa_branch.0.131.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jbe")) {
-        xa_branch(a, 0, 0x86, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.134.0"), xh_x86_number("encoding.xa_branch.0.134.1"), ops[0].sym);
     } else if (xa_strieq(mn, "ja")) {
-        xa_branch(a, 0, 0x87, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.135.0"), xh_x86_number("encoding.xa_branch.0.135.1"), ops[0].sym);
     } else if (xa_strieq(mn, "js")) {
-        xa_branch(a, 0, 0x88, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.136.0"), xh_x86_number("encoding.xa_branch.0.136.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jns")) {
-        xa_branch(a, 0, 0x89, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.137.0"), xh_x86_number("encoding.xa_branch.0.137.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jp")) {
-        xa_branch(a, 0, 0x8A, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.138.0"), xh_x86_number("encoding.xa_branch.0.138.1"), ops[0].sym);
     } else if (xa_strieq(mn, "jnp")) {
-        xa_branch(a, 0, 0x8B, ops[0].sym);
+        xa_branch(a, xh_x86_number("encoding.xa_branch.0.139.0"), xh_x86_number("encoding.xa_branch.0.139.1"), ops[0].sym);
     } else if (xa_strieq(mn, "sete") || xa_strieq(mn, "setz")) {
-        xa_setcc(a, 0x94, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.148.0"), &ops[0]);
     } else if (xa_strieq(mn, "setne") || xa_strieq(mn, "setnz")) {
-        xa_setcc(a, 0x95, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.149.0"), &ops[0]);
     } else if (xa_strieq(mn, "setl")) {
-        xa_setcc(a, 0x9C, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.156.0"), &ops[0]);
     } else if (xa_strieq(mn, "setge")) {
-        xa_setcc(a, 0x9D, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.157.0"), &ops[0]);
     } else if (xa_strieq(mn, "setle")) {
-        xa_setcc(a, 0x9E, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.158.0"), &ops[0]);
     } else if (xa_strieq(mn, "setg")) {
-        xa_setcc(a, 0x9F, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.159.0"), &ops[0]);
     } else if (xa_strieq(mn, "setb") || xa_strieq(mn, "setc")) {
-        xa_setcc(a, 0x92, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.146.0"), &ops[0]);
     } else if (xa_strieq(mn, "setae") || xa_strieq(mn, "setnc")) {
-        xa_setcc(a, 0x93, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.147.0"), &ops[0]);
     } else if (xa_strieq(mn, "setbe")) {
-        xa_setcc(a, 0x96, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.150.0"), &ops[0]);
     } else if (xa_strieq(mn, "seta")) {
-        xa_setcc(a, 0x97, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.151.0"), &ops[0]);
     } else if (xa_strieq(mn, "setp")) {
-        xa_setcc(a, 0x9A, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.154.0"), &ops[0]);
     } else if (xa_strieq(mn, "setnp")) {
-        xa_setcc(a, 0x9B, &ops[0]);
+        xa_setcc(a, xh_x86_number("encoding.xa_setcc.155.0"), &ops[0]);
     } else if (xa_strieq(mn, "call")) {
         if (ops[0].kind == XOP_REG) {
             xa_rex(a, 0, 0, ops[0].reg, -1);
-            xa_emit(a, 0xFF); xa_modrm_reg(a, 2, ops[0].reg);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff")); xa_modrm_reg(a, 2, ops[0].reg);
         } else if (ops[0].has_sym) {
-            xa_branch(a, 0xE8, 0, ops[0].sym);
+            xa_branch(a, xh_x86_number("encoding.xa_branch.232.0.0"), xh_x86_number("encoding.xa_branch.232.0.1"), ops[0].sym);
         } else { a->error_count++; }
     } else if (xa_strieq(mn, "ret")) {
-        xa_emit(a, 0xC3);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c3"));
     } else if (xa_strieq(mn, "nop")) {
-        xa_emit(a, 0x90);
+        xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.90"));
     } else if (xa_strieq(mn, "addsd")) {
-        xa_sse(a, 0xF2, 0x58, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.88.0"), xh_x86_number("encoding.xa_sse.242.88.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "subsd")) {
-        xa_sse(a, 0xF2, 0x5C, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.92.0"), xh_x86_number("encoding.xa_sse.242.92.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "mulsd")) {
-        xa_sse(a, 0xF2, 0x59, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.89.0"), xh_x86_number("encoding.xa_sse.242.89.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "divsd")) {
-        xa_sse(a, 0xF2, 0x5E, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.94.0"), xh_x86_number("encoding.xa_sse.242.94.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "sqrtsd")) {
-        xa_sse(a, 0xF2, 0x51, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.81.0"), xh_x86_number("encoding.xa_sse.242.81.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "addss")) {
-        xa_sse(a, 0xF3, 0x58, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.88.0"), xh_x86_number("encoding.xa_sse.243.88.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "subss")) {
-        xa_sse(a, 0xF3, 0x5C, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.92.0"), xh_x86_number("encoding.xa_sse.243.92.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "mulss")) {
-        xa_sse(a, 0xF3, 0x59, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.89.0"), xh_x86_number("encoding.xa_sse.243.89.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "divss")) {
-        xa_sse(a, 0xF3, 0x5E, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.94.0"), xh_x86_number("encoding.xa_sse.243.94.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "sqrtss")) {
-        xa_sse(a, 0xF3, 0x51, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.81.0"), xh_x86_number("encoding.xa_sse.243.81.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "movss") && nop == 2) {
         /* F3 0F 10 /r (load) or F3 0F 11 /r (store).  The 32-bit i386
          * emitter stores a float as one word, so every single-precision
@@ -5345,36 +5109,36 @@ static void xa_process_line(X86Asm *a, const char *line) {
          * local, float argument or float return could not be assembled at
          * all -- f_float, g1 and g2 failed to build while the double forms
          * worked. */
-        if (ops[0].kind == XOP_MEM) xa_sse(a, 0xF3, 0x11, &ops[1], &ops[0]);
-        else xa_sse(a, 0xF3, 0x10, &ops[0], &ops[1]);
+        if (ops[0].kind == XOP_MEM) xa_sse(a, xh_x86_number("encoding.xa_sse.243.17.0"), xh_x86_number("encoding.xa_sse.243.17.1"), &ops[1], &ops[0]);
+        else xa_sse(a, xh_x86_number("encoding.xa_sse.243.16.0"), xh_x86_number("encoding.xa_sse.243.16.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "ucomiss")) {
-        xa_sse(a, 0, 0x2E, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.0.46.0"), xh_x86_number("encoding.xa_sse.0.46.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "comiss")) {
-        xa_sse(a, 0, 0x2F, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.0.47.0"), xh_x86_number("encoding.xa_sse.0.47.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cvttss2si")) {
-        xa_sse(a, 0xF3, 0x2C, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.44.0"), xh_x86_number("encoding.xa_sse.243.44.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cvtsi2ss")) {
-        xa_sse(a, 0xF3, 0x2A, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.42.0"), xh_x86_number("encoding.xa_sse.243.42.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "ucomisd")) {
-        xa_sse(a, 0x66, 0x2E, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.102.46.0"), xh_x86_number("encoding.xa_sse.102.46.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "comisd")) {
-        xa_sse(a, 0x66, 0x2F, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.102.47.0"), xh_x86_number("encoding.xa_sse.102.47.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cvttsd2si")) {
-        xa_sse(a, 0xF2, 0x2C, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.44.0"), xh_x86_number("encoding.xa_sse.242.44.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cvtsi2sd")) {
-        xa_sse(a, 0xF2, 0x2A, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.42.0"), xh_x86_number("encoding.xa_sse.242.42.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cvtsd2ss")) {
-        xa_sse(a, 0xF2, 0x5A, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.242.90.0"), xh_x86_number("encoding.xa_sse.242.90.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "cvtss2sd")) {
-        xa_sse(a, 0xF3, 0x5A, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.243.90.0"), xh_x86_number("encoding.xa_sse.243.90.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "xorpd") || xa_strieq(mn, "pxor")) {
-        xa_sse(a, 0x66, xa_strieq(mn, "pxor") ? 0xEF : 0x57, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.constant.66"), xa_strieq(mn, "pxor") ? xh_x86_number("encoding.constant.ef") : xh_x86_number("encoding.constant.57"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "andpd")) {
-        xa_sse(a, 0x66, 0x54, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.102.84.0"), xh_x86_number("encoding.xa_sse.102.84.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "orpd")) {
-        xa_sse(a, 0x66, 0x56, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.102.86.0"), xh_x86_number("encoding.xa_sse.102.86.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "movapd")) {
-        xa_sse(a, 0x66, 0x28, &ops[0], &ops[1]);
+        xa_sse(a, xh_x86_number("encoding.xa_sse.102.40.0"), xh_x86_number("encoding.xa_sse.102.40.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "movups") || xa_strieq(mn, "movaps") ||
                xa_strieq(mn, "movdqu") || xa_strieq(mn, "movdqa")) {
         /* 128-bit moves: 0F 10/0F 11 (ups), 0F 28/0F 29 (aps),
@@ -5383,10 +5147,10 @@ static void xa_process_line(X86Asm *a, const char *line) {
          * 16-byte form at all, so the flat-image build printed
          * "unknown instruction" for every save -- and still produced an
          * image, i.e. the register save area silently held nothing. */
-        int pfx = 0, ld = 0x10, st = 0x11;
-        if (xa_strieq(mn, "movaps")) { ld = 0x28; st = 0x29; }
-        else if (xa_strieq(mn, "movdqu")) { pfx = 0xF3; ld = 0x6F; st = 0x7F; }
-        else if (xa_strieq(mn, "movdqa")) { pfx = 0x66; ld = 0x6F; st = 0x7F; }
+        int pfx = 0, ld = xh_x86_number("encoding.constant.10"), st = xh_x86_number("encoding.constant.11");
+        if (xa_strieq(mn, "movaps")) { ld = xh_x86_number("encoding.constant.28"); st = xh_x86_number("encoding.constant.29"); }
+        else if (xa_strieq(mn, "movdqu")) { pfx = xh_x86_number("encoding.constant.f3"); ld = xh_x86_number("encoding.constant.6f"); st = xh_x86_number("encoding.constant.7f"); }
+        else if (xa_strieq(mn, "movdqa")) { pfx = xh_x86_number("encoding.constant.66"); ld = xh_x86_number("encoding.constant.6f"); st = xh_x86_number("encoding.constant.7f"); }
         if (nop != 2) {
             a->error_count++;
         } else if (ops[0].kind == XOP_MEM) {
@@ -5396,8 +5160,8 @@ static void xa_process_line(X86Asm *a, const char *line) {
         }
     } else if (xa_strieq(mn, "movsd") && nop == 2) {
         /* F2 0F 10 /r (load) or F2 0F 11 /r (store) */
-        if (ops[0].kind == XOP_MEM) xa_sse(a, 0xF2, 0x11, &ops[1], &ops[0]);
-        else xa_sse(a, 0xF2, 0x10, &ops[0], &ops[1]);
+        if (ops[0].kind == XOP_MEM) xa_sse(a, xh_x86_number("encoding.xa_sse.242.17.0"), xh_x86_number("encoding.xa_sse.242.17.1"), &ops[1], &ops[0]);
+        else xa_sse(a, xh_x86_number("encoding.xa_sse.242.16.0"), xh_x86_number("encoding.xa_sse.242.16.1"), &ops[0], &ops[1]);
     } else if (xa_strieq(mn, "rep") || xa_strieq(mn, "repe") || xa_strieq(mn, "repz")) {
         /* rep movsb / rep stosb / etc.  Two mnemonics share the line and the
          * operand scan above already consumed the second one, so start over
@@ -5405,25 +5169,25 @@ static void xa_process_line(X86Asm *a, const char *line) {
          * own and the string instruction vanished: "rep movsb" assembled to a
          * single stray prefix, so IR_MEMCPY copied nothing and every struct
          * assignment silently produced the destination unchanged. */
-        static const struct { const char *name; int prefix; unsigned char op; } xa_reps[] = {
-            { "movsb", 0,   0xA4 },
-            { "movsw", 0x66, 0xA5 },
-            { "movsd", 0,   0xA5 },
-            { "movsq", 64,  0xA5 },
-            { "stosb", 0,   0xAA },
-            { "stosd", 0,   0xAB },
-            { "stosq", 64,  0xAB },
-            { "lodsb", 0,   0xAC },
-            { "scasb", 0,   0xAE },
-            { "cmpsb", 0,   0xA6 }
-        };
+        struct { const char *name; int prefix; unsigned char op; } xa_reps[16];
+        int rep_count=xh_x86_number("encoding.rep.count"), rep_i;
+        char rep_key[64];
+        if(rep_count<0 || rep_count>16){a->error_count++;return;}
+        for(rep_i=0;rep_i<rep_count;rep_i++){
+            snprintf(rep_key,sizeof(rep_key),"encoding.rep.%d.name",rep_i);
+            xa_reps[rep_i].name=xh_x86_rule(rep_key);
+            snprintf(rep_key,sizeof(rep_key),"encoding.rep.%d.prefix",rep_i);
+            xa_reps[rep_i].prefix=xh_x86_number(rep_key);
+            snprintf(rep_key,sizeof(rep_key),"encoding.rep.%d.op",rep_i);
+            xa_reps[rep_i].op=(unsigned char)xh_x86_number(rep_key);
+        }
         char sub[16];
         int k, hit = -1;
         sub[0] = 0;
         p = opstart;
         xa_skip_space(&p);
         if (xa_read_word(&p, sub, (int)sizeof(sub))) {
-            for (k = 0; k < (int)(sizeof(xa_reps) / sizeof(xa_reps[0])); k++) {
+            for (k = 0; k < rep_count; k++) {
                 if (xa_strieq(sub, xa_reps[k].name)) { hit = k; break; }
             }
         }
@@ -5434,38 +5198,38 @@ static void xa_process_line(X86Asm *a, const char *line) {
             diag_tool(DIAG_SEV_ERROR, "arkcc", "unsupported rep-prefixed instruction",
                       0,0,0,0,0,0);
         } else {
-            xa_emit(a, 0xF3);
+            xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.f3"));
             if (xa_reps[hit].prefix == 64) xa_rex(a, 1, -1, -1, -1);
             else if (xa_reps[hit].prefix != 0) xa_emit(a, (unsigned char)xa_reps[hit].prefix);
             xa_emit(a, xa_reps[hit].op);
         }
-    } else if (xa_strieq(mn, "movsb")) { xa_emit(a, 0xA4); }
-    else if (xa_strieq(mn, "movsd")) { xa_emit(a, 0xA5); }
-    else if (xa_strieq(mn, "stosb")) { xa_emit(a, 0xAA); }
-    else if (xa_strieq(mn, "stosd")) { xa_emit(a, 0xAB); }
-    else if (xa_strieq(mn, "leave")) { xa_emit(a, 0xC9); }
+    } else if (xa_strieq(mn, "movsb")) { xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.a4")); }
+    else if (xa_strieq(mn, "movsd")) { xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.a5")); }
+    else if (xa_strieq(mn, "stosb")) { xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.aa")); }
+    else if (xa_strieq(mn, "stosd")) { xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ab")); }
+    else if (xa_strieq(mn, "leave")) { xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.c9")); }
     else if (xa_strieq(mn, "int")) {
-        if (ops[0].kind == XOP_IMM) { xa_emit(a, 0xCD); xa_emit(a, (unsigned char)(ops[0].imm & 0xFF)); }
+        if (ops[0].kind == XOP_IMM) { xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.cd")); xa_emit(a, (unsigned char)(ops[0].imm & 0xFF)); }
     } else if (xa_strieq(mn, "xchg")) {
         int w = xa_is64(&ops[0], &ops[1]) ? 1 : 0;
         if (ops[0].kind == XOP_REG && ops[1].kind == XOP_REG) {
             if ((ops[0].reg & 7) == 0) {
                 xa_rex(a, w, 0, ops[1].reg, -1);
-                xa_emit(a, (unsigned char)(0x90 + (ops[1].reg & 7)));
+                xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.90") + (ops[1].reg & 7)));
             } else if ((ops[1].reg & 7) == 0) {
                 xa_rex(a, w, 0, ops[0].reg, -1);
-                xa_emit(a, (unsigned char)(0x90 + (ops[0].reg & 7)));
+                xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.90") + (ops[0].reg & 7)));
             } else {
                 xa_rex(a, w, ops[0].reg, ops[1].reg, -1);
-                xa_emit(a, 0x87); xa_modrm_reg(a, ops[0].reg, ops[1].reg);
+                xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.87")); xa_modrm_reg(a, ops[0].reg, ops[1].reg);
             }
         } else { a->error_count++; }
     } else if (xa_strieq(mn, "inc")) {
-        if (ops[0].kind == XOP_REG) { xa_rex(a, (ops[0].reg_size == 8) ? 1 : 0, 0, ops[0].reg, -1); xa_emit(a, 0xFF); xa_modrm_reg(a, 0, ops[0].reg); }
-        else { xa_rex_rm(a, (ops[0].mem_size == 8) ? 1 : 0, 0, &ops[0]); xa_emit(a, 0xFF); xa_modrm_mem(a, 0, &ops[0]); }
+        if (ops[0].kind == XOP_REG) { xa_rex(a, (ops[0].reg_size == 8) ? 1 : 0, 0, ops[0].reg, -1); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff")); xa_modrm_reg(a, 0, ops[0].reg); }
+        else { xa_rex_rm(a, (ops[0].mem_size == 8) ? 1 : 0, 0, &ops[0]); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff")); xa_modrm_mem(a, 0, &ops[0]); }
     } else if (xa_strieq(mn, "dec")) {
-        if (ops[0].kind == XOP_REG) { xa_rex(a, (ops[0].reg_size == 8) ? 1 : 0, 0, ops[0].reg, -1); xa_emit(a, 0xFF); xa_modrm_reg(a, 1, ops[0].reg); }
-        else { xa_rex_rm(a, (ops[0].mem_size == 8) ? 1 : 0, 0, &ops[0]); xa_emit(a, 0xFF); xa_modrm_mem(a, 1, &ops[0]); }
+        if (ops[0].kind == XOP_REG) { xa_rex(a, (ops[0].reg_size == 8) ? 1 : 0, 0, ops[0].reg, -1); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff")); xa_modrm_reg(a, 1, ops[0].reg); }
+        else { xa_rex_rm(a, (ops[0].mem_size == 8) ? 1 : 0, 0, &ops[0]); xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.ff")); xa_modrm_mem(a, 1, &ops[0]); }
     } else {
         /* Unknown instruction: emit nop to keep pc advancing */
         a->error_count++;
@@ -5634,6 +5398,7 @@ int xhcc_x86_write_elf(const char*path,unsigned char*code,int len){
  temeta(s,n,xh_x86_prog);return tewrite(path,code,len,a->mode64?62:3,a->mode64,s,n,r,nr);
 }
 static int x86_assemble_mode(const char *asm_text, unsigned char *out, int cap, int mode64) {
+    if (xh_x86_rules_begin(mode64)) return -1;
     X86Asm a;
     a.src = asm_text;
     a.out = out;
@@ -5683,7 +5448,7 @@ static int x86_assemble_mode(const char *asm_text, unsigned char *out, int cap, 
      * a lone nop -- a wrong image out of a build that only printed a
      * diagnostic.  Every caller already treats a negative return as
      * "assembly failed", so refuse here instead. */
-    if (a.error_count > 0) return -1;
+    if (a.error_count > 0 || xh_x86_rules_failed()) return -1;
     return a.pc;
 }
 

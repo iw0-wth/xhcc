@@ -1,0 +1,1655 @@
+XHTEMPLATE 1
+# ARM emission templates. Selection/ABI/optimization/Thumb encoding remain in C.
+rule compare.eq
+text     ITE EQ\n    MOVEQ r0, #1\n    MOVNE r0, #0\n
+end
+rule binary.eq
+text     CMP r0, r1\n    ITE EQ\n    MOVEQ r0, #1\n    MOVNE r0, #0\n
+end
+rule compare.ne
+text     ITE NE\n    MOVNE r0, #1\n    MOVEQ r0, #0\n
+end
+rule binary.ne
+text     CMP r0, r1\n    ITE NE\n    MOVNE r0, #1\n    MOVEQ r0, #0\n
+end
+rule compare.lt
+text     ITE LT\n    MOVLT r0, #1\n    MOVGE r0, #0\n
+end
+rule binary.lt
+text     CMP r0, r1\n    ITE LT\n    MOVLT r0, #1\n    MOVGE r0, #0\n
+end
+rule compare.gt
+text     ITE GT\n    MOVGT r0, #1\n    MOVLE r0, #0\n
+end
+rule binary.gt
+text     CMP r0, r1\n    ITE GT\n    MOVGT r0, #1\n    MOVLE r0, #0\n
+end
+rule compare.le
+text     ITE LE\n    MOVLE r0, #1\n    MOVGT r0, #0\n
+end
+rule binary.le
+text     CMP r0, r1\n    ITE LE\n    MOVLE r0, #1\n    MOVGT r0, #0\n
+end
+rule compare.ge
+text     ITE GE\n    MOVGE r0, #1\n    MOVLT r0, #0\n
+end
+rule binary.ge
+text     CMP r0, r1\n    ITE GE\n    MOVGE r0, #1\n    MOVLT r0, #0\n
+end
+rule compare.ult
+text     ITE LO\n    MOVLO r0, #1\n    MOVHS r0, #0\n
+end
+rule binary.ult
+text     CMP r0, r1\n    ITE LO\n    MOVLO r0, #1\n    MOVHS r0, #0\n
+end
+rule compare.ugt
+text     ITE HI\n    MOVHI r0, #1\n    MOVLS r0, #0\n
+end
+rule binary.ugt
+text     CMP r0, r1\n    ITE HI\n    MOVHI r0, #1\n    MOVLS r0, #0\n
+end
+rule compare.ule
+text     ITE LS\n    MOVLS r0, #1\n    MOVHI r0, #0\n
+end
+rule binary.ule
+text     CMP r0, r1\n    ITE LS\n    MOVLS r0, #1\n    MOVHI r0, #0\n
+end
+rule compare.uge
+text     ITE HS\n    MOVHS r0, #1\n    MOVLO r0, #0\n
+end
+rule binary.uge
+text     CMP r0, r1\n    ITE HS\n    MOVHS r0, #1\n    MOVLO r0, #0\n
+end
+rule binary.add
+text     ADD r0, r0, r1\n
+end
+rule binary.sub
+text     SUB r0, r0, r1\n
+end
+rule binary.mul
+text     MUL r0, r1\n
+end
+rule binary.div
+text     SDIV r0, r0, r1\n
+end
+rule binary.mod
+text     SDIV r2, r0, r1\n    MUL r2, r1\n    SUB r0, r0, r2\n
+end
+rule binary.and
+text     AND r0, r1\n
+end
+rule binary.or
+text     ORR r0, r1\n
+end
+rule binary.xor
+text     EOR r0, r1\n
+end
+rule binary.shl
+text     LSL r0, r1\n
+end
+rule binary.shr
+text     ASR r0, r1\n
+end
+rule binary.ushr
+text     LSR r0, r1\n
+end
+rule unary.neg
+text     NEG r0, r0\n
+end
+rule unary.bnot
+text     MVN r0, r0\n
+end
+rule unary.not
+text     CMP r0, #0\n    ITE EQ\n    MOVEQ r0, #1\n    MOVNE r0, #0\n
+end
+rule text.0000
+text \x20\x20\x20\x20
+end
+rule text.0001
+text     ADD sp, sp, #
+end
+rule text.0002
+text     MOV r
+end
+rule text.0003
+text , #
+end
+rule text.0004
+text     MOVW r
+end
+rule text.0005
+text     MOVT r
+end
+rule text.0006
+text     PUSH {r0}\n
+end
+rule text.0007
+text     POP {r0}\n
+end
+rule text.0008
+text     POP {r1}\n
+end
+rule text.0009
+text     LSR r0, r0, #
+end
+rule text.0010
+text     UMULL r2, r3, r0, r1\n
+end
+rule text.0011
+text     LSR r0, r3, #
+end
+rule text.0012
+text     SUB r2, r0, r3\n
+end
+rule text.0013
+text     LSR r2, r2, #1\n
+end
+rule text.0014
+text     ADD r2, r3, r2\n
+end
+rule text.0015
+text     LSR r0, r2, #
+end
+rule text.0016
+text     AND r0, r0, #
+end
+rule text.0017
+text     AND r0, r0, r1\n
+end
+rule text.0018
+text     MUL r0, r0, r2\n
+end
+rule text.0019
+text     SUB r0, r1, r0\n
+end
+rule text.0020
+text     ASR r1, r0, #31\n
+end
+rule text.0021
+text     EOR r0, r0, r1\n
+end
+rule text.0022
+text     SUB r0, r0, r1\n
+end
+rule text.0023
+text     MVN r1, r1\n
+end
+rule text.0024
+text     PUSH {r1}\n
+end
+rule text.0025
+text     SUB sp, sp, #8\n
+end
+rule text.0026
+text     SUB sp, sp, #32\n
+end
+rule text.0027
+text     MOV r2, r0\n
+end
+rule text.0028
+text     MOV r3, r1\n
+end
+rule text.0029
+text     SUB sp, sp, #40\n
+end
+rule text.0030
+text     ANDS r0, r0, r1\n
+end
+rule text.0031
+text     EORS r0, r0, #1\n
+end
+rule text.0032
+text     VMOV s0, r0\n
+end
+rule text.0033
+text     VMOV s1, r1\n
+end
+rule text.0034
+text .F32 s0, s0, s1\n
+end
+rule text.0035
+text     VMOV r0, s0\n
+end
+rule text.0036
+text     POP {r3}\n
+end
+rule text.0037
+text     POP {r2}\n
+end
+rule text.0038
+text     VMOV s2, r2\n
+end
+rule text.0039
+text     VMOV s3, r3\n
+end
+rule text.0040
+text .F64 d0, d0, d1\n
+end
+rule text.0041
+text     VMOV r1, s1\n
+end
+rule text.0042
+text .L_
+end
+rule text.0043
+text :\n
+end
+rule text.0044
+text  .L_
+end
+rule text.0045
+text     ; unknown binary op\n
+end
+rule text.0046
+text     ; unknown unary op\n
+end
+rule text.0047
+text     MOVW ip, #
+end
+rule text.0048
+text     MOVT ip, #
+end
+rule text.0049
+text     ADD ip, r6, ip\n
+end
+rule text.0050
+text [ip]\n
+end
+rule text.0051
+text r6, ip\n
+end
+rule text.0052
+text     PUSH {r5, r6, r7
+end
+rule text.0053
+text , r
+end
+rule text.0054
+text , lr}\n
+end
+rule text.0055
+text     POP {r5, r6, r7
+end
+rule text.0056
+text ,\x20
+end
+rule text.0057
+text     PUSH {
+end
+rule text.0058
+text }\n
+end
+rule text.0059
+text     PUSH {r
+end
+rule text.0060
+text     MOV\x20
+end
+rule text.0061
+text     POP {r
+end
+rule text.0062
+text , [
+end
+rule text.0063
+text , LSL #
+end
+rule text.0064
+text  r
+end
+rule text.0065
+text .type\x20
+end
+rule text.0066
+text , %function\n.thumb_func\n
+end
+rule text.0067
+text     .cfi_startproc\n
+end
+rule text.0068
+text r
+end
+rule text.0069
+text     PUSH {r5, r6, r7, lr}\n
+end
+rule text.0070
+text     MOV r6, sp\n
+end
+rule text.0071
+text     BX lr\n
+end
+rule text.0072
+text     MOV sp, r6\n
+end
+rule text.0073
+text     POP {r5, r6, r7, lr}\n
+end
+rule text.0074
+text     POP {r5, r6, r7, pc}\n
+end
+rule text.0075
+text     LDR r
+end
+rule text.0076
+text , =
+end
+rule text.0077
+text     ADD r
+end
+rule text.0078
+text , r12\n
+end
+rule text.0079
+text     .arkdata\n
+end
+rule text.0080
+text     VCVT.F64.F32 d0, s0\n
+end
+rule text.0081
+text     BL __aeabi_f2d\n
+end
+rule text.0082
+text     VCVT.F32.F64 s0, d0\n
+end
+rule text.0083
+text     BL __aeabi_d2f\n
+end
+rule text.0084
+text     .arkdatasym\x20
+end
+rule text.0085
+text , #0\n    MOVT r
+end
+rule text.0086
+text , #0\n
+end
+rule text.0087
+text     LDR r0, [r6, #
+end
+rule text.0088
+text ]\n
+end
+rule text.0089
+text     ADD r0, r6, #
+end
+rule text.0090
+text     LDR r0, [r0]\n
+end
+rule text.0091
+text     MOV r1, r0\n
+end
+rule text.0092
+text  r0, r0\n
+end
+rule text.0093
+text     STR r0, [r1]\n
+end
+rule text.0094
+text     STRB r0, [r6, #
+end
+rule text.0095
+text     STRH r0, [r6, #
+end
+rule text.0096
+text     STR r0, [r6, #
+end
+rule text.0097
+text \n    ADD r
+end
+rule text.0098
+text , r6, r
+end
+rule text.0099
+text \\n
+end
+rule text.0100
+text \\t
+end
+rule text.0101
+text \\r
+end
+rule text.0102
+text \\\\
+end
+rule text.0103
+text \\"
+end
+rule text.0104
+text @ Generated Thumb-2 assembly\n
+end
+rule text.0105
+text .syntax unified\n.thumb\n
+end
+rule text.0106
+text .arch armv7e-m\n.fpu\x20
+end
+rule text.0107
+text .arch armv7-m\n
+end
+rule text.0108
+text .thumb\n
+end
+rule text.0109
+text .text\n\n
+end
+rule text.0110
+text .file 1 "
+end
+rule text.0111
+text "\n
+end
+rule text.0112
+text .section .rodata\n
+end
+rule text.0113
+text .L_str_
+end
+rule text.0114
+text :\n    .asciz "
+end
+rule text.0115
+text \\b
+end
+rule text.0116
+text \\f
+end
+rule text.0117
+text \\v
+end
+rule text.0118
+text \\a
+end
+rule text.0119
+text \\0
+end
+rule text.0120
+text .L_gstr_
+end
+rule text.0121
+text .L_flt_
+end
+rule text.0122
+text :\n    .word 0x
+end
+rule text.0123
+text .L_dbl_
+end
+rule text.0124
+text \n    .word 0x
+end
+rule text.0125
+text .L_cplx_
+end
+rule text.0126
+text .global\x20
+end
+rule text.0127
+text .set\x20
+end
+rule text.0128
+text \n\n
+end
+rule text.0129
+text .section .text.
+end
+rule text.0130
+text , "ax", %progbits\n
+end
+rule text.0131
+text .weak\x20
+end
+rule text.0132
+text @ __attribute__((used))\n
+end
+rule text.0133
+text @ __value_in_regs\n
+end
+rule text.0134
+text @ __pure\n
+end
+rule text.0135
+text @ __attribute__((const))\n
+end
+rule text.0136
+text @ __interwork\n
+end
+rule text.0137
+text @ __smc(
+end
+rule text.0138
+text )\n
+end
+rule text.0139
+text @ __global_reg(
+end
+rule text.0140
+text , %function\n
+end
+rule text.0141
+text     BL __arkcc_init_globals\n
+end
+rule text.0142
+text .loc 1\x20
+end
+rule text.0143
+text     MOV r3, r
+end
+rule text.0144
+text \n
+end
+rule text.0145
+text     LDR r3, [r6, #
+end
+rule text.0146
+text     LDR r0, [r3, #
+end
+rule text.0147
+text     PUSH {r1, r2, r3}\n    ADD r0, r6, #
+end
+rule text.0148
+text \n    MOV r1, r3\n
+end
+rule text.0149
+text     PUSH {lr}\n    BL __aeabi_memcpy\n    POP {r0}\n    POP {r1, r2, r3}\n
+end
+rule text.0150
+text     STR r
+end
+rule text.0151
+text , [r6, #
+end
+rule text.0152
+text ]\n    STR r0, [r6, #
+end
+rule text.0153
+text     LDR r0, =.L_str_
+end
+rule text.0154
+text     DMB SY\n
+end
+rule text.0155
+text ]\n    PUSH {r0}\n
+end
+rule text.0156
+text ]\n    LDR r1, [r6, #
+end
+rule text.0157
+text     LDR r0, [r1, #4]\n
+end
+rule text.0158
+text     LDR r0, [r1, #0]\n
+end
+rule text.0159
+text     LDR r0, [r1, #8]\n    PUSH {r0}\n
+end
+rule text.0160
+text     LDR r0, [r1, #12]\n    PUSH {r0}\n
+end
+rule text.0161
+text     LDR r0, [r1, #0]\n    PUSH {r0}\n
+end
+rule text.0162
+text     LDR r0, [r1, #4]\n    PUSH {r0}\n
+end
+rule text.0163
+text     LDR r2, [r1, #4]\n
+end
+rule text.0164
+text     PUSH {r2}\n
+end
+rule text.0165
+text     LDR r0, =
+end
+rule text.0166
+text     STR r0, [r2, #0]\n
+end
+rule text.0167
+text     STR r0, [r2, #4]\n
+end
+rule text.0168
+text     STR r0, [r12, #0]\n
+end
+rule text.0169
+text     STR r1, [r12, #4]\n
+end
+rule text.0170
+text     STR r2, [r12, #8]\n
+end
+rule text.0171
+text     STR r3, [r12, #12]\n
+end
+rule text.0172
+text     STR r1, [r2, #4]\n
+end
+rule text.0173
+text     STR r1, [r6, #
+end
+rule text.0174
+text     LSL r1, r1, #
+end
+rule text.0175
+text     MUL r1, r2\n
+end
+rule text.0176
+text     ADD r0, r0, r1\n
+end
+rule text.0177
+text     LDR r0, [r0, #4]\n
+end
+rule text.0178
+text     LDR r0, [r2, #0]\n
+end
+rule text.0179
+text     LDRB r0, [r0, #0]\n
+end
+rule text.0180
+text     LDRSH r0, [r0, #0]\n
+end
+rule text.0181
+text     LDRB r2, [r0, #0]\n
+end
+rule text.0182
+text     LDRB r3, [r0, #1]\n
+end
+rule text.0183
+text     LSL r3, r3, #8\n
+end
+rule text.0184
+text     ORR r0, r2, r3\n
+end
+rule text.0185
+text     ORR r2, r2, r3\n
+end
+rule text.0186
+text     LDRB r3, [r0, #2]\n
+end
+rule text.0187
+text     LSL r3, r3, #16\n
+end
+rule text.0188
+text     LDRB r3, [r0, #3]\n
+end
+rule text.0189
+text     LSL r3, r3, #24\n
+end
+rule text.0190
+text     LDRB r2, [r0, #4]\n
+end
+rule text.0191
+text     LDRB r3, [r0, #5]\n
+end
+rule text.0192
+text     LDRB r3, [r0, #6]\n
+end
+rule text.0193
+text     LDRB r3, [r0, #7]\n
+end
+rule text.0194
+text     LDR r2, [r0, #8]\n
+end
+rule text.0195
+text     LDR r2, [r0, #12]\n
+end
+rule text.0196
+text     LDR r2, [r0, #0]\n
+end
+rule text.0197
+text     LDR r2, [r0, #4]\n
+end
+rule text.0198
+text     LDR r3, [r0, #4]\n
+end
+rule text.0199
+text     PUSH {r3}\n
+end
+rule text.0200
+text     LDR r0, [r0, #0]\n
+end
+rule text.0201
+text     STRB r0, [r2, #0]\n
+end
+rule text.0202
+text     LSR r3, r0, #8\n
+end
+rule text.0203
+text     STRB r3, [r2, #1]\n
+end
+rule text.0204
+text     LSR r3, r0, #16\n
+end
+rule text.0205
+text     STRB r3, [r2, #2]\n
+end
+rule text.0206
+text     LSR r3, r0, #24\n
+end
+rule text.0207
+text     STRB r3, [r2, #3]\n
+end
+rule text.0208
+text     STRB r1, [r2, #4]\n
+end
+rule text.0209
+text     LSR r3, r1, #8\n
+end
+rule text.0210
+text     STRB r3, [r2, #5]\n
+end
+rule text.0211
+text     LSR r3, r1, #16\n
+end
+rule text.0212
+text     STRB r3, [r2, #6]\n
+end
+rule text.0213
+text     LSR r3, r1, #24\n
+end
+rule text.0214
+text     STRB r3, [r2, #7]\n
+end
+rule text.0215
+text     LDR r1, [sp, #0]\n
+end
+rule text.0216
+text     LDR r0, [sp, #4]\n
+end
+rule text.0217
+text     LDR r2, [sp, #16]\n
+end
+rule text.0218
+text     LDR r1, [sp, #8]\n
+end
+rule text.0219
+text     LDR r0, [sp, #12]\n
+end
+rule text.0220
+text     ADD sp, sp, #20\n
+end
+rule text.0221
+text     LDR r0, [r2, #4]\n
+end
+rule text.0222
+text     POP {r12}\n
+end
+rule text.0223
+text     STRB r0, [r1, #0]\n
+end
+rule text.0224
+text     STRH r0, [r1, #0]\n
+end
+rule text.0225
+text     LSR r2, r0, #8\n
+end
+rule text.0226
+text     STRB r2, [r1, #1]\n
+end
+rule text.0227
+text     LSR r2, r0, #16\n
+end
+rule text.0228
+text     STRB r2, [r1, #2]\n
+end
+rule text.0229
+text     LSR r2, r0, #24\n
+end
+rule text.0230
+text     STRB r2, [r1, #3]\n
+end
+rule text.0231
+text     STR r0, [r1, #0]\n
+end
+rule text.0232
+text     CMP r0, #
+end
+rule text.0233
+text     CMP r0, r1\n
+end
+rule text.0234
+text     ; imm fold inconsistent\n
+end
+rule text.0235
+text     EOR r0, r0, #0x80000000\n
+end
+rule text.0236
+text     MVN r0, r0\n
+end
+rule text.0237
+text     ADDS r0, #1\n
+end
+rule text.0238
+text     MOV r2, #0\n
+end
+rule text.0239
+text     ADC r1, r2\n
+end
+rule text.0240
+text     B .L_
+end
+rule text.0241
+text     CMP r0, #0\n
+end
+rule text.0242
+text     LDR r0, =.L_cplx_
+end
+rule text.0243
+text     LDR r1, [r0, #8]\n
+end
+rule text.0244
+text     LDR r1, [r0, #12]\n
+end
+rule text.0245
+text     LDR r1, [r0, #0]\n
+end
+rule text.0246
+text     LDR r1, [r0, #4]\n
+end
+rule text.0247
+text     LDR r0, =.L_dbl_
+end
+rule text.0248
+text     LDR r1, [r0]\n
+end
+rule text.0249
+text     LDR r0, =.L_flt_
+end
+rule text.0250
+text     SUB sp, sp, #24\n
+end
+rule text.0251
+text     BL __aeabi_dadd\n
+end
+rule text.0252
+text     BL __aeabi_fadd\n
+end
+rule text.0253
+text     BL __aeabi_dsub\n
+end
+rule text.0254
+text     BL __aeabi_fsub\n
+end
+rule text.0255
+text     BL __aeabi_dmul\n
+end
+rule text.0256
+text     BL __aeabi_fmul\n
+end
+rule text.0257
+text     BL __aeabi_ddiv\n
+end
+rule text.0258
+text     BL __aeabi_fdiv\n
+end
+rule text.0259
+text     VCVT.U32.F64 s0, d0\n
+end
+rule text.0260
+text     VCVT.S32.F64 s0, d0\n
+end
+rule text.0261
+text     VCVT.U32.F32 s0, s0\n
+end
+rule text.0262
+text     VCVT.S32.F32 s0, s0\n
+end
+rule text.0263
+text     BL __aeabi_d2uiz\n
+end
+rule text.0264
+text     BL __aeabi_d2iz\n
+end
+rule text.0265
+text     BL __aeabi_f2uiz\n
+end
+rule text.0266
+text     BL __aeabi_f2iz\n
+end
+rule text.0267
+text     MOV r0, #0\n
+end
+rule text.0268
+text     VCVT.F64.U32 d0, s0\n
+end
+rule text.0269
+text     VCVT.F64.S32 d0, s0\n
+end
+rule text.0270
+text     VCVT.F32.U32 s0, s0\n
+end
+rule text.0271
+text     VCVT.F32.S32 s0, s0\n
+end
+rule text.0272
+text     VCMP.F64 d0, d1\n
+end
+rule text.0273
+text     VCMP.F32 s0, s1\n
+end
+rule text.0274
+text     VMRS APSR_nzcv, FPSCR\n
+end
+rule text.0275
+text     IT\x20
+end
+rule text.0276
+text     MOV
+end
+rule text.0277
+text  r0, #1\n
+end
+rule text.0278
+text     BL\x20
+end
+rule text.0279
+text     EOR r0, r0, #1\n
+end
+rule text.0280
+text     NOP\n
+end
+rule text.0281
+text     ISB SY\n
+end
+rule text.0282
+text     DSB SY\n
+end
+rule text.0283
+text     CPSID i\n
+end
+rule text.0284
+text     CPSIE i\n
+end
+rule text.0285
+text     WFI\n
+end
+rule text.0286
+text     WFE\n
+end
+rule text.0287
+text     SEV\n
+end
+rule text.0288
+text     CLZ r0, r0\n
+end
+rule text.0289
+text     RBIT r0, r0\n
+end
+rule text.0290
+text     MRS r0, PRIMASK\n
+end
+rule text.0291
+text     MSR PRIMASK, r0\n
+end
+rule text.0292
+text     POP {ip}\n
+end
+rule text.0293
+text     ORR ip, ip, #1\n
+end
+rule text.0294
+text     POP {r7}\n
+end
+rule text.0295
+text     PUSH {r7}\n
+end
+rule text.0296
+text     B\x20
+end
+rule text.0297
+text     PUSH {r4}\n
+end
+rule text.0298
+text     MOV r5, sp\n
+end
+rule text.0299
+text     ADD r5, r5, #4\n
+end
+rule text.0300
+text     SUB r4, sp, #
+end
+rule text.0301
+text     MOV r7, #7\n
+end
+rule text.0302
+text     MVN r7, r7\n
+end
+rule text.0303
+text     AND r4, r7\n
+end
+rule text.0304
+text     MOV sp, r4\n
+end
+rule text.0305
+text     LDR r7, [r5, #
+end
+rule text.0306
+text     STR r7, [r4, #
+end
+rule text.0307
+text     BLX ip\n
+end
+rule text.0308
+text     MOV sp, r5\n
+end
+rule text.0309
+text     SUB sp, sp, #4\n
+end
+rule text.0310
+text     POP {r4}\n
+end
+rule text.0311
+text     ADD sp, sp, r7\n
+end
+rule text.0312
+text     LDR r0, [sp, #0]\n
+end
+rule text.0313
+text     STR r1, [sp, #0]\n    STR r0, [sp, #4]\n
+end
+rule text.0314
+text     LDR r0, [sp, #8]\n
+end
+rule text.0315
+text     STR r1, [sp, #8]\n    STR r0, [sp, #12]\n
+end
+rule text.0316
+text     SVC #
+end
+rule text.0317
+text     SMC #
+end
+rule text.0318
+text     MUL r2, r2, r1\n
+end
+rule text.0319
+text     SUB r0, r0, r2\n
+end
+rule text.0320
+text     AND r0, r2\n
+end
+rule text.0321
+text     AND r1, r3\n
+end
+rule text.0322
+text     ORR r0, r2\n
+end
+rule text.0323
+text     ORR r1, r3\n
+end
+rule text.0324
+text     EOR r0, r2\n
+end
+rule text.0325
+text     EOR r1, r3\n
+end
+rule text.0326
+text     ADDS r0, r0, r2\n
+end
+rule text.0327
+text     ADC r1, r1, r3\n
+end
+rule text.0328
+text     SUBS r0, r0, r2\n
+end
+rule text.0329
+text     SBC r1, r1, r3\n
+end
+rule text.0330
+text     MOV r0, r2\n
+end
+rule text.0331
+text     MOV r1, r3\n
+end
+rule text.0332
+text     ITE EQ\n
+end
+rule text.0333
+text     MOVEQ r0, #1\n
+end
+rule text.0334
+text     MOVNE r0, #0\n
+end
+rule text.0335
+text     ITE NE\n
+end
+rule text.0336
+text     MOVNE r0, #1\n
+end
+rule text.0337
+text     MOVEQ r0, #0\n
+end
+rule text.0338
+text     ITE LT\n
+end
+rule text.0339
+text     MOVLT r0, #1\n
+end
+rule text.0340
+text     MOVGE r0, #0\n
+end
+rule text.0341
+text     ITE GT\n
+end
+rule text.0342
+text     MOVGT r0, #1\n
+end
+rule text.0343
+text     MOVLE r0, #0\n
+end
+rule text.0344
+text     ITE LE\n
+end
+rule text.0345
+text     MOVLE r0, #1\n
+end
+rule text.0346
+text     MOVGT r0, #0\n
+end
+rule text.0347
+text     ITE GE\n
+end
+rule text.0348
+text     MOVGE r0, #1\n
+end
+rule text.0349
+text     MOVLT r0, #0\n
+end
+rule text.0350
+text     BL __aeabi_memcpy\n
+end
+rule text.0351
+text     LSL r0, r0, #
+end
+rule text.0352
+text     LSL r2, r2, #
+end
+rule text.0353
+text     LDR r3, [r1]\n
+end
+rule text.0354
+text     BIC r3, r2\n
+end
+rule text.0355
+text     ORR r3, r0\n
+end
+rule text.0356
+text     STR r3, [r1]\n
+end
+rule text.0357
+text     ASR r0, r0, #
+end
+rule text.0358
+text     LDR r1, [sp, #8]\n    LDR r0, [sp, #12]\n
+end
+rule text.0359
+text     LDR r1, [sp, #4]\n    LDR r0, [sp, #8]\n
+end
+rule text.0360
+text     LDR r1, [sp, #0]\n    LDR r0, [sp, #4]\n    LDR r3, [sp, #8]\n    LDR r2, [sp, #12]\n
+end
+rule text.0361
+text     LDR r2, [r1, #
+end
+rule text.0362
+text     STR r2, [r0, #
+end
+rule text.0363
+text     ADD r0, r0, #7\n
+end
+rule text.0364
+text     BIC r0, r0, #7\n
+end
+rule text.0365
+text     SUB sp, sp, r0\n
+end
+rule text.0366
+text     MOV r0, sp\n
+end
+rule text.0367
+text     SADD16 r0, r0, r1\n
+end
+rule text.0368
+text     SSUB16 r0, r0, r1\n
+end
+rule text.0369
+text     SADD8 r0, r0, r1\n
+end
+rule text.0370
+text     SSUB8 r0, r0, r1\n
+end
+rule text.0371
+text     ; unknown ir op\x20
+end
+rule text.0372
+text     .cfi_endproc\n
+end
+rule text.0373
+text .size\x20
+end
+rule text.0374
+text , .-
+end
+rule text.0375
+text .section .init_array, "aw"\n
+end
+rule text.0376
+text .align 2\n
+end
+rule text.0377
+text .word\x20
+end
+rule text.0378
+text .text\n
+end
+rule text.0379
+text .section .fini_array, "aw"\n
+end
+rule text.0380
+text .global __arkcc_init_globals\n
+end
+rule text.0381
+text .thumb_func\n
+end
+rule text.0382
+text __arkcc_init_globals:\n
+end
+rule text.0383
+text     PUSH {lr}\n
+end
+rule text.0384
+text     STR r0, [r1, #4]\n
+end
+rule text.0385
+text     STR r0, [r1, #8]\n
+end
+rule text.0386
+text     STR r0, [r1, #12]\n
+end
+rule text.0387
+text     STR r0, [r1
+end
+rule text.0388
+text     STRB r0, [r1, #
+end
+rule text.0389
+text     LDR r0, =.L_gstr_
+end
+rule text.0390
+text     STRB r0, [r1]\n
+end
+rule text.0391
+text     STRH r0, [r1]\n
+end
+rule text.0392
+text     BEQ .L_bss_done\n
+end
+rule text.0393
+text .L_bss_loop:\n
+end
+rule text.0394
+text     STR r2, [r0]\n
+end
+rule text.0395
+text     ADD r0, r0, #4\n
+end
+rule text.0396
+text     BNE .L_bss_loop\n
+end
+rule text.0397
+text .L_bss_done:\n
+end
+rule text.0398
+text     POP {pc}\n\n
+end
+rule text.0399
+text     MOV r4, r0\n
+end
+rule text.0400
+text     CMP r2, #0\n
+end
+rule text.0401
+text     BEQ .L_arkcc_mcpy_done\n
+end
+rule text.0402
+text .L_arkcc_mcpy_loop:\n
+end
+rule text.0403
+text     LDRB r3, [r1]\n
+end
+rule text.0404
+text     STRB r3, [r4]\n
+end
+rule text.0405
+text     ADD r4, r4, #1\n
+end
+rule text.0406
+text     ADD r1, r1, #1\n
+end
+rule text.0407
+text     SUB r2, r2, #1\n
+end
+rule text.0408
+text     BNE .L_arkcc_mcpy_loop\n
+end
+rule text.0409
+text .L_arkcc_mcpy_done:\n
+end
+rule text.0410
+text     BX lr\n\n
+end
+rule text.0411
+text , 0x
+end
+rule text.0412
+text .section "
+end
+rule text.0413
+text "
+end
+rule text.0414
+text   @ base 0x
+end
+rule text.0415
+text .data\n
+end
+rule text.0416
+text .bss\n
+end
+rule text.0417
+text .section .tbss,"aw",%nobits\n
+end
+rule text.0418
+text .section .tdata,"aw",%progbits\n
+end
+rule text.0419
+text .balign\x20
+end
+rule text.0420
+text .align 4\n
+end
+rule text.0421
+text     .zero\x20
+end
+rule text.0422
+text     .word 0x
+end
+rule text.0423
+text     .word\x20
+end
+rule text.0424
+text .section .debug_abbrev,"",%progbits\n
+end
+rule text.0425
+text .balign 4\n
+end
+rule text.0426
+text     .byte 1\n
+end
+rule text.0427
+text     .byte 17\n
+end
+rule text.0428
+text     .byte 0\n
+end
+rule text.0429
+text     .byte 3\n  .byte 8\n
+end
+rule text.0430
+text     .byte 16\n  .byte 6\n
+end
+rule text.0431
+text     .byte 0\n  .byte 0\n
+end
+rule text.0432
+text     .byte 2\n
+end
+rule text.0433
+text     .byte 46\n
+end
+rule text.0434
+text     .byte 17\n  .byte 1\n
+end
+rule text.0435
+text     .byte 18\n  .byte 1\n
+end
+rule text.0436
+text .section .debug_info,"",%progbits\n
+end
+rule text.0437
+text     .word 0\n
+end
+rule text.0438
+text     .half 2\n
+end
+rule text.0439
+text     .byte 4\n
+end
+rule text.0440
+text     .asciz "
+end
+rule text.0441
+text _end\n
+end
+rule text.0442
+text .section .debug_line,"",%progbits\n
+end
+rule text.0443
+text     .byte 13\n
+end
+rule text.0444
+text     .byte 0,1,1,0,1,0,0,1,1,1,1,1\n
+end
+rule text.0445
+text     .byte 0,0,0\n
+end
+rule text.0446
+text     .byte 0,9,2\n
+end
+rule stack.add
+text     ADD sp, sp, #${0}\n
+end
+rule stack.sub
+text     SUB sp, sp, #${0}\n
+end
+rule constant.small
+text     MOV r${0}, #${1}\n
+end
+rule constant.wide
+text     MOVW r${0}, #${1}\n    MOVT r${0}, #${2}\n
+end
+rule register.push
+text     PUSH {r${0}}\n
+end
+rule memory.ldr.sp
+text     LDR r${0}, [sp]\n
+end
+rule memory.ldr.sp.offset
+text     LDR r${0}, [sp, #${1}]\n
+end
+rule memory.str.sp
+text     STR r${0}, [sp]\n
+end
+rule memory.str.sp.offset
+text     STR r${0}, [sp, #${1}]\n
+end
+rule label
+text .L_${0}_${1}:\n
+end
+rule branch.label
+text     ${0} .L_${1}_${2}\n
+end
+rule function.type
+text .type ${0}, %function\n.thumb_func\n
+end
+rule function.label
+text ${0}:\n
+end
+rule frame.debug.start
+text     .cfi_startproc\n
+end
+rule frame.save
+text     PUSH {r5, r6, r7, lr}\n
+end
+rule frame.anchor
+text     MOV r6, sp\n
+end
+rule frame.return
+text     BX lr\n
+end
+rule frame.restore.sp
+text     MOV sp, r6\n
+end
+rule frame.restore.lr
+text     POP {r5, r6, r7, lr}\n
+end
+rule frame.restore.pc
+text     POP {r5, r6, r7, pc}\n
+end
+rule immediate.add
+text     ADD r0, r0, #${0}\n
+end
+rule immediate.sub
+text     SUB r0, r0, #${0}\n
+end
+rule immediate.lsl
+text     LSL r0, r0, #${0}\n
+end
+rule immediate.asr
+text     ASR r0, r0, #${0}\n
+end
+rule immediate.lsr
+text     LSR r0, r0, #${0}\n
+end
+rule immediate.and
+text     AND r0, r0, #${0}\n
+end
+rule immediate.orr
+text     ORR r0, r0, #${0}\n
+end
+rule immediate.eor
+text     EOR r0, r0, #${0}\n
+end
+rule immediate.cmp
+text     CMP r0, #${0}\n
+end
+rule extra.000
+text     MOV r0, r
+end
+rule extra.001
+text     MOV r
+end
+rule extra.002
+text \n
+end
+rule extra.003
+text , r0\n
+end
+rule extra.004
+text , lr}\n
+end
+rule extra.005
+text , pc}\n
+end
+rule extra.006
+text \x20
+end
+rule extra.007
+text ,\x20
+end
+rule extra.008
+text     LDRB r0, [r6, #
+end
+rule extra.009
+text     LDRSB r0, [r6, #
+end
+rule extra.010
+text     LDRH r0, [r6, #
+end
+rule extra.011
+text     LDRSH r0, [r6, #
+end
+rule extra.012
+text .local\x20
+end
+rule extra.013
+text .global\x20
+end
+rule extra.014
+text     LDRB r0, [r6, #
+end
+rule extra.015
+text     LDRSB r0, [r6, #
+end
+rule extra.016
+text     LDRH r0, [r6, #
+end
+rule extra.017
+text     LDRSH r0, [r6, #
+end
+rule extra.018
+text     BL __aeabi_ui2d\n
+end
+rule extra.019
+text     BL __aeabi_i2d\n
+end
+rule extra.020
+text     BL __aeabi_ui2f\n
+end
+rule extra.021
+text     BL __aeabi_i2f\n
+end
+rule extra.022
+text     BL __aeabi_ul2d\n
+end
+rule extra.023
+text     BL __aeabi_l2d\n
+end
+rule extra.024
+text     BL __aeabi_ul2f\n
+end
+rule extra.025
+text     BL __aeabi_l2f\n
+end
+rule extra.026
+text     BL __aeabi_d2ulz\n
+end
+rule extra.027
+text     BL __aeabi_d2lz\n
+end
+rule extra.028
+text     BL __aeabi_f2ulz\n
+end
+rule extra.029
+text     BL __aeabi_f2lz\n
+end
+rule extra.030
+text     SUB sp, sp, #16\n    STR r0, [sp, #0]\n    STR r1, [sp, #8]\n
+end
+rule extra.031
+text     UDIV r0, r0, r1\n
+end
+rule extra.032
+text     SDIV r0, r0, r1\n
+end
+rule extra.033
+text     UDIV r2, r0, r1\n
+end
+rule extra.034
+text     SDIV r2, r0, r1\n
+end
+rule extra.035
+text .weak __aeabi_memcpy\n.thumb_func\n__aeabi_memcpy:\n
+end
+rule extra.036
+text .global __aeabi_memcpy\n.thumb_func\n__aeabi_memcpy:\n
+end
+rule extra.037
+text     .ascii "
+end
+rule extra.038
+text     .asciz "
+end
+rule data.word.hex
+text         .word 0x${0}\n
+end
+rule call.direct
+text     BL ${0}\n
+end

@@ -1,0 +1,860 @@
+XHENC 1
+# Thumb-2 word: first halfword in bits31:16, second in bits15:0.
+rule MUL 2 0x4340
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule LSL_REG 2 0x4080
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule LSR_REG 2 0x40c0
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule ASR_REG 2 0x4100
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule NEG 2 0x4240
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule CMP_REG 2 0x4280
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule TST_REG 2 0x4200
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule MOV_REG 2 0x4600
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 3 0
+bits 0 3 1 7
+bits 1 0 4 3
+end
+rule ADD_HIGH 2 0x4400
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 3 0
+bits 0 3 1 7
+bits 1 0 4 3
+end
+rule MOV_IMM 2 0x2000
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule ADD_IMM8 2 0x3000
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule SUB_IMM8 2 0x3800
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule CMP_IMM 2 0x2800
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule ADD_IMM3 3 0x1c00
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule SUB_IMM3 3 0x1e00
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule ADD_REG3 3 0x1800
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule SUB_REG3 3 0x1a00
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule LSR_IMM 3 0x800
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule ASR_IMM 3 0x1000
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule PUSH 2 0xb400
+arg 0 8 0 1
+arg 1 1 0 1
+bits 0 0 8 0
+bits 1 0 1 8
+end
+rule POP 2 0xbc00
+arg 0 8 0 1
+arg 1 1 0 1
+bits 0 0 8 0
+bits 1 0 1 8
+end
+rule BX 1 0x4700
+arg 0 4 0 1
+bits 0 0 4 3
+end
+rule BLX 1 0x4780
+arg 0 4 0 1
+bits 0 0 4 3
+end
+rule BKPT 1 0xbe00
+arg 0 8 0 1
+bits 0 0 8 0
+end
+rule SVC 1 0xdf00
+arg 0 8 0 1
+bits 0 0 8 0
+end
+rule IT 2 0xbf00
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 4 4
+bits 1 0 4 0
+end
+rule ADD_SP 1 0xb000
+arg 0 7 0 1
+bits 0 0 7 0
+end
+rule SUB_SP 1 0xb080
+arg 0 7 0 1
+bits 0 0 7 0
+end
+rule ADDW 3 0xf2000000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule SUBW 3 0xf2a00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule ADD_W_REG 3 0xeb000000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule SUB_W_REG 3 0xeba00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule MOVW 2 0xf2400000
+arg 0 4 0 1
+arg 1 16 0 1
+bits 0 0 4 8
+bits 1 12 4 16
+bits 1 11 1 26
+bits 1 8 3 12
+bits 1 0 8 0
+end
+rule MOVT 2 0xf2c00000
+arg 0 4 0 1
+arg 1 16 0 1
+bits 0 0 4 8
+bits 1 12 4 16
+bits 1 11 1 26
+bits 1 8 3 12
+bits 1 0 8 0
+end
+rule LSL_IMM 3 0x0
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule ADC 2 0x4140
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule SBC 2 0x4180
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule UMULL 4 0xfba00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 4 0 1
+bits 0 0 4 12
+bits 1 0 4 8
+bits 2 0 4 16
+bits 3 0 4 0
+end
+rule SDIV 3 0xfb90f0f0
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule UDIV 3 0xfbb0f0f0
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule MOV_COND_IMM 2 0xf04f0000
+arg 0 4 0 1
+arg 1 8 0 1
+bits 0 0 4 8
+bits 1 0 8 0
+end
+rule PUSH_HIGH_SINGLE 1 0xf84d0d04
+arg 0 4 0 1
+bits 0 0 4 12
+end
+rule POP_HIGH_SINGLE 1 0xf85d0b04
+arg 0 4 0 1
+bits 0 0 4 12
+end
+rule PUSH_W 1 0xe92d0000
+arg 0 16 0 1
+bits 0 0 16 0
+end
+rule POP_W 1 0xe8bd0000
+arg 0 16 0 1
+bits 0 0 16 0
+end
+rule LDR_SP 2 0x9800
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule STR_SP 2 0x9000
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule LDR_PC 2 0x4800
+arg 0 3 0 1
+arg 1 8 0 1
+bits 0 0 3 8
+bits 1 0 8 0
+end
+rule STR_REG16 3 0x5000
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule LDR_REG16 3 0x5800
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule STRB_REG16 3 0x5400
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule LDRB_REG16 3 0x5c00
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule STRH_REG16 3 0x5200
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule LDRH_REG16 3 0x5a00
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule LDRSB_REG16 3 0x5600
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule LDRSH_REG16 3 0x5e00
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 3 6
+end
+rule STR_IMM16 3 0x6000
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule LDR_IMM16 3 0x6800
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule STRB_IMM16 3 0x7000
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule LDRB_IMM16 3 0x7800
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule STRH_IMM16 3 0x8000
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule LDRH_IMM16 3 0x8800
+arg 0 3 0 1
+arg 1 3 0 1
+arg 2 5 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+bits 2 0 5 6
+end
+rule STR_IMM32 3 0xf8c00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule STR_REG32 4 0xf8400000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule STR_NEG32 3 0xf8400c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule STR_WB32 4 0xf8400900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule LDR_IMM32 3 0xf8d00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule LDR_REG32 4 0xf8500000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule LDR_NEG32 3 0xf8500c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule LDR_WB32 4 0xf8500900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule STRB_IMM32 3 0xf8800000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule STRB_REG32 4 0xf8000000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule STRB_NEG32 3 0xf8000c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule STRB_WB32 4 0xf8000900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule LDRB_IMM32 3 0xf8900000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule LDRB_REG32 4 0xf8100000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule LDRB_NEG32 3 0xf8100c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule LDRB_WB32 4 0xf8100900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule STRH_IMM32 3 0xf8a00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule STRH_REG32 4 0xf8200000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule STRH_NEG32 3 0xf8200c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule STRH_WB32 4 0xf8200900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule LDRH_IMM32 3 0xf8b00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule LDRH_REG32 4 0xf8300000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule LDRH_NEG32 3 0xf8300c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule LDRH_WB32 4 0xf8300900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule LDRSB_IMM32 3 0xf9900000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule LDRSB_REG32 4 0xf9100000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule LDRSB_NEG32 3 0xf9100c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule LDRSB_WB32 4 0xf9100900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule LDRSH_IMM32 3 0xf9b00000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 12 0
+end
+rule LDRSH_REG32 4 0xf9300000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 4 0
+bits 3 0 2 4
+end
+rule LDRSH_NEG32 3 0xf9300c00
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule LDRSH_WB32 4 0xf9300900
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+arg 3 2 0 1
+bits 0 0 4 12
+bits 1 0 4 16
+bits 2 0 8 0
+bits 3 0 2 9
+end
+rule AND_REG_T1 2 0x4000
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule AND_REG_W 3 0xea000000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule AND_IMM_W 3 0xf0000000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule ORR_REG_T1 2 0x4300
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule ORR_REG_W 3 0xea400000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule ORR_IMM_W 3 0xf0400000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule EOR_REG_T1 2 0x4040
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule EOR_REG_W 3 0xea800000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule EOR_IMM_W 3 0xf0800000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule BIC_REG_T1 2 0x4380
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule BIC_REG_W 3 0xea200000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule BIC_IMM_W 3 0xf0200000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule MVN_REG_T1 2 0x43c0
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule MVN_REG_W 3 0xea600000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 0 4 0
+end
+rule MVN_IMM_W 3 0xf0600000
+arg 0 4 0 1
+arg 1 4 0 1
+arg 2 12 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 2 11 1 26
+bits 2 8 3 12
+bits 2 0 8 0
+end
+rule FIXED_BF00 0 0xbf00
+end
+rule FIXED_F3EF 0 0xf3ef
+end
+rule FIXED_F000 0 0xf000
+end
+rule FIXED_D000 0 0xd000
+end
+rule FIXED_9000 0 0x9000
+end
+rule FIXED_8000 0 0x8000
+end
+rule FIXED_F3BF 0 0xf3bf
+end
+rule FIXED_BF40 0 0xbf40
+end
+rule FIXED_BF20 0 0xbf20
+end
+rule FIXED_BF30 0 0xbf30
+end
+rule FIXED_EA4F 0 0xea4f
+end
+rule FIXED_EEF1 0 0xeef1
+end
+rule FIXED_FA10 0 0xfa10
+end
+rule FIXED_EA5F 0 0xea5f
+end

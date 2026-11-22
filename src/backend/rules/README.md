@@ -9,12 +9,18 @@ register allocation, calling conventions, assembler mnemonics/pseudo instruction
 and ELF relocation policy remain C code. A rule file alone does not add a new
 ISA or ABI.
 
-`xh_rules_set_path(path)` selects the package encoding file and invalidates the
-single cached ruleset when its path changes. RV32 loads it only on assembly;
-other backends never load encoding rules. `xh_rules_release()` drops the cache.
-The default path for explicit legacy invocations is
-`packages/riscv32/encoding.rules` relative to the preopened working directory.
-Package loading should supply the full package-relative guest path.
+`xh_encoding_set_path(target,path)` registers an external file for a target;
+`xh_encoding_load(target)` and `xh_encoding_encode(target,rule,args,count,word)`
+load and execute it. One active parsed cache is shared across targets, replaced
+when a different target loads, so unused target tables consume no parsed RAM.
+Up to eight copied target/path registrations are retained. The RV32
+`xh_rules_*` APIs remain compatibility wrappers for canonical `riscv32`.
+`xh_encoding_release()` drops the active cache. Default legacy paths are
+`packages/riscv32/encoding.rules` and
+`packages/arm-cortex-m3/arm.encoding.rules`; packages supply complete guest paths.
+The unsigned encoded word supports 16-bit Thumb values or 32-bit Thumb-2 values
+(first halfword in bits31..16); target emission decides byte order/width.
+A zero-argument rule may emit a constant BASE without any bit fields.
 
 The parser accepts whitespace-separated records and `#` comments:
 
@@ -41,8 +47,9 @@ SIGNED is 0 or 1, and alignment must be a power of two.
 encoded word. Multiple slices can scatter an immediate across nonadjacent
 instruction fields. Output bit ranges may not overlap each other or BASE.
 
-Files are at most 32768 bytes, with at most 32 rules, eight arguments per rule,
-and 32 bit slices per rule. The cache is heap allocated on first use; parsing
+Files are at most 65536 bytes, with at most 256 rules, eight arguments per rule,
+and 32 bit slices per rule. The cache allocates only the actual rule count on
+first use; parsing
 scratch is freed after load. Malformed versions, duplicate names/arguments,
 overlapping fields, unknown rules, incorrect argument counts, invalid ranges
 and misaligned operands fail compilation. There are no branches, loops,

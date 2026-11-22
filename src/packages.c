@@ -2,6 +2,7 @@
  */
 #include "xh_package.h"
 #include "xh_rules.h"
+#include "xh_template.h"
 #ifndef XH_MODULE_TARGET
 #define XH_MODULE_TARGET "arm"
 #endif
@@ -15,7 +16,7 @@
 typedef struct {
   char id[64], tools[128], target[32], cpu[32], abi[32], module[128],
       include[128];
-  char dialect[16], options[128], engine[32], encoding[128], selection[128];
+  char dialect[16], options[128], engine[32], encoding[128], selection[128], templates[128];
   int version;
   char protocol[32], protocol_major[8], protocol_minor[8], min_host_minor[8];
   char requires[512], entry[32], adapter[128], backend[128];
@@ -51,7 +52,7 @@ static int safe_relative(const char *s) {
   return 1;
 }
 static int package_requirements(const Package *pkg) {
-  static const char *supported[]={"package.options.v1","encoding.fields.v1","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
+  static const char *supported[]={"codegen.templates.v1","package.options.v1","encoding.fields.v1","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
   const char *p=pkg->requires;
   while(*p){const char *end=strchr(p,',');size_t n=end?(size_t)(end-p):strlen(p);int i,known=0;size_t k;
     if(!n||n>=96||p[0]<'a'||p[0]>'z')goto invalid;
@@ -74,7 +75,7 @@ static int package_target(const Package *p) {
   for(i=0;i<sizeof(descriptors)/sizeof(descriptors[0]);i++)if(!strcmp(p->target,descriptors[i].target)){
     if(strcmp(p->abi,descriptors[i].abi)||!*p->cpu){fprintf(stderr,"xhcc: package ABI/CPU does not match target: %s\n",p->id);return 1;}
     if(*p->engine && (strcmp(p->engine,"rv32-rule-v1")||strcmp(p->target,"riscv32"))){fprintf(stderr,"xhcc: unsupported package engine/target: %s\n",p->id);return 1;}
-    if((*p->encoding||*p->selection)&&strcmp(p->target,"riscv32")){fprintf(stderr,"xhcc: rules unavailable for package target: %s\n",p->id);return 1;}
+    if((*p->encoding&&strcmp(p->target,"riscv32")&&strcmp(p->target,"arm"))||(*p->selection&&strcmp(p->target,"riscv32"))){fprintf(stderr,"xhcc: rules unavailable for package target: %s\n",p->id);return 1;}
     return 0;
   }
   fprintf(stderr,"xhcc: unsupported package target: %s\n",p->target);return 1;
@@ -110,7 +111,7 @@ static int read_package(const char *path, Package *pkg) {
     dest = pkg->fld;                                                           \
     cap = sizeof(pkg->fld);                                                    \
   }
-    FIELD("selection",selection) else FIELD("engine",engine) else FIELD("encoding",encoding) else FIELD("dialect",dialect) else FIELD("options",options) else FIELD("id", id)
+    FIELD("templates",templates) else FIELD("selection",selection) else FIELD("engine",engine) else FIELD("encoding",encoding) else FIELD("dialect",dialect) else FIELD("options",options) else FIELD("id", id)
     else FIELD("tools", tools) else FIELD("target", target) else FIELD(
         "cpu",
         cpu) else FIELD("abi",
@@ -137,7 +138,8 @@ static int read_package(const char *path, Package *pkg) {
       (pkg->version != 3 && !safe_relative(pkg->module)) ||
       (*pkg->options && !safe_relative(pkg->options)) ||
       (*pkg->encoding && !safe_relative(pkg->encoding)) ||
-      (*pkg->selection && !safe_relative(pkg->selection)))
+      (*pkg->selection && !safe_relative(pkg->selection)) ||
+      (*pkg->templates && !safe_relative(pkg->templates)))
     goto invalid_closed;
   return 1;
 invalid:
@@ -284,12 +286,16 @@ int xh_package_apply(const char *root, const char *tool, ArkOptions *opts) {
       }
       if (*p->encoding) {
         char rules_path[PATH_CAP];
-        if(strcmp(p->target,"riscv32")||snprintf(rules_path,sizeof(rules_path),"%s/%s/%s",root,p->id,p->encoding)>=(int)sizeof(rules_path)||xh_rules_set_path(rules_path))return 1;
-      } else if (xh_rules_set_path(0)) return 1;
+        if(snprintf(rules_path,sizeof(rules_path),"%s/%s/%s",root,p->id,p->encoding)>=(int)sizeof(rules_path)||xh_encoding_set_path(p->target,rules_path))return 1;
+      } else if (xh_encoding_set_path(p->target,0)) return 1;
       if (*p->selection) {
         char rules_path[PATH_CAP];
         if(strcmp(p->target,"riscv32")||snprintf(rules_path,sizeof(rules_path),"%s/%s/%s",root,p->id,p->selection)>=(int)sizeof(rules_path)||xh_rules_set_selection_path(rules_path))return 1;
       } else if(xh_rules_set_selection_path(0)) return 1;
+      if (*p->templates) {
+        char template_path[PATH_CAP];
+        if(snprintf(template_path,sizeof(template_path),"%s/%s/%s",root,p->id,p->templates)>=(int)sizeof(template_path)||xh_template_set_path(p->target,template_path))return 1;
+      } else if(xh_template_set_path(p->target,0))return 1;
       opts->target = p->target;
       opts->cpu = strcmp(p->target, "arm") ? 0 : p->cpu;
       return 0;

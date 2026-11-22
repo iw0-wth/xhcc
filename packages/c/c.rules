@@ -1,0 +1,1116 @@
+XHTEMPLATE 1
+# C source backend: complete fixed emission vocabulary and host ABI tables.
+# ${N} expands one caller-supplied value; $$ emits a literal dollar.
+rule abi_libcs
+text printf putchar puts strlen strcmp strcpy memset memcpy abort setjmp longjmp llabs lldiv div ldiv atoll _Exit strtoll strtoull strtoimax strtoumax imaxabs imaxdiv strtod strtof strtold strtol strtoul atoi atol atof malloc calloc realloc free qsort bsearch srand rand exit atexit system getenv snprintf vsnprintf sprintf vsprintf fprintf vfprintf fputs fputc putc vprintf vscanf vsscanf vfscanf scanf sscanf fscanf fread fwrite fopen fclose fgets fgetc getchar rewind fseek ftell fflush remove rename perror strncmp strcat strncat strncpy strchr strrchr strstr strtok strdup strpbrk strspn strcspn strcoll strxfrm strerror memmove memcmp memchr sqrt sqrtf sqrtl pow powf powl exp expf expl exp2 exp2f exp2l expm1 expm1f expm1l log logf logl log10 log10f log10l log2 log2f log2l log1p log1pf log1pl logb logbf logbl sin sinf sinl cos cosf cosl tan tanf tanl asin asinf asinl acos acosf acosl atan atanf atanl atan2 atan2f atan2l sinh sinhf sinhl cosh coshf coshl tanh tanhf tanhl asinh asinhf asinhl acosh acoshf acoshl atanh atanhf atanhl ceil ceilf ceill floor floorf floorl fabs fabsf fabsl fmod fmodf fmodl modf modff modfl ldexp ldexpf ldexpl frexp frexpf frexpl trunc truncf truncl round roundf roundl lround lroundf lroundl llround llroundf llroundl rint rintf rintl lrint lrintf lrintl llrint llrintf llrintl nearbyint nearbyintf nearbyintl isnan isinf isfinite signbit isnanf isnanl isinff isinfl fmax fmaxf fmaxl fmin fminf fminl fdim fdimf fdiml fma fmaf fmal hypot hypotf hypotl cbrt cbrtf cbrtl copysign copysignf copysignl scalbn scalbnf scalbnl scalbln scalblnf scalblnl nextafter nextafterf nextafterl nexttoward nexttowardf nexttowardl nan nanf nanl remainder remainderf remainderl remquo remquof remquol erf erff erfl erfc erfcf erfcl lgamma lgammaf lgammal tgamma tgammaf tgammal creal crealf creall cimag cimagf cimagl conj conjf conjl cabs cabsf cabsl carg cargf cargl cexp cexpf cexpl clog clogf csqrt csqrtf cpow csin ccos ctan csinh ccosh ctanh casin cacos catan casinh cacosh catanh cproj cprojf cprojl isalnum isalpha isblank iscntrl isdigit isgraph islower isprint ispunct isspace isupper isxdigit tolower toupper iswalpha iswdigit iswspace iswupper iswlower iswxdigit iswalnum iswcntrl iswgraph iswprint iswpunct iswblank iswctype towupper towlower wctype wctrans towctrans wcslen wcscmp wcsncmp wcscpy wcsncpy wcscat wcsncat wcschr wcscspn wcsspn wcstok wcstol wcstoul wcstoll wcstoull wcstoimax wcstoumax wcstod wcstof wcstold swprintf vswprintf wprintf fwprintf swscanf wscanf fwscanf fputwc getwc ungetwc mbrtowc wcrtomb mbstowcs wcstombs mbsinit wctob btowc time clock difftime mktime localtime gmtime asctime ctime strftime wcsftime setlocale localeconv signal raise fegetenv fesetenv fegetround fesetround feclearexcept fetestexcept feholdexcept feupdateenv fegetexceptflag fesetexceptflag
+end
+rule abi_voids
+text free exit _Exit abort srand qsort setbuf rewind perror
+end
+rule abi_structs
+text lldiv ldiv div imaxdiv
+end
+rule abi_cplx
+text conj conjf conjl cexp cexpf cexpl clog clogf clogl csqrt csqrtf csqrtl cpow cpowf cpowl csin csinf csinl ccos ccosf ccosl ctan ctanf ctanl csinh csinhf csinhl ccosh ccoshf ccoshl ctanh ctanhf ctanhl casin casinf casinl cacos cacosf cacosl catan catanf catanl casinh casinhf casinhl cacosh cacoshf cacoshl catanh catanhf catanhl cproj cprojf cprojl
+end
+rule abi_wrapped
+text sqrt sqrtf sqrtl fabs sin cos tan asin acos atan exp exp2 expm1 log log10 log2 log1p floor ceil trunc round nearbyint rint cbrt erf erfc tgamma lgamma pow fmod atan2 copysign fmax fmin fdim hypot nextafter remainder fma llround lrint llrint lround ldexp scalbn scalbln nexttoward nan nanf nanl strtod strtof strtold wcstod wcstof wcstold difftime creal cimag conj cabs carg cexp frexp modf remquo snprintf strstr malloc calloc free fegetenv fesetenv feclearexcept fetestexcept setlocale localeconv wcslen wcscmp
+end
+rule abi_vars
+text stdin stdout stderr errno FE_DFL_ENV
+end
+rule abi_tok_ge_value
+text  /* __smc(${0}) */
+end
+rule abi_tok_ge_value_2
+text  /* __global_reg(${0}) */
+end
+rule module_ir_cmp_jmp_eq_value
+text static const double ark_flt_${0} =\x20
+end
+rule module_ir_cmp_jmp_eq_value_2
+text static const _Complex double ark_cflt_${0} =\x20
+end
+rule module_ir_cmp_jmp_eq_value_3
+text static const wchar_t ark_wstr_${0}[] = L
+end
+rule module_ir_cmp_jmp_eq_value_4
+text static const char ark_str_${0}[] =\x20
+end
+rule module_ir_cmp_jmp_eq_value_5
+text  __attribute__((aligned(${0})))
+end
+rule module_ir_cmp_jmp_eq_value_6
+text /* __smc(${0}) */\x20
+end
+rule module_ir_cmp_jmp_eq_value_7
+text     char frame[${0}] = {0};\n
+end
+rule module_ir_cmp_jmp_eq_value_8
+text     ark_slot stk[${0}]; int sp = 0; long long ark_a, ark_c; long long ark_addr; long long ark_es;\n
+end
+rule module_ir_cmp_jmp_eq_value_9
+text     long long *_ark_va_ptr = (long long*)(frame + ${1}) + ${0};\n
+end
+rule ir_getarg_value
+text ark_fst(frame, ${0}, 8, a
+end
+rule ir_getarg_value_2
+text memcpy(frame + ${0}, (void*)(intptr_t)a
+end
+rule ir_getarg_value_3
+text , (size_t)${0});
+end
+rule ir_push_int_value
+text stk[sp++].i = ${0}LL;
+end
+rule ir_push_float_value
+text stk[sp++].c = ark_cflt_${0};
+end
+rule ir_push_float_value_2
+text stk[sp++].f = ark_flt_${0};
+end
+rule ir_push_var_value
+text stk[sp++].c = ark_fldc(frame, ${0});
+end
+rule ir_push_addr_value
+text stk[sp++].i = (long long)(intptr_t)(frame + ${0});
+end
+rule ir_store_value
+text ark_fstc(frame, ${0}, stk[--sp].c);
+end
+rule ir_load_idx_value
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; ark_es = ${0}; if (ark_es==1) stk[sp++].i = *(
+end
+rule ir_store_idx_value
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; ark_es = ${0}; if (ark_es==1) *(
+end
+rule ir_label_value
+text L_${0}: ;
+end
+rule module_ir_cmp_jmp_eq_value_10
+text ark_a = stk[sp-1].i; if (ark_a == ${0}) { --sp; goto L_
+end
+rule ir_call_value
+text aac[${0}] = stk[--sp].c;\x20
+end
+rule ir_call_value_2
+text aa[${0}] = stk[--sp].i;\x20
+end
+rule ir_call_value_3
+text _ark_ll2d(aa[${0}])
+end
+rule ir_call_value_4
+text (long long)aa[${0}]
+end
+rule ir_call_value_5
+text (int)aa[${0}]
+end
+rule ir_call_value_6
+text (intptr_t)aa[${0}]
+end
+rule ir_call_value_7
+text aac[${0}]
+end
+rule ir_svc_value
+text /* SVC #${0} (no-op on host) */\x20
+end
+rule ir_64push_value
+text stk[sp++].i = ((long long)(unsigned)${0} << 32) | (unsigned)
+end
+rule ir_memcpy_value
+text { long long _dst = stk[--sp].i; long long _src = stk[--sp].i; memcpy((void*)(intptr_t)_dst, (void*)(intptr_t)_src, (size_t)${0}); }
+end
+rule ir_store_fld_value
+text { long long _v = stk[--sp].i; long long _ad = stk[--sp].i; unsigned long long _mask = ((unsigned long long)1 << ${0}) - 1; unsigned int *_p = (unsigned int*)(intptr_t)_ad; *_p = (unsigned int)((*_p & ~(_mask <<\x20
+end
+rule ir_store_fld_value_2
+text )) | ((((unsigned long long)_v) & _mask) << ${0})); }
+end
+rule ir_load_fld_value
+text { long long _ad = stk[--sp].i; unsigned long long _v = ((unsigned long long)(*(unsigned int*)(intptr_t)_ad) >> ${0}) & (((unsigned long long)1 <<\x20
+end
+rule ir_load_fld_value_2
+text _v = (unsigned long long)((long long)(int)((unsigned int)_v << ${0}) >>\x20
+end
+rule ir_return_value
+text { static char _ark_ret_buf[${1}]; long long _ret_addr = stk[--sp].i; memcpy(_ark_ret_buf, (void*)(intptr_t)_ret_addr, ${0}); return (long long)(intptr_t)_ark_ret_buf; }
+end
+rule ir_simd_sub8_value
+text /* unknown ir (op ${0}) */
+end
+rule escape_newline
+text \\n
+end
+rule escape_tab
+text \\t
+end
+rule escape_return
+text \\r
+end
+rule escape_backslash
+text \\\\
+end
+rule escape_quote
+text \\"
+end
+rule escape_hex_digits
+text 0123456789abcdef
+end
+rule tok_plus
+text (ark_a + ark_c)
+end
+rule tok_minus
+text (ark_a - ark_c)
+end
+rule tok_mul
+text (ark_a * ark_c)
+end
+rule tok_div
+text (ark_c ? ark_a / ark_c : 0)
+end
+rule tok_mod
+text (ark_c ? ark_a % ark_c : 0)
+end
+rule tok_band
+text (ark_a & ark_c)
+end
+rule tok_bor
+text (ark_a | ark_c)
+end
+rule tok_bxor
+text (ark_a ^ ark_c)
+end
+rule tok_shl
+text (ark_a << ark_c)
+end
+rule tok_shr
+text ((unsigned long long)ark_a >> ark_c)
+end
+rule tok_shr_2
+text ((unsigned int)ark_a >> ark_c)
+end
+rule tok_shr_3
+text (ark_a >> ark_c)
+end
+rule tok_eq
+text (ark_a == ark_c)
+end
+rule tok_ne
+text (ark_a != ark_c)
+end
+rule tok_lt
+text ((unsigned int)ark_a < (unsigned int)ark_c)
+end
+rule tok_lt_2
+text (ark_a < ark_c)
+end
+rule tok_gt
+text ((unsigned int)ark_a > (unsigned int)ark_c)
+end
+rule tok_gt_2
+text (ark_a > ark_c)
+end
+rule tok_le
+text ((unsigned int)ark_a <= (unsigned int)ark_c)
+end
+rule tok_le_2
+text (ark_a <= ark_c)
+end
+rule tok_ge
+text ((unsigned int)ark_a >= (unsigned int)ark_c)
+end
+rule abi_tok_ge_2
+text (ark_a >= ark_c)
+end
+rule abi_tok_ge_3
+text (ark_a)
+end
+rule attribute_tok_ge_4
+text /* __weak (host: dropped) */\x20
+end
+rule attribute_tok_ge_5
+text __attribute__((naked))\x20
+end
+rule attribute_tok_ge_6
+text __attribute__((used))\x20
+end
+rule attribute_tok_ge_7
+text __attribute__((unused))\x20
+end
+rule attribute_tok_ge_8
+text __attribute__((always_inline)) inline\x20
+end
+rule attribute_tok_ge_9
+text __attribute__((constructor))\x20
+end
+rule attribute_tok_ge_10
+text __attribute__((destructor))\x20
+end
+rule attribute_tok_ge_11
+text __attribute__((deprecated))\x20
+end
+rule attribute_tok_ge_12
+text __attribute__((pure))\x20
+end
+rule attribute_tok_ge_13
+text __attribute__((const))\x20
+end
+rule attribute_tok_ge_14
+text __attribute__((alias("ark_
+end
+rule abi_tok_ge_15
+text ")))\x20
+end
+rule abi_tok_ge_16
+text static long long ark_
+end
+rule abi_tok_ge_17
+text long long ark_
+end
+rule abi_tok_ge_18
+text (
+end
+rule abi_tok_ge_19
+text ,\x20
+end
+rule abi_tok_ge_20
+text long long a
+end
+rule abi_tok_ge_21
+text );
+end
+rule abi_tok_ge_22
+text  /* __irq */
+end
+rule abi_tok_ge_23
+text  /* __value_in_regs */
+end
+rule abi_tok_ge_24
+text  /* __interwork */
+end
+rule abi_tok_ge_25
+text lldiv
+end
+rule abi_tok_ge_26
+text lldiv_t
+end
+rule abi_tok_ge_27
+text ldiv
+end
+rule abi_tok_ge_28
+text ldiv_t
+end
+rule abi_tok_ge_29
+text div
+end
+rule abi_tok_ge_30
+text div_t
+end
+rule abi_tok_ge_31
+text imaxdiv
+end
+rule abi_tok_ge_32
+text imaxdiv_t
+end
+rule abi_tok_ge_33
+text extern long long ark_
+end
+rule abi_tok_ge_34
+text );\n
+end
+rule abi_tok_ge_35
+text long long\x20
+end
+rule abi_tok_ge_36
+text volatile\x20
+end
+rule abi_tok_ge_37
+text const\x20
+end
+rule type_void
+text void\x20
+end
+rule type_char
+text char\x20
+end
+rule type_short
+text short\x20
+end
+rule type_int
+text int\x20
+end
+rule type_long
+text long\x20
+end
+rule type_bool
+text _Bool\x20
+end
+rule type_float
+text float\x20
+end
+rule type_double
+text double\x20
+end
+rule type_wchar
+text wchar_t\x20
+end
+rule type_complex
+text _Complex\x20
+end
+rule type_ptr
+text union\x20
+end
+rule type_ptr_2
+text struct\x20
+end
+rule type_ptr_3
+text \x20
+end
+rule type_ptr_4
+text
+end
+rule type_ptr_5
+text (*
+end
+rule type_ptr_6
+text )(
+end
+rule type_ptr_7
+text ...
+end
+rule type_ptr_8
+text )
+end
+rule type_array
+text [
+end
+rule type_array_2
+text ]
+end
+rule type_union
+text {\x20
+end
+rule type_union_2
+text ;\x20
+end
+rule type_union_3
+text }\x20
+end
+rule file_header
+text /* Ark C Compiler - generated by C backend */\n
+end
+rule ir_cmp_jmp_eq
+text #if defined(__GNUC__)\n
+end
+rule module_ir_cmp_jmp_eq_2
+text #pragma GCC optimize("-fno-strict-aliasing")\n
+end
+rule module_ir_cmp_jmp_eq_3
+text #endif\n
+end
+rule include_stdio_h
+text #include <stdio.h>\n
+end
+rule include_stdlib_h
+text #include <stdlib.h>\n
+end
+rule include_string_h
+text #include <string.h>\n
+end
+rule include_stdint_h
+text #include <stdint.h>\n
+end
+rule include_setjmp_h
+text #include <setjmp.h>\n
+end
+rule include_malloc_h
+text #include <malloc.h>\n
+end
+rule include_wchar_h
+text #include <wchar.h>\n
+end
+rule include_wctype_h
+text #include <wctype.h>\n
+end
+rule include_errno_h
+text #include <errno.h>\n
+end
+rule include_fenv_h
+text #include <fenv.h>\n
+end
+rule include_math_h
+text #include <math.h>\n
+end
+rule include_complex_h
+text #include <complex.h>\n
+end
+rule include_time_h
+text #include <time.h>\n
+end
+rule include_locale_h
+text #include <locale.h>\n
+end
+rule include_signal_h
+text #include <signal.h>\n
+end
+rule include_inttypes_h
+text #include <inttypes.h>\n
+end
+rule module_ir_cmp_jmp_eq_20
+text #define swprintf _snwprintf\n
+end
+rule module_ir_cmp_jmp_eq_21
+text #define vswprintf _vsnwprintf\n
+end
+rule module_ir_cmp_jmp_eq_22
+text typedef long long ark_long;\n\n
+end
+rule module_ir_cmp_jmp_eq_23
+text /* ark_slot is 8 bytes for long long and overlaps with double; the C backend uses an LLP64 long=4 byte model. */\n
+end
+rule module_ir_cmp_jmp_eq_24
+text typedef union { long long i; double f; _Complex double c; } ark_slot;\n
+end
+rule runtime_ir_cmp_jmp_eq_25
+text static inline long long _AS_I(ark_slot s){return s.i;}\n
+end
+rule runtime_ir_cmp_jmp_eq_26
+text static inline long long ark_fld(char *f,int o,int sz,int u){long long v=0;\n    if(sz==1){signed char t;memcpy(&t,f+o,1);v=u?(long long)(unsigned char)t:(long long)t;}\n    else if(sz==2){short t;memcpy(&t,f+o,2);v=u?(long long)(unsigned short)t:(long long)t;}\n    else if(sz==4){int t;memcpy(&t,f+o,4);v=u?(long long)(unsigned int)t:(long long)t;}\n    else{long long t;memcpy(&t,f+o,8);v=t;}\n    return v;}\n
+end
+rule runtime_ir_cmp_jmp_eq_27
+text static inline void ark_fst(char *f,int o,int sz,long long v){\n    if(sz==1){signed char t=(signed char)v;memcpy(f+o,&t,1);}\n    else if(sz==2){short t=(short)v;memcpy(f+o,&t,2);}\n    else if(sz==4){int t=(int)v;memcpy(f+o,&t,4);}\n    else{memcpy(f+o,&v,8);}\n}
+end
+rule runtime_ir_cmp_jmp_eq_28
+text static inline _Complex double ark_fldc(char *f,int o){_Complex double v;memcpy(&v,f+o,sizeof v);return v;}\n
+end
+rule runtime_ir_cmp_jmp_eq_29
+text static inline void ark_fstc(char *f,int o,_Complex double v){memcpy(f+o,&v,sizeof v);}\n
+end
+rule runtime_ir_cmp_jmp_eq_30
+text static inline long long _ark_d2ll(double d){ark_slot s;s.f=d;return s.i;}\nstatic inline double _ark_ll2d(long long i){ark_slot s;s.i=i;return s.f;}\n#define ARK_WRAP_D1(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0)));}\n#define ARK_WRAP_D2(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0),_ark_ll2d(a1)));}\n#define ARK_WRAP_D3(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0),_ark_ll2d(a1),_ark_ll2d(a2)));}\n#define ARK_WRAP_D2LL(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)name(_ark_ll2d(a0));}\n#define ARK_WRAP_DI(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0),(int)a1));}\n
+end
+rule runtime_ir_cmp_jmp_eq_31
+text ARK_WRAP_D1(sqrt) ARK_WRAP_D1(sqrtf) ARK_WRAP_D1(sqrtl)\nARK_WRAP_D1(fabs) ARK_WRAP_D1(sin) ARK_WRAP_D1(cos) ARK_WRAP_D1(tan)\nARK_WRAP_D1(asin) ARK_WRAP_D1(acos) ARK_WRAP_D1(atan)\nARK_WRAP_D1(exp) ARK_WRAP_D1(exp2) ARK_WRAP_D1(expm1)\nARK_WRAP_D1(log) ARK_WRAP_D1(log10) ARK_WRAP_D1(log2) ARK_WRAP_D1(log1p)\nARK_WRAP_D1(floor) ARK_WRAP_D1(ceil) ARK_WRAP_D1(trunc) ARK_WRAP_D1(round)\nARK_WRAP_D1(nearbyint) ARK_WRAP_D1(rint) ARK_WRAP_D1(cbrt)\nARK_WRAP_D1(erf) ARK_WRAP_D1(erfc) ARK_WRAP_D1(tgamma) ARK_WRAP_D1(lgamma)\nARK_WRAP_D2(pow) ARK_WRAP_D2(fmod) ARK_WRAP_D2(atan2)\nARK_WRAP_D2(copysign) ARK_WRAP_D2(fmax) ARK_WRAP_D2(fmin)\nARK_WRAP_D2(fdim) ARK_WRAP_D2(hypot) ARK_WRAP_D2(nextafter)\nARK_WRAP_D2(remainder)\nARK_WRAP_D3(fma)\nARK_WRAP_D2LL(llround) ARK_WRAP_D2LL(lrint) ARK_WRAP_D2LL(llrint) ARK_WRAP_D2LL(lround)\nARK_WRAP_DI(ldexp) ARK_WRAP_DI(scalbn)\nstatic inline long long ark_scalbln(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(scalbln(_ark_ll2d(a0),(long)a1));}\nstatic inline long long ark_nexttoward(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(nexttoward(_ark_ll2d(a0),(long double)_ark_ll2d(a1)));}\nstatic inline long long ark_nan(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(nan((const char*)(intptr_t)a0));}\nstatic inline long long ark_nanf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)nanf((const char*)(intptr_t)a0));}\nstatic inline long long ark_nanl(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)nanl((const char*)(intptr_t)a0));}\nstatic inline long long ark_strtod(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(strtod((const char*)(intptr_t)a0,(char**)(intptr_t)a1));}\nstatic inline long long ark_strtof(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)strtof((const char*)(intptr_t)a0,(char**)(intptr_t)a1));}\nstatic inline long long ark_strtold(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)strtold((const char*)(intptr_t)a0,(char**)(intptr_t)a1));}\nstatic inline long long ark_wcstod(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(wcstod((const wchar_t*)(intptr_t)a0,(wchar_t**)(intptr_t)a1));}\nstatic inline long long ark_wcstof(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)wcstof((const wchar_t*)(intptr_t)a0,(wchar_t**)(intptr_t)a1));}\nstatic inline long long ark_wcstold(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)wcstold((const wchar_t*)(intptr_t)a0,(wchar_t**)(intptr_t)a1));}\nstatic inline long long ark_difftime(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(difftime((time_t)a0,(time_t)a1));}\nstatic inline long long ark_creal(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a0;}\nstatic inline long long ark_cimag(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a0;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a1;}\nstatic inline long long ark_conj(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a0;}\nstatic inline long long ark_cabs(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(hypot(_ark_ll2d(a0),_ark_ll2d(a1)));}\nstatic inline long long ark_carg(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(atan2(_ark_ll2d(a1),_ark_ll2d(a0)));}\nstatic inline long long ark_cexp(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a0;}\nstatic inline long long ark_frexp(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(frexp(_ark_ll2d(a0),(int*)(intptr_t)a1));}\nstatic inline long long ark_modf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(modf(_ark_ll2d(a0),(double*)(intptr_t)a1));}\nstatic inline long long ark_remquo(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(remquo(_ark_ll2d(a0),_ark_ll2d(a1),(int*)(intptr_t)a2));}\nstatic inline long long ark_snprintf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){return (long long)snprintf((char*)(intptr_t)a0,(size_t)a1,(const char*)(intptr_t)a2,(long long)a3,(long long)a4,(long long)a5,(long long)a6,(long long)a7);}\nstatic inline long long ark_strstr(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)strstr((const char*)(intptr_t)a0,(const char*)(intptr_t)a1);}\nstatic inline long long ark_malloc(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)malloc((size_t)a0);}\nstatic inline long long ark_calloc(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)calloc((size_t)a0,(size_t)a1);}\nstatic inline long long ark_free(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;free((void*)(intptr_t)a0);return 0;}\nstatic inline long long ark_fegetenv(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)fegetenv((fenv_t*)(intptr_t)a0);}\nstatic inline long long ark_fesetenv(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)fesetenv((const fenv_t*)(intptr_t)a0);}\nstatic inline long long ark_feclearexcept(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)feclearexcept((int)a0);}\nstatic inline long long ark_fetestexcept(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)fetestexcept((int)a0);}\nstatic inline long long ark_setlocale(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)setlocale((int)a0,(const char*)(intptr_t)a1);}\nstatic inline long long ark_localeconv(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a0;(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)localeconv();}\nstatic inline long long ark_wcslen(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)wcslen((const wchar_t*)(intptr_t)a0);}\nstatic inline long long ark_wcscmp(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)wcscmp((const wchar_t*)(intptr_t)a0,(const wchar_t*)(intptr_t)a1);}\nstatic inline long long ark_iswalpha(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)iswalpha((wint_t)a0);}\nstatic inline long long ark_iswdigit(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)iswdigit((wint_t)a0);}\nstatic inline long long ark_iswspace(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)iswspace((wint_t)a0);}\nstatic inline long long ark_towupper(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)towupper((wint_t)a0);}\nstatic inline long long ark_towlower(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)towlower((wint_t)a0);}\nstatic inline long long ark_swprintf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;return (long long)swprintf((wchar_t*)(intptr_t)a0,(const wchar_t*)(intptr_t)a2,(long long)a3,(long long)a4,(long long)a5,(long long)a6,(long long)a7);}\nstatic inline long long ark_signal(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)signal((int)a0,((void(*)(int))(intptr_t)a1));}\nstatic inline long long ark_time(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)time((time_t*)(intptr_t)a0);}\nstatic inline long long ark_localtime(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)localtime((const time_t*)(intptr_t)a0);}\nstatic inline long long ark_strftime(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a4;(void)a5;(void)a6;(void)a7;return (long long)strftime((char*)(intptr_t)a0,(size_t)a1,(const char*)(intptr_t)a2,(const struct tm*)(intptr_t)a3);}\n
+end
+rule runtime_ir_cmp_jmp_eq_32
+text static inline double _AS_F(ark_slot s){return s.f;}\n
+end
+rule runtime_ir_cmp_jmp_eq_33
+text static inline ark_slot _SI(long long v){ark_slot s; s.i=v; return s;}\n
+end
+rule runtime_ir_cmp_jmp_eq_34
+text static inline ark_slot _SF(double v){ark_slot s; s.f=v; return s;}\n\n
+end
+rule module_ir_cmp_jmp_eq_35
+text ((double)0.0f/0.0f)
+end
+rule module_ir_cmp_jmp_eq_36
+text ((double)3.40282347e+38f)
+end
+rule module_ir_cmp_jmp_eq_37
+text (-(double)3.40282347e+38f)
+end
+rule module_ir_cmp_jmp_eq_38
+text ;\n
+end
+rule module_ir_cmp_jmp_eq_39
+text  +\x20
+end
+rule module_ir_cmp_jmp_eq_40
+text  * 1.0i;\n
+end
+rule module_ir_cmp_jmp_eq_41
+text extern\x20
+end
+rule module_ir_cmp_jmp_eq_42
+text static\x20
+end
+rule module_ir_cmp_jmp_eq_43
+text __thread\x20
+end
+rule module_ir_cmp_jmp_eq_44
+text  __attribute__((used))
+end
+rule module_ir_cmp_jmp_eq_45
+text  __attribute__((unused))
+end
+rule module_ir_cmp_jmp_eq_46
+text  /* __at(0x
+end
+rule module_ir_cmp_jmp_eq_47
+text ) */
+end
+rule module_ir_cmp_jmp_eq_48
+text  __attribute__((section("
+end
+rule module_ir_cmp_jmp_eq_49
+text ")))
+end
+rule module_ir_cmp_jmp_eq_50
+text  =\x20
+end
+rule module_ir_cmp_jmp_eq_51
+text nan
+end
+rule module_ir_cmp_jmp_eq_52
+text inf
+end
+rule module_ir_cmp_jmp_eq_53
+text main
+end
+rule module_ir_cmp_jmp_eq_54
+text /* __irq */\x20
+end
+rule module_ir_cmp_jmp_eq_55
+text /* __value_in_regs */\x20
+end
+rule module_ir_cmp_jmp_eq_56
+text /* __interwork */\x20
+end
+rule attribute_ir_cmp_jmp_eq_57
+text __attribute__((section(".text.
+end
+rule module_ir_cmp_jmp_eq_58
+text ) {\n
+end
+rule module_ir_cmp_jmp_eq_59
+text     __asm__ __volatile__(\n
+end
+rule module_ir_cmp_jmp_eq_60
+text         "
+end
+rule module_ir_cmp_jmp_eq_61
+text \\n"\n
+end
+rule module_ir_cmp_jmp_eq_62
+text     );\n}\n\n
+end
+rule module_ir_cmp_jmp_eq_63
+text     /* silence unused-parameter warnings */\n
+end
+rule module_ir_cmp_jmp_eq_64
+text     (void)a0; (void)a1; (void)a2; (void)a3;\n
+end
+rule module_ir_cmp_jmp_eq_65
+text     (void)a4; (void)a5; (void)a6; (void)a7;\n
+end
+rule module_ir_cmp_jmp_eq_66
+text     double ark_fa, ark_fc; (void)ark_fa; (void)ark_fc;\n
+end
+rule module_ir_cmp_jmp_eq_67
+text     _Complex double ark_ca, ark_cc; (void)ark_ca; (void)ark_cc;\n
+end
+rule module_ir_cmp_jmp_eq_68
+text     (void)ark_addr; (void)ark_es; (void)frame; (void)ark_a; (void)ark_c;\n
+end
+rule module_ir_cmp_jmp_eq_69
+text \x20\x20\x20\x20
+end
+rule ir_func_end
+text /* fn boundary */
+end
+rule ir_push_str
+text stk[sp++].i = (long long)(intptr_t)ark_
+end
+rule ir_push_str_2
+text wstr_
+end
+rule ir_push_str_3
+text str_
+end
+rule ir_alloca
+text stk[sp-1].i = (long long)(intptr_t)alloca((size_t)stk[sp-1].i);
+end
+rule ir_push_var
+text stk[sp++].i = ark_fld(frame,\x20
+end
+rule ir_push_var_2
+text , 1, 1);
+end
+rule ir_push_var_3
+text , 1, 0);
+end
+rule ir_push_var_4
+text , 2, 1);
+end
+rule ir_push_var_5
+text , 2, 0);
+end
+rule ir_push_var_6
+text , 4, 1);
+end
+rule ir_push_var_7
+text , 4, 0);
+end
+rule ir_push_var_8
+text , 8, 0);
+end
+rule ir_push_global
+text stk[sp++].i = (long long)(intptr_t)&
+end
+rule ir_push_global_2
+text stk[sp++].f = (double)
+end
+rule ir_push_global_3
+text stk[sp++].i = (long long)
+end
+rule ir_trunc
+text int
+end
+rule ir_trunc_2
+text unsigned char
+end
+rule ir_trunc_3
+text signed char
+end
+rule ir_trunc_4
+text unsigned short
+end
+rule ir_trunc_5
+text short
+end
+rule ir_trunc_6
+text unsigned int
+end
+rule ir_trunc_7
+text stk[sp-1].i = (long long)(
+end
+rule ir_trunc_8
+text )stk[sp-1].i;
+end
+rule ir_push_func
+text stk[sp++].i = (long long)(intptr_t)(void*)&
+end
+rule ir_push_func_2
+text stk[sp++].i = (long long)(intptr_t)(void*)&ark_
+end
+rule ir_store_global
+text  = (long long)stk[--sp].i;
+end
+rule ir_pop
+text if (sp>0) --sp;
+end
+rule ir_dup
+text if (sp>0) { stk[sp] = stk[sp-1]; sp++; }
+end
+rule ir_swap
+text if (sp>=2) { long long _t = stk[sp-1].i; stk[sp-1].i = stk[sp-2].i; stk[sp-2].i = _t; }
+end
+rule ir_store
+text ark_fst(frame,\x20
+end
+rule ir_store_2
+text , 1, stk[--sp].i);
+end
+rule ir_store_3
+text , 2, stk[--sp].i);
+end
+rule ir_store_4
+text , 4, stk[--sp].i);
+end
+rule ir_store_5
+text , 8, stk[--sp].i);
+end
+rule ir_load_idx
+text signed char*)(intptr_t)(ad + ix);
+end
+rule ir_load_idx_2
+text  else if (ark_es==2) stk[sp++].i = *(
+end
+rule ir_load_idx_3
+text short*)(intptr_t)(ad + ix*2);
+end
+rule ir_load_idx_4
+text  else if (ark_es==8) stk[sp++].i = *(
+end
+rule ir_load_idx_5
+text long long*)(intptr_t)(ad + ix*8);
+end
+rule ir_load_idx_6
+text  else stk[sp++].i = *(
+end
+rule ir_load_idx_7
+text int*)(intptr_t)(ad + ix*ark_es); }
+end
+rule ir_store_idx
+text char*)(intptr_t)ad = (char)va;
+end
+rule ir_store_idx_2
+text  else if (ark_es==2) *(
+end
+rule ir_store_idx_3
+text short*)(intptr_t)ad = (short)va;
+end
+rule ir_store_idx_4
+text  else if (ark_es==8) *(
+end
+rule ir_store_idx_5
+text long long*)(intptr_t)ad = va;
+end
+rule ir_store_idx_6
+text  else *(
+end
+rule ir_store_idx_7
+text int*)(intptr_t)ad = (int)va;
+end
+rule ir_store_idx_8
+text  stk[sp++].i = va; }
+end
+rule ir_binary
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i =\x20
+end
+rule ir_fadd
+text ark_ca = stk[--sp].c; stk[sp++].c = cexp(ark_ca);
+end
+rule ir_fadd_2
+text ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca + ark_cc;
+end
+rule ir_fadd_3
+text ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa + ark_fc;
+end
+rule ir_fsub
+text ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca - ark_cc;
+end
+rule ir_fsub_2
+text ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa - ark_fc;
+end
+rule ir_fmul
+text ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca * ark_cc;
+end
+rule ir_fmul_2
+text ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa * ark_fc;
+end
+rule ir_fdiv
+text ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca / ark_cc;
+end
+rule ir_fdiv_2
+text ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa / ark_fc;
+end
+rule ir_fcmp
+text ==
+end
+rule tok_ne_2
+text !=
+end
+rule tok_lt_3
+text <
+end
+rule tok_gt_3
+text >
+end
+rule tok_le_3
+text <=
+end
+rule abi_tok_ge_38
+text >=
+end
+rule abi_tok_ge_39
+text ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].i = ((__real__ ark_ca != __real__ ark_cc) || (__imag__ ark_ca != __imag__ ark_cc)) ? 1 : 0;
+end
+rule abi_tok_ge_40
+text ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].i = ((__real__ ark_ca == __real__ ark_cc) && (__imag__ ark_ca == __imag__ ark_cc)) ? 1 : 0;
+end
+rule abi_tok_ge_41
+text ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].i = (ark_fa\x20
+end
+rule abi_tok_ge_42
+text  ark_fc) ? 1 : 0;
+end
+rule ir_f2i
+text ark_ca = stk[--sp].c; stk[sp++].f = cabs(ark_ca);
+end
+rule ir_f2i_2
+text ark_ca = stk[--sp].c; stk[sp++].f = carg(ark_ca);
+end
+rule ir_f2i_3
+text ark_ca = stk[--sp].c; stk[sp++].f = cimag(ark_ca);
+end
+rule ir_f2i_4
+text ark_ca = stk[--sp].c; stk[sp++].f = creal(ark_ca);
+end
+rule ir_f2i_5
+text ark_fa = stk[--sp].f; stk[sp++].i = (long long)ark_fa;
+end
+rule ir_i2f
+text ark_a = stk[--sp].i; ark_ca = (double)(unsigned long long)ark_a; stk[sp++].c = ark_ca;
+end
+rule ir_i2f_2
+text ark_ca = (double)stk[--sp].i; stk[sp++].c = ark_ca;
+end
+rule ir_i2f_3
+text ark_ca = stk[--sp].f; stk[sp++].c = ark_ca;
+end
+rule ir_i2f_4
+text ark_a = stk[--sp].i; stk[sp++].f = (double)ark_a;
+end
+rule ir_64i2f
+text ark_a = stk[--sp].i; stk[sp++].f = (double)(unsigned long long)ark_a;
+end
+rule ir_64f2i
+text ark_fa = stk[--sp].f; stk[sp++].i = (long long)(unsigned long long)ark_fa;
+end
+rule ir_f2f
+text stk[sp-1].f = (float)stk[sp-1].f;
+end
+rule ir_asm
+text __asm__ __volatile__(
+end
+rule ir_unary
+text ark_ca = stk[--sp].c; stk[sp++].c = conj(ark_ca);
+end
+rule ir_unary_2
+text ark_fc = stk[--sp].f; stk[sp++].f = (-ark_fc);
+end
+rule ir_unary_3
+text ark_a = stk[--sp].i; stk[sp++].i =\x20
+end
+rule ir_unary_4
+text (-ark_a)
+end
+rule ir_unary_5
+text (~ark_a)
+end
+rule ir_unary_6
+text (!ark_a)
+end
+rule ir_label_named
+text LN_
+end
+rule ir_label_named_2
+text : ;
+end
+rule ir_jmp
+text goto L_
+end
+rule ir_jmp_named
+text goto LN_
+end
+rule ir_jz
+text ark_a = stk[--sp].i; if (!ark_a) goto L_
+end
+rule ir_jnz
+text ark_a = stk[--sp].i; if (ark_a) goto L_
+end
+rule module_ir_cmp_jmp_eq_70
+text ; }
+end
+rule ir_call
+text { long long volatile aa[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};\x20
+end
+rule ir_call_2
+text _Complex double volatile aac[8] = {0};\x20
+end
+rule ir_call_3
+text printf
+end
+rule ir_call_4
+text stk[sp++].i = printf((const char*)(intptr_t)aa[0],
+end
+rule ir_call_5
+text putchar
+end
+rule ir_call_6
+text stk[sp++].i = putchar((int)aa[0]);
+end
+rule ir_call_7
+text puts
+end
+rule ir_call_8
+text stk[sp++].i = puts((const char*)(intptr_t)aa[0]);
+end
+rule ir_call_9
+text strlen
+end
+rule ir_call_10
+text stk[sp++].i = (long long)strlen((const char*)(intptr_t)aa[0]);
+end
+rule ir_call_11
+text strcmp
+end
+rule ir_call_12
+text stk[sp++].i = strcmp((const char*)(intptr_t)aa[0],(const char*)(intptr_t)aa[1]);
+end
+rule ir_call_13
+text strcpy
+end
+rule ir_call_14
+text stk[sp++].i = (long long)(intptr_t)strcpy((char*)(intptr_t)aa[0],(const char*)(intptr_t)aa[1]);
+end
+rule ir_call_15
+text memset
+end
+rule ir_call_16
+text stk[sp++].i = (long long)(intptr_t)memset((void*)(intptr_t)aa[0],(int)aa[1],(size_t)aa[2]);
+end
+rule ir_call_17
+text memcpy
+end
+rule ir_call_18
+text stk[sp++].i = (long long)(intptr_t)memcpy((void*)(intptr_t)aa[0],(const void*)(intptr_t)aa[1],(size_t)aa[2]);
+end
+rule ir_call_19
+text abort
+end
+rule ir_call_20
+text abort(); stk[sp++].i = 0;
+end
+rule ir_call_21
+text setjmp
+end
+rule ir_call_22
+text { int ark_sp0 = sp, ark_rv = setjmp(*(jmp_buf*)(void*)(intptr_t)aa[0]); sp = ark_sp0; stk[sp++].i = ark_rv; }
+end
+rule ir_call_23
+text longjmp
+end
+rule ir_call_24
+text longjmp(*(jmp_buf*)(void*)(intptr_t)aa[0], (int)aa[1] ? (int)aa[1] : 1); stk[sp++].i = 0;
+end
+rule ir_call_25
+text stk[sp++].i = (long long)((long long (*)(
+end
+rule ir_call_26
+text ,
+end
+rule ir_call_27
+text long long
+end
+rule ir_call_28
+text ))(intptr_t)aa[0])(
+end
+rule ir_call_29
+text  _r =\x20
+end
+rule ir_call_30
+text ); memcpy(frame + ${0}, &_r, sizeof(_r)); stk[sp++].i = (long long)(intptr_t)(frame + ${0}); }
+end
+rule ir_call_31
+text stk[sp++].c =\x20
+end
+rule ir_call_32
+text ark_
+end
+rule ir_call_33
+text (intptr_t)aa[
+end
+rule ir_call_34
+text  }
+end
+rule ir_svc
+text { long long _svc_arg = stk[--sp].i;\x20
+end
+rule ir_svc_2
+text stk[sp++].i = _svc_arg; }
+end
+rule ir_div
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i = (
+end
+rule ir_div_2
+text (unsigned)ark_a / (unsigned)ark_c
+end
+rule ir_div_3
+text ark_a / ark_c
+end
+rule ir_mod
+text (unsigned)ark_a % (unsigned)ark_c
+end
+rule ir_mod_2
+text ark_a % ark_c
+end
+rule ir_64push
+text ;
+end
+rule ir_64cmp
+text (unsigned long long)ark_a
+end
+rule ir_64cmp_2
+text ark_a
+end
+rule ir_64cmp_3
+text (unsigned long long)ark_c
+end
+rule ir_64cmp_4
+text ark_c
+end
+rule abi_tok_ge_43
+text ) ? 1 : 0;
+end
+rule ir_load_fld
+text ) - 1);\x20
+end
+rule ir_load_fld_2
+text );\x20
+end
+rule ir_load_fld_3
+text _v = (unsigned long long)(long long)(int)(unsigned int)_v;\x20
+end
+rule ir_load_fld_4
+text stk[sp++].i = (long long)_v; }
+end
+rule ir_return
+text return (long long)stk[--sp].i;
+end
+rule ir_simd_add16
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned lo=(_a&0xFFFF)+(_c&0xFFFF); unsigned hi=((_a>>16)&0xFFFF)+((_c>>16)&0xFFFF); stk[sp++].i=(long long)((unsigned)((hi<<16)|(lo&0xFFFF))); }
+end
+rule ir_simd_sub16
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned lo=(_a&0xFFFF)-(_c&0xFFFF); unsigned hi=((_a>>16)&0xFFFF)-((_c>>16)&0xFFFF); stk[sp++].i=(long long)((unsigned)((hi<<16)|(lo&0xFFFF))); }
+end
+rule ir_simd_add8
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned b0=(_a&0xFF)+(_c&0xFF); unsigned b1=((_a>>8)&0xFF)+((_c>>8)&0xFF); unsigned b2=((_a>>16)&0xFF)+((_c>>16)&0xFF); unsigned b3=((_a>>24)&0xFF)+((_c>>24)&0xFF); stk[sp++].i=(long long)((unsigned)((b3<<24)|((b2&0xFF)<<16)|((b1&0xFF)<<8)|(b0&0xFF))); }
+end
+rule ir_simd_sub8
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned b0=(_a&0xFF)-(_c&0xFF); unsigned b1=((_a>>8)&0xFF)-((_c>>8)&0xFF); unsigned b2=((_a>>16)&0xFF)-((_c>>16)&0xFF); unsigned b3=((_a>>24)&0xFF)-((_c>>24)&0xFF); stk[sp++].i=(long long)((unsigned)((b3<<24)|((b2&0xFF)<<16)|((b1&0xFF)<<8)|(b0&0xFF))); }
+end
+rule ir_simd_sub8_2
+text     return 0;\n}\n\n
+end
+rule ir_simd_sub8_3
+text int main(int argc, char **argv) {\n
+end
+rule ir_simd_sub8_4
+text     return (int)ark_main((long long)argc,(long long)(intptr_t)argv,0,0,0,0,0,0,0,0,0,0,0,0,0,0);\n}\n
+end
+
+rule abi_struct_return_types
+text lldiv=lldiv_t ldiv=ldiv_t div=div_t imaxdiv=imaxdiv_t
+end
+# ABI contract keys are checked against the existing frontend/IR layout.
+# policy_* values are configurable within validated safe bounds.
+rule abi_pointer_bits
+text 32
+end
+rule abi_slot_bytes
+text 8
+end
+rule abi_max_call_args
+text 16
+end
+rule abi_wrapper_args
+text 8
+end
+rule abi_varargs_offset
+text 8000
+end
+rule abi_struct_return_offset
+text 8176
+end
+rule abi_frame_align
+text 8
+end
+rule policy_frame_padding
+text 64
+end
+rule policy_frame_min
+text 8704
+end
+rule policy_stack_min
+text 256
+end
+rule policy_stack_margin
+text 16
+end
+rule policy_return_buffer_bytes
+text 256
+end

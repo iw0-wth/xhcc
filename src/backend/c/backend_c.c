@@ -22,9 +22,10 @@
 #include "common.h"
 #include "config.h"
 #include "arkcc_config.h"
+#include "xh_c_rules.h"
 #include <stdio.h>   /* snprintf used for float constant formatting */
 
-#define MAX_CALL_ARGS 16
+#define MAX_CALL_ARGS (xh_c_abi()->max_call_args)
 
 static void emit_str_literal(AsmBuffer *b, const char *data, int len) {
     int i;
@@ -32,11 +33,11 @@ static void emit_str_literal(AsmBuffer *b, const char *data, int len) {
     for (i = 0; i < len; i++) {
         unsigned char c = (unsigned char)data[i];
         switch (c) {
-            case '\n': asmbuf_puts(b, "\\n"); break;
-            case '\t': asmbuf_puts(b, "\\t"); break;
-            case '\r': asmbuf_puts(b, "\\r"); break;
-            case '\\': asmbuf_puts(b, "\\\\"); break;
-            case '"':  asmbuf_puts(b, "\\\""); break;
+            case '\n': asmbuf_puts(b, xh_c_rule_text("escape_newline")); break;
+            case '\t': asmbuf_puts(b, xh_c_rule_text("escape_tab")); break;
+            case '\r': asmbuf_puts(b, xh_c_rule_text("escape_return")); break;
+            case '\\': asmbuf_puts(b, xh_c_rule_text("escape_backslash")); break;
+            case '"':  asmbuf_puts(b, xh_c_rule_text("escape_quote")); break;
             default:
                 if (c < 0x20 || c >= 0x7F) {
                     char buf[8];
@@ -44,7 +45,7 @@ static void emit_str_literal(AsmBuffer *b, const char *data, int len) {
                     buf[n++] = '\\';
                     buf[n++] = 'x';
                     {
-                        const char *hex = "0123456789abcdef";
+                        const char *hex = xh_c_rule_text("escape_hex_digits");
                         buf[n++] = hex[(c >> 4) & 0xF];
                         buf[n++] = hex[c & 0xF];
                     }
@@ -71,43 +72,43 @@ static void emit_binop(AsmBuffer *b, int op, int is64) {
     int base_op = op & ~0x100;
     /* lhs op rhs form; operands are loaded into ark_a/ark_c before emission. */
     switch (base_op) {
-        case (int)TOK_PLUS:  asmbuf_puts(b, "(ark_a + ark_c)"); break;
-        case (int)TOK_MINUS: asmbuf_puts(b, "(ark_a - ark_c)"); break;
-        case (int)TOK_MUL:   asmbuf_puts(b, "(ark_a * ark_c)"); break;
-        case (int)TOK_DIV:   asmbuf_puts(b, "(ark_c ? ark_a / ark_c : 0)"); break;
-        case (int)TOK_MOD:   asmbuf_puts(b, "(ark_c ? ark_a % ark_c : 0)"); break;
-        case (int)TOK_BAND:  asmbuf_puts(b, "(ark_a & ark_c)"); break;
-        case (int)TOK_BOR:   asmbuf_puts(b, "(ark_a | ark_c)"); break;
-        case (int)TOK_BXOR:  asmbuf_puts(b, "(ark_a ^ ark_c)"); break;
-        case (int)TOK_SHL:   asmbuf_puts(b, "(ark_a << ark_c)"); break;
+        case (int)TOK_PLUS:  asmbuf_puts(b, xh_c_rule_text("tok_plus")); break;
+        case (int)TOK_MINUS: asmbuf_puts(b, xh_c_rule_text("tok_minus")); break;
+        case (int)TOK_MUL:   asmbuf_puts(b, xh_c_rule_text("tok_mul")); break;
+        case (int)TOK_DIV:   asmbuf_puts(b, xh_c_rule_text("tok_div")); break;
+        case (int)TOK_MOD:   asmbuf_puts(b, xh_c_rule_text("tok_mod")); break;
+        case (int)TOK_BAND:  asmbuf_puts(b, xh_c_rule_text("tok_band")); break;
+        case (int)TOK_BOR:   asmbuf_puts(b, xh_c_rule_text("tok_bor")); break;
+        case (int)TOK_BXOR:  asmbuf_puts(b, xh_c_rule_text("tok_bxor")); break;
+        case (int)TOK_SHL:   asmbuf_puts(b, xh_c_rule_text("tok_shl")); break;
         case (int)TOK_SHR:
             /* The cast must match the *operand* width: a 32-bit unsigned right
              * shift has to clear the high bits of a 32-bit value, a 64-bit one
              * must keep all 64.  ark_a is a long long in both cases, so without
              * this the 64-bit form was truncated to 32 bits. */
-            if (is_unsigned) asmbuf_puts(b, is64 ? "((unsigned long long)ark_a >> ark_c)"
-                                                : "((unsigned int)ark_a >> ark_c)");
-            else             asmbuf_puts(b, "(ark_a >> ark_c)");
+            if (is_unsigned) asmbuf_puts(b, is64 ? xh_c_rule_text("tok_shr")
+                                                : xh_c_rule_text("tok_shr_2"));
+            else             asmbuf_puts(b, xh_c_rule_text("tok_shr_3"));
             break;
-        case (int)TOK_EQ:    asmbuf_puts(b, "(ark_a == ark_c)"); break;
-        case (int)TOK_NE:    asmbuf_puts(b, "(ark_a != ark_c)"); break;
+        case (int)TOK_EQ:    asmbuf_puts(b, xh_c_rule_text("tok_eq")); break;
+        case (int)TOK_NE:    asmbuf_puts(b, xh_c_rule_text("tok_ne")); break;
         case (int)TOK_LT:
-            if (is_unsigned) asmbuf_puts(b, "((unsigned int)ark_a < (unsigned int)ark_c)");
-            else             asmbuf_puts(b, "(ark_a < ark_c)");
+            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_lt"));
+            else             asmbuf_puts(b, xh_c_rule_text("tok_lt_2"));
             break;
         case (int)TOK_GT:
-            if (is_unsigned) asmbuf_puts(b, "((unsigned int)ark_a > (unsigned int)ark_c)");
-            else             asmbuf_puts(b, "(ark_a > ark_c)");
+            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_gt"));
+            else             asmbuf_puts(b, xh_c_rule_text("tok_gt_2"));
             break;
         case (int)TOK_LE:
-            if (is_unsigned) asmbuf_puts(b, "((unsigned int)ark_a <= (unsigned int)ark_c)");
-            else             asmbuf_puts(b, "(ark_a <= ark_c)");
+            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_le"));
+            else             asmbuf_puts(b, xh_c_rule_text("tok_le_2"));
             break;
         case (int)TOK_GE:
-            if (is_unsigned) asmbuf_puts(b, "((unsigned int)ark_a >= (unsigned int)ark_c)");
-            else             asmbuf_puts(b, "(ark_a >= ark_c)");
+            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_ge"));
+            else             asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_2"));
             break;
-        default:             asmbuf_puts(b, "(ark_a)"); break;
+        default:             asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_3")); break;
     }
 }
 
@@ -120,16 +121,16 @@ static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
      * an unresolved weak external, so the call jumps to a bogus alias and
      * faults at run time; weak linkage is not observable in a
      * single-translation-unit host build. */
-    if (f->is_weak)   asmbuf_puts(b, "/* __weak (host: dropped) */ ");
-    if (f->is_naked || f->is_asm_func) asmbuf_puts(b, "__attribute__((naked)) ");
-    if (f->is_used)   asmbuf_puts(b, "__attribute__((used)) ");
-    if (f->is_unused) asmbuf_puts(b, "__attribute__((unused)) ");
-    if (f->forceinline) asmbuf_puts(b, "__attribute__((always_inline)) inline ");
+    if (f->is_weak)   asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_4"));
+    if (f->is_naked || f->is_asm_func) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_5"));
+    if (f->is_used)   asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_6"));
+    if (f->is_unused) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_7"));
+    if (f->forceinline) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_8"));
     /* constructor/destructor emit into gcc's .init_array/.fini_array sections;
      * deprecated triggers a gcc warning at the use site. */
-    if (f->is_constructor) asmbuf_puts(b, "__attribute__((constructor)) ");
-    if (f->is_destructor)  asmbuf_puts(b, "__attribute__((destructor)) ");
-    if (f->is_deprecated)  asmbuf_puts(b, "__attribute__((deprecated)) ");
+    if (f->is_constructor) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_9"));
+    if (f->is_destructor)  asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_10"));
+    if (f->is_deprecated)  asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_11"));
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
     /* armcc 5 keywords mapped to the closest gcc equivalent:
      *   __pure            -> __attribute__((pure))
@@ -137,37 +138,33 @@ static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
      *   __value_in_regs   -> no gcc equivalent; ignored (struct return ABI differs)
      *   __interwork       -> ARM/Thumb interworking; ignored on host builds
      *   __smc(n)          -> secure monitor call; ignored on host builds */
-    if (f->is_pure)       asmbuf_puts(b, "__attribute__((pure)) ");
-    if (f->is_const_attr) asmbuf_puts(b, "__attribute__((const)) ");
+    if (f->is_pure)       asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_12"));
+    if (f->is_const_attr) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_13"));
 #endif
     if (f->alias_target) {
         /* alias attribute: __attribute__((alias("ark_xxx"))) */
-        asmbuf_puts(b, "__attribute__((alias(\"ark_");
+        asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_14"));
         asmbuf_puts(b, f->alias_target);
-        asmbuf_puts(b, "\"))) ");
+        asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_15"));
     }
-    asmbuf_puts(b, f->is_static ? "static long long ark_" : "long long ark_");
+    asmbuf_puts(b, f->is_static ? xh_c_rule_text("abi_tok_ge_16") : xh_c_rule_text("abi_tok_ge_17"));
     asmbuf_puts(b, f->name);
-    asmbuf_puts(b, "(");
+    asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_18"));
     for (i = 0; i < MAX_CALL_ARGS; i++) {
-        if (i) asmbuf_puts(b, ", ");
-        asmbuf_puts(b, "long long a");
+        if (i) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_19"));
+        asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_20"));
         asmbuf_int(b, i);
     }
-    asmbuf_puts(b, ");");
-    if (f->is_irq) asmbuf_puts(b, " /* __irq */");
+    asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_21"));
+    if (f->is_irq) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_22"));
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
-    if (f->is_value_in_regs) asmbuf_puts(b, " /* __value_in_regs */");
-    if (f->is_interwork)     asmbuf_puts(b, " /* __interwork */");
+    if (f->is_value_in_regs) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_23"));
+    if (f->is_interwork)     asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_24"));
     if (f->smc_num > 0) {
-        asmbuf_puts(b, " /* __smc(");
-        asmbuf_int(b, f->smc_num);
-        asmbuf_puts(b, ") */");
+        xh_c_rule_ints(b, "abi_tok_ge_value", f->smc_num, 0);
     }
     if (f->global_reg >= 0) {
-        asmbuf_puts(b, " /* __global_reg(");
-        asmbuf_int(b, f->global_reg);
-        asmbuf_puts(b, ") */");
+        xh_c_rule_ints(b, "abi_tok_ge_value_2", f->global_reg, 0);
     }
 #endif
     asmbuf_putc(b, '\n');
@@ -176,120 +173,7 @@ static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
 /* Decide whether a function calls directly into host libc; such functions do
  * not have an ark_ wrapper and are referenced via extern declarations. */
 static int is_libc_func(const char *name) {
-    static const char *libcs[] = {
-        "printf", "putchar", "puts", "strlen", "strcmp",
-        "strcpy", "memset", "memcpy", "abort",
-        /* setjmp/longjmp: dispatched in IR_CALL because the setjmp macro form
-         * is incompatible; the IR folds jmp_buf into frame so we cast back.
-         * We require host jmp_buf to be at least 40 bytes. */
-        "setjmp", "longjmp",
-        /* stdlib.h */
-        "llabs", "lldiv", "div", "ldiv", "atoll", "_Exit",
-        "strtoll", "strtoull", "strtoimax", "strtoumax",
-        "imaxabs", "imaxdiv", "strtod", "strtof", "strtold",
-        "strtol", "strtoul", "atoi", "atol", "atof",
-        "malloc", "calloc", "realloc", "free",
-        "qsort", "bsearch", "srand", "rand",
-        "exit", "atexit", "system", "getenv",
-        /* stdio.h */
-        "snprintf", "vsnprintf", "sprintf", "vsprintf",
-        "fprintf", "vfprintf", "fputs", "fputc", "putc",
-        "vprintf", "vscanf", "vsscanf", "vfscanf",
-        "scanf", "sscanf", "fscanf", "fread", "fwrite",
-        "fopen", "fclose", "fgets", "fgetc", "getchar",
-        "rewind", "fseek", "ftell", "fflush", "remove", "rename",
-        "perror",
-        /* string.h */
-        "strncmp", "strcat", "strncat", "strncpy", "strchr",
-        "strrchr", "strstr", "strtok", "strdup", "strpbrk",
-        "strspn", "strcspn", "strcoll", "strxfrm", "strerror",
-        "memmove", "memcmp", "memchr",
-        /* math.h */
-        "sqrt", "sqrtf", "sqrtl", "pow", "powf", "powl",
-        "exp", "expf", "expl", "exp2", "exp2f", "exp2l",
-        "expm1", "expm1f", "expm1l",
-        "log", "logf", "logl", "log10", "log10f", "log10l",
-        "log2", "log2f", "log2l", "log1p", "log1pf", "log1pl",
-        "logb", "logbf", "logbl",
-        "sin", "sinf", "sinl", "cos", "cosf", "cosl",
-        "tan", "tanf", "tanl",
-        "asin", "asinf", "asinl", "acos", "acosf", "acosl",
-        "atan", "atanf", "atanl", "atan2", "atan2f", "atan2l",
-        "sinh", "sinhf", "sinhl", "cosh", "coshf", "coshl",
-        "tanh", "tanhf", "tanhl",
-        "asinh", "asinhf", "asinhl", "acosh", "acoshf", "acoshl",
-        "atanh", "atanhf", "atanhl",
-        "ceil", "ceilf", "ceill", "floor", "floorf", "floorl",
-        "fabs", "fabsf", "fabsl", "fmod", "fmodf", "fmodl",
-        "modf", "modff", "modfl",
-        "ldexp", "ldexpf", "ldexpl", "frexp", "frexpf", "frexpl",
-        "trunc", "truncf", "truncl", "round", "roundf", "roundl",
-        "lround", "lroundf", "lroundl", "llround", "llroundf", "llroundl",
-        "rint", "rintf", "rintl", "lrint", "lrintf", "lrintl",
-        "llrint", "llrintf", "llrintl", "nearbyint", "nearbyintf", "nearbyintl",
-        "isnan", "isinf", "isfinite", "signbit",
-        "isnanf", "isnanl", "isinff", "isinfl",
-        "fmax", "fmaxf", "fmaxl", "fmin", "fminf", "fminl",
-        "fdim", "fdimf", "fdiml", "fma", "fmaf", "fmal",
-        "hypot", "hypotf", "hypotl", "cbrt", "cbrtf", "cbrtl",
-        "copysign", "copysignf", "copysignl",
-        "scalbn", "scalbnf", "scalbnl", "scalbln", "scalblnf", "scalblnl",
-        "nextafter", "nextafterf", "nextafterl",
-        "nexttoward", "nexttowardf", "nexttowardl",
-        "nan", "nanf", "nanl",
-        "remainder", "remainderf", "remainderl",
-        "remquo", "remquof", "remquol",
-        "erf", "erff", "erfl", "erfc", "erfcf", "erfcl",
-        "lgamma", "lgammaf", "lgammal",
-        "tgamma", "tgammaf", "tgammal",
-        /* complex.h */
-        "creal", "crealf", "creall", "cimag", "cimagf", "cimagl",
-        "conj", "conjf", "conjl", "cabs", "cabsf", "cabsl",
-        "carg", "cargf", "cargl", "cexp", "cexpf", "cexpl",
-        "clog", "clogf", "csqrt", "csqrtf", "cpow",
-        "csin", "ccos", "ctan",
-        "csinh", "ccosh", "ctanh",
-        "casin", "cacos", "catan",
-        "casinh", "cacosh", "catanh",
-        "cproj", "cprojf", "cprojl",
-        /* ctype.h */
-        "isalnum", "isalpha", "isblank", "iscntrl", "isdigit",
-        "isgraph", "islower", "isprint", "ispunct", "isspace",
-        "isupper", "isxdigit", "tolower", "toupper",
-        /* wctype.h */
-        "iswalpha", "iswdigit", "iswspace", "iswupper", "iswlower",
-        "iswxdigit", "iswalnum", "iswcntrl", "iswgraph", "iswprint",
-        "iswpunct", "iswblank", "iswctype", "towupper", "towlower",
-        "wctype", "wctrans", "towctrans",
-        /* wchar.h */
-        "wcslen", "wcscmp", "wcsncmp", "wcscpy", "wcsncpy",
-        "wcscat", "wcsncat", "wcschr", "wcscspn", "wcsspn",
-        "wcstok", "wcstol", "wcstoul", "wcstoll", "wcstoull",
-        "wcstoimax", "wcstoumax", "wcstod", "wcstof", "wcstold",
-        "swprintf", "vswprintf", "wprintf", "fwprintf",
-        "swscanf", "wscanf", "fwscanf",
-        "fputwc", "getwc", "ungetwc",
-        "mbrtowc", "wcrtomb", "mbstowcs", "wcstombs", "mbsinit",
-        "wctob", "btowc",
-        /* time.h */
-        "time", "clock", "difftime", "mktime",
-        "localtime", "gmtime", "asctime", "ctime",
-        "strftime", "wcsftime",
-        /* locale.h */
-        "setlocale", "localeconv",
-        /* signal.h */
-        "signal", "raise",
-        /* fenv.h */
-        "fegetenv", "fesetenv", "fegetround", "fesetround",
-        "feclearexcept", "fetestexcept", "feholdexcept", "feupdateenv",
-        "fegetexceptflag", "fesetexceptflag",
-        /* tgmath.h type-generic macros expand to the above libc entries. */
-        0
-    };
-    int i;
-    if (!name) return 0;
-    for (i = 0; libcs[i]; i++) if (ark_streq(name, libcs[i])) return 1;
-    return 0;
+    return xh_c_rule_member("abi_libcs", name);
 }
 
 /* Decide whether a libc function returns void. Such functions never push a
@@ -298,77 +182,22 @@ static int is_libc_func(const char *name) {
  * void functions are detected separately via prog->funcs in the IR_CALL
  * handler. */
 static int is_void_func(const char *name) {
-    /* Only functions that are *actually* void in C99 belong here. Getting the
-     * classification wrong is not symmetric: irgen decides whether to emit
-     * IR_POP from the declared return type, so calling an int/pointer-returning
-     * function "void" here makes the backend skip the result push while irgen
-     * still pops one -- sp silently drifts negative. (Observed: every
-     * `fesetround(x) == 0` in c99_test read garbage and failed.) The memory
-     * and string family all return the destination pointer, and the <fenv.h> setters all
-     * return int, so none of them may be listed. */
-    static const char *voids[] = {
-        "free", "exit", "_Exit", "abort", "srand", "qsort",
-        "setbuf", "rewind", "perror",
-        0
-    };
-    int i;
-    if (!name) return 0;
-    for (i = 0; voids[i]; i++) if (ark_streq(name, voids[i])) return 1;
-    return 0;
+    return xh_c_rule_member("abi_voids", name);
 }
 
 /* Decide whether a function returns a struct. These functions must not be
  * cast to (long long); the result is stored via the struct-return slot and
  * the quot/rem members need correct typing. */
 static int is_struct_ret_func(const char *name) {
-    static const char *structs[] = {
-        "lldiv", "ldiv", "div", "imaxdiv",
-        0
-    };
-    int i;
-    if (!name) return 0;
-    for (i = 0; structs[i]; i++) if (ark_streq(name, structs[i])) return 1;
-    return 0;
+    return xh_c_rule_member("abi_structs", name);
 }
 
 static int is_complex_ret_func(const char *name) {
-    /* Detect functions returning _Complex. Their return value must be stored in
-     * the .c member (16 bytes); casting to (long long) would drop the
-     * imaginary part. Their arguments are also _Complex and must be popped
-     * via .c. */
-    static const char *cplx[] = {
-        "conj", "conjf", "conjl",
-        "cexp", "cexpf", "cexpl",
-        "clog", "clogf", "clogl",
-        "csqrt", "csqrtf", "csqrtl",
-        "cpow", "cpowf", "cpowl",
-        "csin", "csinf", "csinl",
-        "ccos", "ccosf", "ccosl",
-        "ctan", "ctanf", "ctanl",
-        "csinh", "csinhf", "csinhl",
-        "ccosh", "ccoshf", "ccoshl",
-        "ctanh", "ctanhf", "ctanhl",
-        "casin", "casinf", "casinl",
-        "cacos", "cacosf", "cacosl",
-        "catan", "catanf", "catanl",
-        "casinh", "casinhf", "casinhl",
-        "cacosh", "cacoshf", "cacoshl",
-        "catanh", "catanhf", "catanhl",
-        "cproj", "cprojf", "cprojl",
-        0
-    };
-    int i;
-    if (!name) return 0;
-    for (i = 0; cplx[i]; i++) if (ark_streq(name, cplx[i])) return 1;
-    return 0;
+    return xh_c_rule_member("abi_cplx", name);
 }
 
 static const char *struct_ret_type(const char *name) {
-    if (ark_streq(name, "lldiv"))  return "lldiv_t";
-    if (ark_streq(name, "ldiv"))   return "ldiv_t";
-    if (ark_streq(name, "div"))    return "div_t";
-    if (ark_streq(name, "imaxdiv")) return "imaxdiv_t";
-    return "lldiv_t";
+    return xh_c_rule_map("abi_struct_return_types", name);
 }
 
 /* Decide whether a function has an ark_ wrapper. These are static inline
@@ -376,39 +205,7 @@ static const char *struct_ret_type(const char *name) {
  * correct double/pointer casts; IR_CALL routes ark_func(...) through them.
  * Wrapper returns are long long, so the caller uses host libc types. */
 static int is_wrapped_func(const char *name) {
-    static const char *wrapped[] = {
-        /* ARK_WRAP_D1: (double)->double */
-        "sqrt", "sqrtf", "sqrtl", "fabs", "sin", "cos", "tan",
-        "asin", "acos", "atan", "exp", "exp2", "expm1",
-        "log", "log10", "log2", "log1p",
-        "floor", "ceil", "trunc", "round",
-        "nearbyint", "rint", "cbrt",
-        "erf", "erfc", "tgamma", "lgamma",
-        /* ARK_WRAP_D2: (double,double)->double */
-        "pow", "fmod", "atan2", "copysign", "fmax", "fmin",
-        "fdim", "hypot", "nextafter", "remainder",
-        /* ARK_WRAP_D3: (double,double,double)->double */
-        "fma",
-        /* ARK_WRAP_D2LL: (double)->long long */
-        "llround", "lrint", "llrint", "lround",
-        /* ARK_WRAP_DI: (double,int)->double */
-        "ldexp", "scalbn",
-        /* Special wrappers */
-        "scalbln", "nexttoward", "nan", "nanf", "nanl",
-        "strtod", "strtof", "strtold",
-        "wcstod", "wcstof", "wcstold",
-        "difftime",
-        "creal", "cimag", "conj", "cabs", "carg", "cexp",
-        "frexp", "modf", "remquo",
-        "snprintf", "strstr", "malloc", "calloc", "free",
-        "fegetenv", "fesetenv", "feclearexcept", "fetestexcept",
-        "setlocale", "localeconv", "wcslen", "wcscmp",
-        0
-    };
-    int i;
-    if (!name) return 0;
-    for (i = 0; wrapped[i]; i++) if (ark_streq(name, wrapped[i])) return 1;
-    return 0;
+    return xh_c_rule_member("abi_wrapped", name);
 }
 
 /* Decide whether a name refers to a host libc variable; the C backend emits
@@ -417,29 +214,21 @@ static int is_wrapped_func(const char *name) {
  * the host's <stdio.h>/<errno.h>/<fenv.h>; arkcc declares them through the
  * standard headers and the IR sees them as already extern. */
 static int is_libc_var(const char *name) {
-    static const char *vars[] = {
-        "stdin", "stdout", "stderr",
-        "errno", "FE_DFL_ENV",
-        0
-    };
-    int i;
-    if (!name) return 0;
-    for (i = 0; vars[i]; i++) if (ark_streq(name, vars[i])) return 1;
-    return 0;
+    return xh_c_rule_member("abi_vars", name);
 }
 
 /* Emit an extern prototype so undefined references in this TU link correctly. */
 static void emit_extern_proto(AsmBuffer *b, const char *name) {
     int i;
-    asmbuf_puts(b, "extern long long ark_");
+    asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_33"));
     asmbuf_puts(b, name);
-    asmbuf_puts(b, "(");
+    asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_18"));
     for (i = 0; i < MAX_CALL_ARGS; i++) {
-        if (i) asmbuf_puts(b, ", ");
-        asmbuf_puts(b, "long long a");
+        if (i) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_19"));
+        asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_20"));
         asmbuf_int(b, i);
     }
-    asmbuf_puts(b, ");\n");
+    asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_34"));
 }
 
 /* Emit a C type with declarator syntax. Follows the standard layout:
@@ -449,7 +238,7 @@ static void emit_extern_proto(AsmBuffer *b, const char *name) {
  *   - struct/union emit either an inline definition or a tag reference.
  * Storage class is added by the caller (e.g., const/static/section). */
 static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
-    if (!t) { asmbuf_puts(b, "long long "); asmbuf_puts(b, name); return; }
+    if (!t) { asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_35")); asmbuf_puts(b, name); return; }
     /* F2: Emit volatile/const qualifiers for non-pointer types.
      * For pointer types, qualifiers on the pointer itself are not emitted here
      * (would require placement after '*'); base-type qualifiers are correctly
@@ -457,25 +246,25 @@ static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
      *   volatile uint32_t x  ->  volatile unsigned int x
      *   volatile uint32_t *p ->  volatile unsigned int *p  (volatile on base) */
     if (t->kind != TYPE_PTR) {
-        if (t->is_volatile) asmbuf_puts(b, "volatile ");
-        if (t->is_const) asmbuf_puts(b, "const ");
+        if (t->is_volatile) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_36"));
+        if (t->is_const) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_37"));
     }
     switch (t->kind) {
-        case TYPE_VOID:   asmbuf_puts(b, "void "); break;
-        case TYPE_CHAR:   asmbuf_puts(b, "char "); break;
-        case TYPE_SHORT:  asmbuf_puts(b, "short "); break;
-        case TYPE_INT:    asmbuf_puts(b, "int "); break;
-        case TYPE_LONG:   asmbuf_puts(b, "long "); break;
-        case TYPE_LLONG:  asmbuf_puts(b, "long long "); break;
-        case TYPE_BOOL:   asmbuf_puts(b, "_Bool "); break;
-        case TYPE_FLOAT:  asmbuf_puts(b, "float "); break;
-        case TYPE_DOUBLE: asmbuf_puts(b, "double "); break;
-        case TYPE_ENUM:   asmbuf_puts(b, "int "); break;
-        case TYPE_WCHAR:  asmbuf_puts(b, "wchar_t "); break;  /* B2: matches gcc wchar_t */
+        case TYPE_VOID:   asmbuf_puts(b, xh_c_rule_text("type_void")); break;
+        case TYPE_CHAR:   asmbuf_puts(b, xh_c_rule_text("type_char")); break;
+        case TYPE_SHORT:  asmbuf_puts(b, xh_c_rule_text("type_short")); break;
+        case TYPE_INT:    asmbuf_puts(b, xh_c_rule_text("type_int")); break;
+        case TYPE_LONG:   asmbuf_puts(b, xh_c_rule_text("type_long")); break;
+        case TYPE_LLONG:  asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_35")); break;
+        case TYPE_BOOL:   asmbuf_puts(b, xh_c_rule_text("type_bool")); break;
+        case TYPE_FLOAT:  asmbuf_puts(b, xh_c_rule_text("type_float")); break;
+        case TYPE_DOUBLE: asmbuf_puts(b, xh_c_rule_text("type_double")); break;
+        case TYPE_ENUM:   asmbuf_puts(b, xh_c_rule_text("type_int")); break;
+        case TYPE_WCHAR:  asmbuf_puts(b, xh_c_rule_text("type_wchar")); break;  /* B2: matches gcc wchar_t */
         case TYPE_COMPLEX: /* B4: _Complex float/double supported by gcc */
-            asmbuf_puts(b, "_Complex ");
-            if (t->base && t->base->kind == TYPE_FLOAT) asmbuf_puts(b, "float ");
-            else asmbuf_puts(b, "double ");
+            asmbuf_puts(b, xh_c_rule_text("type_complex"));
+            if (t->base && t->base->kind == TYPE_FLOAT) asmbuf_puts(b, xh_c_rule_text("type_float"));
+            else asmbuf_puts(b, xh_c_rule_text("type_double"));
             break;
         case TYPE_PTR: {
             /* If name starts with '*', prepend another '*' to the base. */
@@ -490,13 +279,13 @@ static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
              * a Type* field). Anonymous struct pointers use "void *" as fallback. */
             if (t->base && (t->base->kind == TYPE_STRUCT || t->base->kind == TYPE_UNION)) {
                 if (t->base->tag) {
-                    asmbuf_puts(b, t->base->kind == TYPE_UNION ? "union " : "struct ");
+                    asmbuf_puts(b, t->base->kind == TYPE_UNION ? xh_c_rule_text("type_ptr") : xh_c_rule_text("type_ptr_2"));
                     asmbuf_puts(b, t->base->tag);
-                    asmbuf_puts(b, " ");
+                    asmbuf_puts(b, xh_c_rule_text("type_ptr_3"));
                     asmbuf_puts(b, namebuf);
                     return;
                 } else {
-                    asmbuf_puts(b, "void ");
+                    asmbuf_puts(b, xh_c_rule_text("type_void"));
                     asmbuf_puts(b, namebuf);
                     return;
                 }
@@ -509,19 +298,19 @@ static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
             if (t->base && t->base->kind == TYPE_FUNC) {
                 Type *func = t->base;
                 int j;
-                emit_c_type(b, func->base, "");
-                asmbuf_puts(b, "(*");
+                emit_c_type(b, func->base, xh_c_rule_text("type_ptr_4"));
+                asmbuf_puts(b, xh_c_rule_text("type_ptr_5"));
                 if (name) asmbuf_puts(b, name);
-                asmbuf_puts(b, ")(");
+                asmbuf_puts(b, xh_c_rule_text("type_ptr_6"));
                 for (j = 0; j < func->param_count; j++) {
-                    if (j) asmbuf_puts(b, ", ");
-                    emit_c_type(b, func->params[j], "");
+                    if (j) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_19"));
+                    emit_c_type(b, func->params[j], xh_c_rule_text("type_ptr_4"));
                 }
                 if (func->is_variadic) {
-                    if (func->param_count) asmbuf_puts(b, ", ");
-                    asmbuf_puts(b, "...");
+                    if (func->param_count) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_19"));
+                    asmbuf_puts(b, xh_c_rule_text("type_ptr_7"));
                 }
-                asmbuf_puts(b, ")");
+                asmbuf_puts(b, xh_c_rule_text("type_ptr_8"));
                 return;
             }
             emit_c_type(b, t->base, namebuf);
@@ -542,34 +331,34 @@ static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
             {
                 int k;
                 for (k = 0; k < n; k++) {
-                    asmbuf_puts(b, "[");
+                    asmbuf_puts(b, xh_c_rule_text("type_array"));
                     if (dims[k] > 0) asmbuf_int(b, dims[k]);
-                    asmbuf_puts(b, "]");
+                    asmbuf_puts(b, xh_c_rule_text("type_array_2"));
                 }
             }
             return;
         }
         case TYPE_STRUCT:
         case TYPE_UNION: {
-            asmbuf_puts(b, t->kind == TYPE_UNION ? "union " : "struct ");
+            asmbuf_puts(b, t->kind == TYPE_UNION ? xh_c_rule_text("type_ptr") : xh_c_rule_text("type_ptr_2"));
             if (t->fields) {
                 StructField *f;
-                asmbuf_puts(b, "{ ");
+                asmbuf_puts(b, xh_c_rule_text("type_union"));
                 for (f = t->fields; f; f = f->next) {
                     if (f->name && f->name[0]) {
                         emit_c_type(b, f->type, f->name);
-                        asmbuf_puts(b, "; ");
+                        asmbuf_puts(b, xh_c_rule_text("type_union_2"));
                     }
                 }
-                asmbuf_puts(b, "} ");
+                asmbuf_puts(b, xh_c_rule_text("type_union_3"));
             } else if (t->tag) {
                 asmbuf_puts(b, t->tag);
-                asmbuf_puts(b, " ");
+                asmbuf_puts(b, xh_c_rule_text("type_ptr_3"));
             }
             break;
         }
         default:
-            asmbuf_puts(b, "long long ");
+            asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_35"));
             break;
     }
     asmbuf_puts(b, name);
@@ -783,10 +572,10 @@ static int compute_max_sp(IrFunc *f) {
  * We use max(local_size + 64, 8704) to ensure backward compatibility with
  * the fixed areas while allowing larger frames when needed. */
 static int compute_frame_size(IrFunc *f) {
-    int needed = f->local_size + 64; /* 64 bytes padding for alignment */
-    if (needed < 8704) needed = 8704; /* preserve fixed areas for variadic/struct return */
+    int needed = f->local_size + xh_c_abi()->frame_padding; /* 64 bytes padding for alignment */
+    if (needed < xh_c_abi()->frame_min) needed = xh_c_abi()->frame_min; /* preserve fixed areas for variadic/struct return */
     /* round up to 8-byte alignment */
-    needed = (needed + 7) & ~7;
+    needed = (needed + xh_c_abi()->frame_align - 1) & ~(xh_c_abi()->frame_align - 1);
     return needed;
 }
 
@@ -794,39 +583,40 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
     AsmBuffer buf;
     int fi;
     int main_idx = -1;
+    if (xh_c_rules_begin()) return -1;
     asmbuf_init(&buf);
 
-    asmbuf_puts(&buf, "/* Ark C Compiler - generated by C backend */\n");
+    asmbuf_puts(&buf, xh_c_rule_text("file_header"));
     /* The stack-machine model casts `char frame[]` to long long, int, double
      * pointers etc. Under -O2 -fstrict-aliasing, gcc may assume these casts
      * do not alias and miscompile struct-by-value passes (e.g. returning 0
      * instead of the packed value). Disable strict aliasing for the file. */
-    asmbuf_puts(&buf, "#if defined(__GNUC__)\n");
-    asmbuf_puts(&buf, "#pragma GCC optimize(\"-fno-strict-aliasing\")\n");
-    asmbuf_puts(&buf, "#endif\n");
-    asmbuf_puts(&buf, "#include <stdio.h>\n");
-    asmbuf_puts(&buf, "#include <stdlib.h>\n");
-    asmbuf_puts(&buf, "#include <string.h>\n");
-    asmbuf_puts(&buf, "#include <stdint.h>\n");
-    asmbuf_puts(&buf, "#include <setjmp.h>\n");
-    asmbuf_puts(&buf, "#include <malloc.h>\n");   /* B3: alloca for VLA */
-    asmbuf_puts(&buf, "#include <wchar.h>\n");    /* B2: wchar_t type */
-    asmbuf_puts(&buf, "#include <wctype.h>\n");   /* iswalpha/towupper etc. */
-    asmbuf_puts(&buf, "#include <errno.h>\n");     /* errno: mingw defines it via thread-local accessor */
-    asmbuf_puts(&buf, "#include <fenv.h>\n");      /* FE_DFL_ENV: host extern symbol */
-    asmbuf_puts(&buf, "#include <math.h>\n");      /* sqrt/fabs/sin/cos/pow */
-    asmbuf_puts(&buf, "#include <complex.h>\n");   /* creal/cimag/cabs/carg/cexp */
-    asmbuf_puts(&buf, "#include <time.h>\n");      /* time/localtime/strftime */
-    asmbuf_puts(&buf, "#include <locale.h>\n");    /* setlocale/localeconv */
-    asmbuf_puts(&buf, "#include <signal.h>\n");  /* signal */
-    asmbuf_puts(&buf, "#include <inttypes.h>\n");  /* imaxdiv_t/imaxabs/strtoumax */
+    asmbuf_puts(&buf, xh_c_rule_text("ir_cmp_jmp_eq"));
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_2"));
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_3"));
+    asmbuf_puts(&buf, xh_c_rule_text("include_stdio_h"));
+    asmbuf_puts(&buf, xh_c_rule_text("include_stdlib_h"));
+    asmbuf_puts(&buf, xh_c_rule_text("include_string_h"));
+    asmbuf_puts(&buf, xh_c_rule_text("include_stdint_h"));
+    asmbuf_puts(&buf, xh_c_rule_text("include_setjmp_h"));
+    asmbuf_puts(&buf, xh_c_rule_text("include_malloc_h"));   /* B3: alloca for VLA */
+    asmbuf_puts(&buf, xh_c_rule_text("include_wchar_h"));    /* B2: wchar_t type */
+    asmbuf_puts(&buf, xh_c_rule_text("include_wctype_h"));   /* iswalpha/towupper etc. */
+    asmbuf_puts(&buf, xh_c_rule_text("include_errno_h"));     /* errno: mingw defines it via thread-local accessor */
+    asmbuf_puts(&buf, xh_c_rule_text("include_fenv_h"));      /* FE_DFL_ENV: host extern symbol */
+    asmbuf_puts(&buf, xh_c_rule_text("include_math_h"));      /* sqrt/fabs/sin/cos/pow */
+    asmbuf_puts(&buf, xh_c_rule_text("include_complex_h"));   /* creal/cimag/cabs/carg/cexp */
+    asmbuf_puts(&buf, xh_c_rule_text("include_time_h"));      /* time/localtime/strftime */
+    asmbuf_puts(&buf, xh_c_rule_text("include_locale_h"));    /* setlocale/localeconv */
+    asmbuf_puts(&buf, xh_c_rule_text("include_signal_h"));  /* signal */
+    asmbuf_puts(&buf, xh_c_rule_text("include_inttypes_h"));  /* imaxdiv_t/imaxabs/strtoumax */
     /* mingw's swprintf/vswprintf lack the C99 size_t n parameter; use _snwprintf/_vsnwprintf instead. */
-    asmbuf_puts(&buf, "#define swprintf _snwprintf\n");
-    asmbuf_puts(&buf, "#define vswprintf _vsnwprintf\n");
-    asmbuf_puts(&buf, "typedef long long ark_long;\n\n");
-    asmbuf_puts(&buf, "/* ark_slot is 8 bytes for long long and overlaps with double; the C backend uses an LLP64 long=4 byte model. */\n");
-    asmbuf_puts(&buf, "typedef union { long long i; double f; _Complex double c; } ark_slot;\n");
-    asmbuf_puts(&buf, "static inline long long _AS_I(ark_slot s){return s.i;}\n");
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_20"));
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_21"));
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_22"));
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_23"));
+    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_24"));
+    asmbuf_puts(&buf, xh_c_rule_text("runtime_ir_cmp_jmp_eq_25"));
     /* Frame accessors. `frame` is a char array, so `*(long long*)(frame + N)`
      * is a strict-aliasing violation: the object has declared type char[], and
      * reading/writing it through a casted long long or int pointer lets an
@@ -835,22 +625,13 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
      * defined way to reinterpret an object representation, so every typed frame
      * access goes through these helpers instead of a cast. */
     asmbuf_puts(&buf,
-        "static inline long long ark_fld(char *f,int o,int sz,int u){long long v=0;\n"
-        "    if(sz==1){signed char t;memcpy(&t,f+o,1);v=u?(long long)(unsigned char)t:(long long)t;}\n"
-        "    else if(sz==2){short t;memcpy(&t,f+o,2);v=u?(long long)(unsigned short)t:(long long)t;}\n"
-        "    else if(sz==4){int t;memcpy(&t,f+o,4);v=u?(long long)(unsigned int)t:(long long)t;}\n"
-        "    else{long long t;memcpy(&t,f+o,8);v=t;}\n"
-        "    return v;}\n");
+        xh_c_rule_text("runtime_ir_cmp_jmp_eq_26"));
     asmbuf_puts(&buf,
-        "static inline void ark_fst(char *f,int o,int sz,long long v){\n"
-        "    if(sz==1){signed char t=(signed char)v;memcpy(f+o,&t,1);}\n"
-        "    else if(sz==2){short t=(short)v;memcpy(f+o,&t,2);}\n"
-        "    else if(sz==4){int t=(int)v;memcpy(f+o,&t,4);}\n"
-        "    else{memcpy(f+o,&v,8);}\n}");
+        xh_c_rule_text("runtime_ir_cmp_jmp_eq_27"));
     asmbuf_puts(&buf,
-        "static inline _Complex double ark_fldc(char *f,int o){_Complex double v;memcpy(&v,f+o,sizeof v);return v;}\n");
+        xh_c_rule_text("runtime_ir_cmp_jmp_eq_28"));
     asmbuf_puts(&buf,
-        "static inline void ark_fstc(char *f,int o,_Complex double v){memcpy(f+o,&v,sizeof v);}\n");
+        xh_c_rule_text("runtime_ir_cmp_jmp_eq_29"));
     /* ark_<libc> wrapper macros: arkcc IR functions are declared as
      * (long long a0..a7) -> long long. These static inline helpers:
      *   1. Take long long slots and cast back to double/pointer/int as needed
@@ -858,114 +639,16 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
      *   3. Cast the result back to long long (double uses the union slot)
      * The actual instantiations are below; the IR_CALL path picks the right route. */
     asmbuf_puts(&buf,
-        "static inline long long _ark_d2ll(double d){ark_slot s;s.f=d;return s.i;}\n"
-        "static inline double _ark_ll2d(long long i){ark_slot s;s.i=i;return s.f;}\n"
-        /* single-arg double->double */
-        "#define ARK_WRAP_D1(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0)));}\n"
-        /* two-arg (double,double)->double */
-        "#define ARK_WRAP_D2(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0),_ark_ll2d(a1)));}\n"
-        /* three-arg (double,double,double)->double */
-        "#define ARK_WRAP_D3(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0),_ark_ll2d(a1),_ark_ll2d(a2)));}\n"
-        /* double->long long (return integer) */
-        "#define ARK_WRAP_D2LL(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)name(_ark_ll2d(a0));}\n"
-        /* (double,int)->double */
-        "#define ARK_WRAP_DI(name) static inline long long ark_##name(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(name(_ark_ll2d(a0),(int)a1));}\n"
+        xh_c_rule_text("runtime_ir_cmp_jmp_eq_30")
     );
     /* Single-arg double->double wrapper instantiations */
     asmbuf_puts(&buf,
-        "ARK_WRAP_D1(sqrt) ARK_WRAP_D1(sqrtf) ARK_WRAP_D1(sqrtl)\n"
-        "ARK_WRAP_D1(fabs) ARK_WRAP_D1(sin) ARK_WRAP_D1(cos) ARK_WRAP_D1(tan)\n"
-        "ARK_WRAP_D1(asin) ARK_WRAP_D1(acos) ARK_WRAP_D1(atan)\n"
-        "ARK_WRAP_D1(exp) ARK_WRAP_D1(exp2) ARK_WRAP_D1(expm1)\n"
-        "ARK_WRAP_D1(log) ARK_WRAP_D1(log10) ARK_WRAP_D1(log2) ARK_WRAP_D1(log1p)\n"
-        "ARK_WRAP_D1(floor) ARK_WRAP_D1(ceil) ARK_WRAP_D1(trunc) ARK_WRAP_D1(round)\n"
-        "ARK_WRAP_D1(nearbyint) ARK_WRAP_D1(rint) ARK_WRAP_D1(cbrt)\n"
-        "ARK_WRAP_D1(erf) ARK_WRAP_D1(erfc) ARK_WRAP_D1(tgamma) ARK_WRAP_D1(lgamma)\n"
-        /* two-arg wrappers */
-        "ARK_WRAP_D2(pow) ARK_WRAP_D2(fmod) ARK_WRAP_D2(atan2)\n"
-        "ARK_WRAP_D2(copysign) ARK_WRAP_D2(fmax) ARK_WRAP_D2(fmin)\n"
-        "ARK_WRAP_D2(fdim) ARK_WRAP_D2(hypot) ARK_WRAP_D2(nextafter)\n"
-        "ARK_WRAP_D2(remainder)\n"
-        /* three-arg */
-        "ARK_WRAP_D3(fma)\n"
-        /* double->long long */
-        "ARK_WRAP_D2LL(llround) ARK_WRAP_D2LL(lrint) ARK_WRAP_D2LL(llrint) ARK_WRAP_D2LL(lround)\n"
-        /* (double,int)->double */
-        "ARK_WRAP_DI(ldexp) ARK_WRAP_DI(scalbn)\n"
-        /* (double,long)->double */
-        "static inline long long ark_scalbln(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(scalbln(_ark_ll2d(a0),(long)a1));}\n"
-        /* nexttoward(double, long double)->double. arkcc maps long double to
-         * double, so the second argument must be widened back to long double
-         * before the call; the generic libc path would hand the host an
-         * 8-byte slot where a 12/16-byte x87 long double is expected (observed:
-         * nexttoward(1.0,2.0L) returned 0 instead of the next representable
-         * value). */
-        "static inline long long ark_nexttoward(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(nexttoward(_ark_ll2d(a0),(long double)_ark_ll2d(a1)));}\n"
-        /* nan/nanf/nanl (const char*)->double */
-        "static inline long long ark_nan(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(nan((const char*)(intptr_t)a0));}\n"
-        "static inline long long ark_nanf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)nanf((const char*)(intptr_t)a0));}\n"
-        "static inline long long ark_nanl(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)nanl((const char*)(intptr_t)a0));}\n"
-        /* strtod/strtof/strtold (const char*, char**)->float/double */
-        "static inline long long ark_strtod(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(strtod((const char*)(intptr_t)a0,(char**)(intptr_t)a1));}\n"
-        "static inline long long ark_strtof(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)strtof((const char*)(intptr_t)a0,(char**)(intptr_t)a1));}\n"
-        "static inline long long ark_strtold(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)strtold((const char*)(intptr_t)a0,(char**)(intptr_t)a1));}\n"
-        /* wcstod/wcstof/wcstold (const wchar_t*, wchar_t**)->float/double */
-        "static inline long long ark_wcstod(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(wcstod((const wchar_t*)(intptr_t)a0,(wchar_t**)(intptr_t)a1));}\n"
-        "static inline long long ark_wcstof(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)wcstof((const wchar_t*)(intptr_t)a0,(wchar_t**)(intptr_t)a1));}\n"
-        "static inline long long ark_wcstold(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll((double)wcstold((const wchar_t*)(intptr_t)a0,(wchar_t**)(intptr_t)a1));}\n"
-        /* difftime (time_t,time_t)->double */
-        "static inline long long ark_difftime(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(difftime((time_t)a0,(time_t)a1));}\n"
-        /* Complex funcs: the IR stores _Complex double as a long long pair, but the host
-         * _Complex double is 16 bytes and cannot fit into a single long long, so creal/cimag
-         * take long long a0..a1 and pass them through. These wrappers are stubs returning
-         * the first slot (real part); the proper complex path uses is_complex_ret_func. */
-        "static inline long long ark_creal(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a0;}\n"
-        "static inline long long ark_cimag(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a0;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a1;}\n"
-        "static inline long long ark_conj(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a0;}\n"
-        "static inline long long ark_cabs(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(hypot(_ark_ll2d(a0),_ark_ll2d(a1)));}\n"
-        "static inline long long ark_carg(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(atan2(_ark_ll2d(a1),_ark_ll2d(a0)));}\n"
-        "static inline long long ark_cexp(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return a0;}\n"
-        /* frexp/modf (double,int*) */
-        "static inline long long ark_frexp(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(frexp(_ark_ll2d(a0),(int*)(intptr_t)a1));}\n"
-        "static inline long long ark_modf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(modf(_ark_ll2d(a0),(double*)(intptr_t)a1));}\n"
-        /* remquo (double,double,int*) */
-        "static inline long long ark_remquo(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return _ark_d2ll(remquo(_ark_ll2d(a0),_ark_ll2d(a1),(int*)(intptr_t)a2));}\n"
-        /* snprintf(char*,size_t,const char*,...) - hardcoded to 5 variadic args */
-        "static inline long long ark_snprintf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){return (long long)snprintf((char*)(intptr_t)a0,(size_t)a1,(const char*)(intptr_t)a2,(long long)a3,(long long)a4,(long long)a5,(long long)a6,(long long)a7);}\n"
-        /* strstr/strchr */
-        "static inline long long ark_strstr(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)strstr((const char*)(intptr_t)a0,(const char*)(intptr_t)a1);}\n"
-        /* malloc/free/calloc */
-        "static inline long long ark_malloc(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)malloc((size_t)a0);}\n"
-        "static inline long long ark_calloc(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)calloc((size_t)a0,(size_t)a1);}\n"
-        "static inline long long ark_free(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;free((void*)(intptr_t)a0);return 0;}\n"
-        /* fenv */
-        "static inline long long ark_fegetenv(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)fegetenv((fenv_t*)(intptr_t)a0);}\n"
-        "static inline long long ark_fesetenv(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)fesetenv((const fenv_t*)(intptr_t)a0);}\n"
-        "static inline long long ark_feclearexcept(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)feclearexcept((int)a0);}\n"
-        "static inline long long ark_fetestexcept(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)fetestexcept((int)a0);}\n"
-        /* locale */
-        "static inline long long ark_setlocale(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)setlocale((int)a0,(const char*)(intptr_t)a1);}\n"
-        "static inline long long ark_localeconv(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a0;(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)localeconv();}\n"
-        /* wchar */
-        "static inline long long ark_wcslen(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)wcslen((const wchar_t*)(intptr_t)a0);}\n"
-        "static inline long long ark_wcscmp(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)wcscmp((const wchar_t*)(intptr_t)a0,(const wchar_t*)(intptr_t)a1);}\n"
-        "static inline long long ark_iswalpha(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)iswalpha((wint_t)a0);}\n"
-        "static inline long long ark_iswdigit(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)iswdigit((wint_t)a0);}\n"
-        "static inline long long ark_iswspace(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)iswspace((wint_t)a0);}\n"
-        "static inline long long ark_towupper(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)towupper((wint_t)a0);}\n"
-        "static inline long long ark_towlower(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)towlower((wint_t)a0);}\n"
-        "static inline long long ark_swprintf(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;return (long long)swprintf((wchar_t*)(intptr_t)a0,(const wchar_t*)(intptr_t)a2,(long long)a3,(long long)a4,(long long)a5,(long long)a6,(long long)a7);}\n"
-        /* signal */
-        "static inline long long ark_signal(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)signal((int)a0,((void(*)(int))(intptr_t)a1));}\n"
-        /* time/localtime/strftime */
-        "static inline long long ark_time(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)time((time_t*)(intptr_t)a0);}\n"
-        "static inline long long ark_localtime(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a1;(void)a2;(void)a3;(void)a4;(void)a5;(void)a6;(void)a7;return (long long)(intptr_t)localtime((const time_t*)(intptr_t)a0);}\n"
-        "static inline long long ark_strftime(long long a0,long long a1,long long a2,long long a3,long long a4,long long a5,long long a6,long long a7){(void)a4;(void)a5;(void)a6;(void)a7;return (long long)strftime((char*)(intptr_t)a0,(size_t)a1,(const char*)(intptr_t)a2,(const struct tm*)(intptr_t)a3);}\n"
+        xh_c_rule_text("runtime_ir_cmp_jmp_eq_31")
     );
     asmbuf_putc(&buf, '\n');
-    asmbuf_puts(&buf, "static inline double _AS_F(ark_slot s){return s.f;}\n");
-    asmbuf_puts(&buf, "static inline ark_slot _SI(long long v){ark_slot s; s.i=v; return s;}\n");
-    asmbuf_puts(&buf, "static inline ark_slot _SF(double v){ark_slot s; s.f=v; return s;}\n\n");
+    asmbuf_puts(&buf, xh_c_rule_text("runtime_ir_cmp_jmp_eq_32"));
+    asmbuf_puts(&buf, xh_c_rule_text("runtime_ir_cmp_jmp_eq_33"));
+    asmbuf_puts(&buf, xh_c_rule_text("runtime_ir_cmp_jmp_eq_34"));
 
     /* Float constants: emit %.17g for round-trip precision while keeping the
      * minimal significant digits. Values near 0 (e.g. 1e-10) or huge (e.g.
@@ -976,22 +659,20 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         for (i = 0; i < prog->float_count; i++) {
             char fbuf[64];
             double v = prog->floats[i];
-            asmbuf_puts(&buf, "static const double ark_flt_");
-            asmbuf_int(&buf, i);
-            asmbuf_puts(&buf, " = ");
+            xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value", i, 0);
             /* Detect NaN/Inf: %.17g would emit mingw's "nan"/"inf" strings,
              * which are not valid C tokens. Use 0.0f/0.0f and HUGE_VAL literals. */
             if (v != v) {
-                asmbuf_puts(&buf, "((double)0.0f/0.0f)");  /* NAN */
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_35"));  /* NAN */
             } else if (v > 1e308) {
-                asmbuf_puts(&buf, "((double)3.40282347e+38f)");  /* +INFINITY (float HUGE_VALF) */
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_36"));  /* +INFINITY (float HUGE_VALF) */
             } else if (v < -1e308) {
-                asmbuf_puts(&buf, "(-(double)3.40282347e+38f)");  /* -INFINITY */
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_37"));  /* -INFINITY */
             } else {
                 snprintf(fbuf, sizeof(fbuf), "%.17g", v);
                 asmbuf_puts(&buf, fbuf);
             }
-            asmbuf_puts(&buf, ";\n");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_38"));
         }
         if (prog->float_count) asmbuf_putc(&buf, '\n');
     }
@@ -1004,22 +685,20 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
             char rbuf[64], ibuf[64];
             double re = prog->complexes[i].re;
             double im = prog->complexes[i].im;
-            asmbuf_puts(&buf, "static const _Complex double ark_cflt_");
-            asmbuf_int(&buf, i);
-            asmbuf_puts(&buf, " = ");
+            xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_2", i, 0);
             /* Detect NaN/Inf */
-            if (re != re) snprintf(rbuf, sizeof(rbuf), "((double)0.0f/0.0f)");
-            else if (re > 1e308) snprintf(rbuf, sizeof(rbuf), "((double)3.40282347e+38f)");
-            else if (re < -1e308) snprintf(rbuf, sizeof(rbuf), "(-(double)3.40282347e+38f)");
+            if (re != re) xh_c_rule_copy(rbuf, sizeof(rbuf), "module_ir_cmp_jmp_eq_35");
+            else if (re > 1e308) xh_c_rule_copy(rbuf, sizeof(rbuf), "module_ir_cmp_jmp_eq_36");
+            else if (re < -1e308) xh_c_rule_copy(rbuf, sizeof(rbuf), "module_ir_cmp_jmp_eq_37");
             else snprintf(rbuf, sizeof(rbuf), "%.17g", re);
-            if (im != im) snprintf(ibuf, sizeof(ibuf), "((double)0.0f/0.0f)");
-            else if (im > 1e308) snprintf(ibuf, sizeof(ibuf), "((double)3.40282347e+38f)");
-            else if (im < -1e308) snprintf(ibuf, sizeof(ibuf), "(-(double)3.40282347e+38f)");
+            if (im != im) xh_c_rule_copy(ibuf, sizeof(ibuf), "module_ir_cmp_jmp_eq_35");
+            else if (im > 1e308) xh_c_rule_copy(ibuf, sizeof(ibuf), "module_ir_cmp_jmp_eq_36");
+            else if (im < -1e308) xh_c_rule_copy(ibuf, sizeof(ibuf), "module_ir_cmp_jmp_eq_37");
             else snprintf(ibuf, sizeof(ibuf), "%.17g", im);
             asmbuf_puts(&buf, rbuf);
-            asmbuf_puts(&buf, " + ");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_39"));
             asmbuf_puts(&buf, ibuf);
-            asmbuf_puts(&buf, " * 1.0i;\n");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_40"));
         }
         if (prog->complex_count) asmbuf_putc(&buf, '\n');
     }
@@ -1033,19 +712,15 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
             if (s->is_wide) {
                 /* B2: wide strings: emit a wchar_t array using L"..." literal.
                  * gcc will compile to the platform's native wchar_t encoding. */
-                asmbuf_puts(&buf, "static const wchar_t ark_wstr_");
-                asmbuf_int(&buf, s->id);
-                asmbuf_puts(&buf, "[] = L");
+                xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_3", s->id, 0);
                 emit_str_literal(&buf, s->data, s->len);
-                asmbuf_puts(&buf, ";\n");
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_38"));
             } else
 #endif
             {
-                asmbuf_puts(&buf, "static const char ark_str_");
-                asmbuf_int(&buf, s->id);
-                asmbuf_puts(&buf, "[] = ");
+                xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_4", s->id, 0);
                 emit_str_literal(&buf, s->data, s->len);
-                asmbuf_puts(&buf, ";\n");
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_38"));
             }
         }
         if (prog->string_count) asmbuf_putc(&buf, '\n');
@@ -1072,57 +747,53 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
              * the C backend would emit extern, but the host already defines them. */
             if (g->is_extern && is_libc_var(g->name)) continue;
             /* Storage class */
-            if (g->is_extern) asmbuf_puts(&buf, "extern ");
-            else if (g->is_static) asmbuf_puts(&buf, "static ");
+            if (g->is_extern) asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_41"));
+            else if (g->is_static) asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_42"));
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
             /* __thread: thread-local storage, supported by gcc/libpthread on host. */
-            if (g->is_tls && !g->is_extern) asmbuf_puts(&buf, "__thread ");
+            if (g->is_tls && !g->is_extern) asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_43"));
 #endif
             /* const qualifier forces gcc to place the variable in .rodata.
              * F2: if the type already has is_const (from type_qualified in parser),
              * emit_c_type will emit it; avoid double-const here. */
-            if (g->is_const && !g->is_extern && !(g->type && g->type->is_const)) asmbuf_puts(&buf, "const ");
+            if (g->is_const && !g->is_extern && !(g->type && g->type->is_const)) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_37"));
             /* Type and declarator; pointer/array syntax recurses with '*' */
             emit_c_type(&buf, g->type, g->name);
             /* Alignment via __attribute__((aligned(n))) */
             if (g->align_bytes > 0 && !g->is_extern) {
-                asmbuf_puts(&buf, " __attribute__((aligned(");
-                asmbuf_int(&buf, g->align_bytes);
-                asmbuf_puts(&buf, ")))");
+                xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_5", g->align_bytes, 0);
             }
             /* used/unused attributes for gcc. */
-            if (g->is_used && !g->is_extern)   asmbuf_puts(&buf, " __attribute__((used))");
-            if (g->is_unused && !g->is_extern) asmbuf_puts(&buf, " __attribute__((unused))");
+            if (g->is_used && !g->is_extern)   asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_44"));
+            if (g->is_unused && !g->is_extern) asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_45"));
             /* __at(addr): unsupported on host; emit as a comment. */
             if (g->has_at) {
-                asmbuf_puts(&buf, " /* __at(0x");
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_46"));
                 {
                     unsigned a = g->at_addr;
                     char hex[9]; int k;
-                    const char *hd = "0123456789abcdef";
+                    const char *hd = xh_c_rule_text("escape_hex_digits");
                     for (k = 7; k >= 0; k--) { hex[k] = hd[a & 0xF]; a >>= 4; }
                     hex[8] = 0;
                     asmbuf_puts(&buf, hex);
                 }
-                asmbuf_puts(&buf, ") */");
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_47"));
             }
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
             /* __global_reg(n): unsupported on host; emit as a comment. */
             if (g->global_reg >= 0) {
-                asmbuf_puts(&buf, " /* __global_reg(");
-                asmbuf_int(&buf, g->global_reg);
-                asmbuf_puts(&buf, ") */");
+                xh_c_rule_ints(&buf, "abi_tok_ge_value_2", g->global_reg, 0);
             }
 #endif
             /* Section attribute: __attribute__((section("..."))) */
             if (g->section && !g->is_extern) {
-                asmbuf_puts(&buf, " __attribute__((section(\"");
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_48"));
                 asmbuf_puts(&buf, g->section);
-                asmbuf_puts(&buf, "\")))");
+                asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_49"));
             }
             if (!g->is_extern) {
                 if (g->has_init) {
-                    asmbuf_puts(&buf, " = ");
+                    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_50"));
                     if (is_aggregate && g->init_aggregate) {
                         asmbuf_puts(&buf, g->init_aggregate);
                     } else if (g->is_float) {
@@ -1131,12 +802,12 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                          * 正常范围使用定点表示，保证输出为合法 C 浮点字面量。 */
                         char fb[80]; int fn=0; double v = g->init_float;
                         if (v != v) {
-                            asmbuf_puts(&buf, "nan");
+                            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_51"));
                         } else if (v - v != 0.0) {
                             /* 无穷大检测：inf - inf = NaN，NaN != 0.0。
                              * 不能用 v > DBL_MAX 比较，因为 -O2 下 x87 FPU
                              * 的 80 位扩展精度可能导致误判（DBL_MAX 被误判为 >DBL_MAX）。 */
-                            asmbuf_puts(&buf, "inf");
+                            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_52"));
                         } else {
                             if (v < 0) { fb[fn++] = '-'; v = -v; }
                             if (v == 0.0) {
@@ -1213,7 +884,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     }
                 }
             }
-            asmbuf_puts(&buf, ";\n");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_38"));
         }
         if (prog->global_count) asmbuf_putc(&buf, '\n');
     }
@@ -1259,52 +930,50 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         IrFunc *f = prog->funcs[fi];
         int i;
         int param_idx;  /* C 后端参数索引（每个参数占 8 字节，不同于 x86 的 4 字节 slot） */
-        if (ark_streq(f->name, "main")) main_idx = fi;
+        if (ark_streq(f->name, xh_c_rule_text("module_ir_cmp_jmp_eq_53"))) main_idx = fi;
 
         /* alias target: __attribute__((alias(...))) handles body generation. */
         if (f->alias_target) continue;
 
-        if (f->is_weak)   asmbuf_puts(&buf, "/* __weak (host: dropped) */ ");
-        if (f->is_naked || f->is_asm_func) asmbuf_puts(&buf, "__attribute__((naked)) ");
-        if (f->is_used)   asmbuf_puts(&buf, "__attribute__((used)) ");
-        if (f->is_unused) asmbuf_puts(&buf, "__attribute__((unused)) ");
-        if (f->is_irq)    asmbuf_puts(&buf, "/* __irq */ ");
-        if (f->is_constructor) asmbuf_puts(&buf, "__attribute__((constructor)) ");
-        if (f->is_destructor)  asmbuf_puts(&buf, "__attribute__((destructor)) ");
-        if (f->is_deprecated)  asmbuf_puts(&buf, "__attribute__((deprecated)) ");
+        if (f->is_weak)   asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_4"));
+        if (f->is_naked || f->is_asm_func) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_5"));
+        if (f->is_used)   asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_6"));
+        if (f->is_unused) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_7"));
+        if (f->is_irq)    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_54"));
+        if (f->is_constructor) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_9"));
+        if (f->is_destructor)  asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_10"));
+        if (f->is_deprecated)  asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_11"));
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
-        if (f->is_pure)       asmbuf_puts(&buf, "__attribute__((pure)) ");
-        if (f->is_const_attr) asmbuf_puts(&buf, "__attribute__((const)) ");
-        if (f->is_value_in_regs) asmbuf_puts(&buf, "/* __value_in_regs */ ");
-        if (f->is_interwork)     asmbuf_puts(&buf, "/* __interwork */ ");
+        if (f->is_pure)       asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_12"));
+        if (f->is_const_attr) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_13"));
+        if (f->is_value_in_regs) asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_55"));
+        if (f->is_interwork)     asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_56"));
         if (f->smc_num > 0) {
-            asmbuf_puts(&buf, "/* __smc(");
-            asmbuf_int(&buf, f->smc_num);
-            asmbuf_puts(&buf, ") */ ");
+            xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_6", f->smc_num, 0);
         }
 #endif
         /* --split_sections/-ffunction-sections: per-function section attribute for gcc. */
         if (g_config.split_sections) {
-            asmbuf_puts(&buf, "__attribute__((section(\".text.");
+            asmbuf_puts(&buf, xh_c_rule_text("attribute_ir_cmp_jmp_eq_57"));
             asmbuf_puts(&buf, f->name);
-            asmbuf_puts(&buf, "\"))) ");
+            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_15"));
         }
-        asmbuf_puts(&buf, f->is_static ? "static long long ark_" : "long long ark_");
+        asmbuf_puts(&buf, f->is_static ? xh_c_rule_text("abi_tok_ge_16") : xh_c_rule_text("abi_tok_ge_17"));
         asmbuf_puts(&buf, f->name);
-        asmbuf_puts(&buf, "(");
+        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
         for (i = 0; i < MAX_CALL_ARGS; i++) {
-            if (i) asmbuf_puts(&buf, ", ");
-            asmbuf_puts(&buf, "long long a");
+            if (i) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
+            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_20"));
             asmbuf_int(&buf, i);
         }
-        asmbuf_puts(&buf, ") {\n");
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_58"));
         if (f->is_asm_func) {
             /* __asm function body: emit the asm text as a single __asm__ block.
              * naked attribute tells gcc to omit prologue/epilogue, so we never
              * emit a return statement (naked functions require no return). */
-            asmbuf_puts(&buf, "    __asm__ __volatile__(\n");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_59"));
             {
-                const char *s = f->asm_body ? f->asm_body : "";
+                const char *s = f->asm_body ? f->asm_body : xh_c_rule_text("type_ptr_4");
                 int sl = ark_strlen(s);
                 /* Convert each asm line into a C string literal. */
                 int k;
@@ -1314,49 +983,43 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     if (line_start) {
                         if (c == ' ' || c == '\t' || c == '\r') continue;
                         if (c == '\n' || c == 0) continue;
-                        asmbuf_puts(&buf, "        \"");
+                        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_60"));
                         line_start = 0;
                     }
                     if (c == '\n' || c == 0) {
-                        asmbuf_puts(&buf, "\\n\"\n");
+                        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_61"));
                         line_start = 1;
                         if (c == 0) break;
                         continue;
                     }
-                    if (c == '"') asmbuf_puts(&buf, "\\\"");
-                    else if (c == '\\') asmbuf_puts(&buf, "\\\\");
+                    if (c == '"') asmbuf_puts(&buf, xh_c_rule_text("escape_quote"));
+                    else if (c == '\\') asmbuf_puts(&buf, xh_c_rule_text("escape_backslash"));
                     else asmbuf_putc(&buf, c);
                 }
             }
-            asmbuf_puts(&buf, "    );\n}\n\n");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_62"));
             continue;
         }
-        asmbuf_puts(&buf, "    /* silence unused-parameter warnings */\n");
-        asmbuf_puts(&buf, "    (void)a0; (void)a1; (void)a2; (void)a3;\n");
-        asmbuf_puts(&buf, "    (void)a4; (void)a5; (void)a6; (void)a7;\n");
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_63"));
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_64"));
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_65"));
         {
             int frame_sz = compute_frame_size(f);
             int stk_sz = compute_max_sp(f);
             /* Add safety margin to stk to account for any simulation imprecision */
-            stk_sz += 16;
-            if (stk_sz < 256) stk_sz = 256;
-            asmbuf_puts(&buf, "    char frame[");
-            asmbuf_int(&buf, frame_sz);
-            asmbuf_puts(&buf, "] = {0};\n");
-            asmbuf_puts(&buf, "    ark_slot stk[");
-            asmbuf_int(&buf, stk_sz);
-            asmbuf_puts(&buf, "]; int sp = 0; long long ark_a, ark_c; long long ark_addr; long long ark_es;\n");
+            stk_sz += xh_c_abi()->stack_margin;
+            if (stk_sz < xh_c_abi()->stack_min) stk_sz = xh_c_abi()->stack_min;
+            xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_7", frame_sz, 0);
+            xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_8", stk_sz, 0);
         }
-        asmbuf_puts(&buf, "    double ark_fa, ark_fc; (void)ark_fa; (void)ark_fc;\n");
-        asmbuf_puts(&buf, "    _Complex double ark_ca, ark_cc; (void)ark_ca; (void)ark_cc;\n");
-        asmbuf_puts(&buf, "    (void)ark_addr; (void)ark_es; (void)frame; (void)ark_a; (void)ark_c;\n");
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_66"));
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_67"));
+        asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_68"));
         /* For variadic functions, expose _ark_va_ptr pointing to the first
          * variadic argument stored at frame+8000. stdarg.h's va_start uses
          * this directly. param_count gives the number of named params. */
         if (f->is_variadic) {
-            asmbuf_puts(&buf, "    long long *_ark_va_ptr = (long long*)(frame + 8000) + ");
-            asmbuf_int(&buf, f->param_count);
-            asmbuf_puts(&buf, ";\n");
+            xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_9", f->param_count, xh_c_abi()->varargs_offset);
         }
 
         /* C 后端函数签名为 ark_<name>(long long a0, ..., long long a15)，
@@ -1366,11 +1029,11 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         param_idx = 0;
         for (i = 0; i < f->code_count; i++) {
             IrInst *I = &f->code[i];
-            asmbuf_puts(&buf, "    ");
+            asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_69"));
             switch (I->op) {
                 case IR_FUNC_BEGIN:
                 case IR_FUNC_END:
-                    asmbuf_puts(&buf, "/* fn boundary */");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_func_end"));
                     break;
                 case IR_GETARG: {
                     /* aux 低 8 位 = x86 cdecl 的 4 字节 slot 索引；
@@ -1383,50 +1046,36 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * - val >= 8000：变参区域，aux 低 8 位直接是 a0..a7 索引。 */
                     int arg_idx = I->aux & 0xFF;
                     int st_sz   = (I->aux >> 8) & 0xFFFFFF;
-                    if (I->val >= 8000) {
+                    if (I->val >= xh_c_abi()->varargs_offset) {
                         /* 变参区域：a<arg_idx> 直接存储到 frame[val] */
-                        asmbuf_puts(&buf, "ark_fst(frame, ");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ", 8, a");
+                        xh_c_rule_ints(&buf, "ir_getarg_value", I->val, 0);
                         asmbuf_int(&buf, arg_idx);
-                        asmbuf_puts(&buf, ");");
-                    } else if (st_sz > 8) {
+                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
+                    } else if (st_sz > xh_c_abi()->slot_bytes) {
                         /* struct 按值传递（>8 字节）：a<param_idx> 是源指针 */
-                        asmbuf_puts(&buf, "memcpy(frame + ");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ", (void*)(intptr_t)a");
+                        xh_c_rule_ints(&buf, "ir_getarg_value_2", I->val, 0);
                         asmbuf_int(&buf, param_idx);
-                        asmbuf_puts(&buf, ", (size_t)");
-                        asmbuf_int(&buf, st_sz);
-                        asmbuf_puts(&buf, ");");
+                        xh_c_rule_ints(&buf, "ir_getarg_value_3", st_sz, 0);
                         param_idx++;
                     } else {
                         /* 标量/指针/小 struct（<=8 字节）：直接存储 */
-                        asmbuf_puts(&buf, "ark_fst(frame, ");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ", 8, a");
+                        xh_c_rule_ints(&buf, "ir_getarg_value", I->val, 0);
                         asmbuf_int(&buf, param_idx);
-                        asmbuf_puts(&buf, ");");
+                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                         param_idx++;
                     }
                     break;
                 }
                 case IR_PUSH_INT:
-                    asmbuf_puts(&buf, "stk[sp++].i = ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "LL;");
+                    xh_c_rule_ints(&buf, "ir_push_int_value", I->val, 0);
                     break;
                 case IR_PUSH_FLOAT:
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* Complex constant: aux 0x800|0x200 = complex(0x800) +
                          * double(0x200); val = index into prog->complexes[]. */
-                        asmbuf_puts(&buf, "stk[sp++].c = ark_cflt_");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ";");
+                        xh_c_rule_ints(&buf, "ir_push_float_value", I->val, 0);
                     } else {
-                        asmbuf_puts(&buf, "stk[sp++].f = ark_flt_");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ";");
+                        xh_c_rule_ints(&buf, "ir_push_float_value_2", I->val, 0);
                     }
                     break;
                 case IR_PUSH_STR: {
@@ -1436,15 +1085,15 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     if (I->val >= 0 && I->val < prog->string_count &&
                         prog->strings[I->val]->is_wide) is_w = 1;
 #endif
-                    asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)ark_");
-                    asmbuf_puts(&buf, is_w ? "wstr_" : "str_");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_push_str"));
+                    asmbuf_puts(&buf, is_w ? xh_c_rule_text("ir_push_str_2") : xh_c_rule_text("ir_push_str_3"));
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, ';');
                     break;
                 }
                 case IR_ALLOCA:
                     /* B3: VLA allocation; replace top-of-stack with alloca(size) pointer. */
-                    asmbuf_puts(&buf, "stk[sp-1].i = (long long)(intptr_t)alloca((size_t)stk[sp-1].i);");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_alloca"));
                     break;
                 case IR_PUSH_VAR: {
                     /* aux encodes load size and sign:
@@ -1458,27 +1107,23 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     int is_unsigned = I->aux & 0x100;
                     if (sz == 0) sz = 8;
                     if (sz == 16) {
-                        asmbuf_puts(&buf, "stk[sp++].c = ark_fldc(frame, ");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ");");
+                        xh_c_rule_ints(&buf, "ir_push_var_value", I->val, 0);
                         break;
                     }
-                    asmbuf_puts(&buf, "stk[sp++].i = ark_fld(frame, ");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_push_var"));
                     asmbuf_int(&buf, I->val);
                     if (sz == 1)
-                        asmbuf_puts(&buf, is_unsigned ? ", 1, 1);" : ", 1, 0);");
+                        asmbuf_puts(&buf, is_unsigned ? xh_c_rule_text("ir_push_var_2") : xh_c_rule_text("ir_push_var_3"));
                     else if (sz == 2)
-                        asmbuf_puts(&buf, is_unsigned ? ", 2, 1);" : ", 2, 0);");
+                        asmbuf_puts(&buf, is_unsigned ? xh_c_rule_text("ir_push_var_4") : xh_c_rule_text("ir_push_var_5"));
                     else if (sz == 4)
-                        asmbuf_puts(&buf, is_unsigned ? ", 4, 1);" : ", 4, 0);");
+                        asmbuf_puts(&buf, is_unsigned ? xh_c_rule_text("ir_push_var_6") : xh_c_rule_text("ir_push_var_7"));
                     else
-                        asmbuf_puts(&buf, ", 8, 0);");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_var_8"));
                     break;
                 }
                 case IR_PUSH_ADDR:
-                    asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)(frame + ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ");");
+                    xh_c_rule_ints(&buf, "ir_push_addr_value", I->val, 0);
                     break;
                 case IR_PUSH_GLOBAL: {
                     /* Look up the global by name to determine its category
@@ -1500,15 +1145,15 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         }
                     }
                     if (is_agg) {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)&");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_global"));
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, ';');
                     } else if (is_flt) {
-                        asmbuf_puts(&buf, "stk[sp++].f = (double)");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_global_2"));
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, ';');
                     } else {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_global_3"));
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, ';');
                     }
@@ -1516,13 +1161,13 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                 }
                 case IR_TRUNC: {
                     /* val = target width, aux = 1 zero-extend (unsigned). */
-                    const char *cty = "int";
-                    if (I->val == 8)       cty = I->aux ? "unsigned char" : "signed char";
-                    else if (I->val == 16) cty = I->aux ? "unsigned short" : "short";
-                    else                    cty = I->aux ? "unsigned int" : "int";
-                    asmbuf_puts(&buf, "stk[sp-1].i = (long long)(");
+                    const char *cty = xh_c_rule_text("ir_trunc");
+                    if (I->val == 8)       cty = I->aux ? xh_c_rule_text("ir_trunc_2") : xh_c_rule_text("ir_trunc_3");
+                    else if (I->val == 16) cty = I->aux ? xh_c_rule_text("ir_trunc_4") : xh_c_rule_text("ir_trunc_5");
+                    else                    cty = I->aux ? xh_c_rule_text("ir_trunc_6") : xh_c_rule_text("ir_trunc");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_trunc_7"));
                     asmbuf_puts(&buf, cty);
-                    asmbuf_puts(&buf, ")stk[sp-1].i;");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_trunc_8"));
                     break;
                 }
                 case IR_PUSH_FUNC:
@@ -1531,32 +1176,32 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * ark_ wrapper (same dispatch rule as IR_CALL), so their
                      * address is the host symbol itself. */
                     if (is_libc_func(I->name)) {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)(void*)&");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_func"));
                         asmbuf_puts(&buf, I->name);
                     } else {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)(void*)&ark_");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_func_2"));
                         asmbuf_puts(&buf, I->name);
                     }
                     asmbuf_putc(&buf, ';');
                     break;
                 case IR_PUSH_GLOBAL_ADDR:
                     /* Always push the address of the global (regardless of category). */
-                    asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)&");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_push_global"));
                     asmbuf_puts(&buf, I->name);
                     asmbuf_putc(&buf, ';');
                     break;
                 case IR_STORE_GLOBAL:
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, " = (long long)stk[--sp].i;");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_global"));
                     break;
                 case IR_POP:
-                    asmbuf_puts(&buf, "if (sp>0) --sp;");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_pop"));
                     break;
                 case IR_DUP:
-                    asmbuf_puts(&buf, "if (sp>0) { stk[sp] = stk[sp-1]; sp++; }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_dup"));
                     break;
                 case IR_SWAP:
-                    asmbuf_puts(&buf, "if (sp>=2) { long long _t = stk[sp-1].i; stk[sp-1].i = stk[sp-2].i; stk[sp-2].i = _t; }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_swap"));
                     break;
                 case IR_SEXT:
                 case IR_ZEXT:
@@ -1574,16 +1219,14 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     int sz = I->aux & ~IR_AUX_VOLATILE;
                     if (sz == 0) sz = 8;
                     if (sz == 16) {
-                        asmbuf_puts(&buf, "ark_fstc(frame, ");
-                        asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, ", stk[--sp].c);");
+                        xh_c_rule_ints(&buf, "ir_store_value", I->val, 0);
                     } else {
-                        asmbuf_puts(&buf, "ark_fst(frame, ");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_store"));
                         asmbuf_int(&buf, I->val);
-                        if (sz == 1)      asmbuf_puts(&buf, ", 1, stk[--sp].i);");
-                        else if (sz == 2) asmbuf_puts(&buf, ", 2, stk[--sp].i);");
-                        else if (sz == 4) asmbuf_puts(&buf, ", 4, stk[--sp].i);");
-                        else              asmbuf_puts(&buf, ", 8, stk[--sp].i);");
+                        if (sz == 1)      asmbuf_puts(&buf, xh_c_rule_text("ir_store_2"));
+                        else if (sz == 2) asmbuf_puts(&buf, xh_c_rule_text("ir_store_3"));
+                        else if (sz == 4) asmbuf_puts(&buf, xh_c_rule_text("ir_store_4"));
+                        else              asmbuf_puts(&buf, xh_c_rule_text("ir_store_5"));
                     }
                     break;
                 }
@@ -1592,47 +1235,43 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * loads so the host C compiler does not merge or eliminate the
                      * read-modify-write of volatile lvalues. */
                     int is_vol = (I->aux & IR_AUX_VOLATILE) != 0;
-                    const char *vol = is_vol ? "volatile " : "";
-                    asmbuf_puts(&buf, "{ long long ix = stk[--sp].i; long long ad = stk[--sp].i; ark_es = ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "; if (ark_es==1) stk[sp++].i = *(");
+                    const char *vol = is_vol ? xh_c_rule_text("abi_tok_ge_36") : xh_c_rule_text("type_ptr_4");
+                    xh_c_rule_ints(&buf, "ir_load_idx_value", I->val, 0);
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "signed char*)(intptr_t)(ad + ix);");
-                    asmbuf_puts(&buf, " else if (ark_es==2) stk[sp++].i = *(");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_2"));
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "short*)(intptr_t)(ad + ix*2);");
-                    asmbuf_puts(&buf, " else if (ark_es==8) stk[sp++].i = *(");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_3"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_4"));
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "long long*)(intptr_t)(ad + ix*8);");
-                    asmbuf_puts(&buf, " else stk[sp++].i = *(");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_5"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_6"));
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "int*)(intptr_t)(ad + ix*ark_es); }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_7"));
                     break;
                 }
                 case IR_STORE_IDX: {
                     /* Bug-I5 FIX: When IR_AUX_VOLATILE is set, emit volatile-qualified
                      * stores so the host C compiler preserves the write. */
                     int is_vol = (I->aux & IR_AUX_VOLATILE) != 0;
-                    const char *vol = is_vol ? "volatile " : "";
-                    asmbuf_puts(&buf, "{ long long va = stk[--sp].i; long long ad = stk[--sp].i; ark_es = ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "; if (ark_es==1) *(");
+                    const char *vol = is_vol ? xh_c_rule_text("abi_tok_ge_36") : xh_c_rule_text("type_ptr_4");
+                    xh_c_rule_ints(&buf, "ir_store_idx_value", I->val, 0);
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "char*)(intptr_t)ad = (char)va;");
-                    asmbuf_puts(&buf, " else if (ark_es==2) *(");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_2"));
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "short*)(intptr_t)ad = (short)va;");
-                    asmbuf_puts(&buf, " else if (ark_es==8) *(");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_3"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_4"));
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "long long*)(intptr_t)ad = va;");
-                    asmbuf_puts(&buf, " else *(");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_5"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_6"));
                     if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, "int*)(intptr_t)ad = (int)va;");
-                    asmbuf_puts(&buf, " stk[sp++].i = va; }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_7"));
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_8"));
                     break;
                 }
                 case IR_BINARY:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i = ");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_binary"));
                     emit_binop(&buf, I->aux, 0);
                     asmbuf_putc(&buf, ';');
                     break;
@@ -1640,25 +1279,25 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     if ((I->aux & 0xF00) == 0x900) {
                         /* cexp intrinsic: aux = TOK_PLUS | 0x900 (complex bit
                          * 0x800 plus the 0x100 sub-op selector). */
-                        asmbuf_puts(&buf, "ark_ca = stk[--sp].c; stk[sp++].c = cexp(ark_ca);");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fadd"));
                     } else if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, "ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca + ark_cc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fadd_2"));
                     } else {
-                        asmbuf_puts(&buf, "ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa + ark_fc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fadd_3"));
                     }
                     break;
                 case IR_FSUB:
                     if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, "ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca - ark_cc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fsub"));
                     } else {
-                        asmbuf_puts(&buf, "ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa - ark_fc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fsub_2"));
                     }
                     break;
                 case IR_FMUL:
                     if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, "ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca * ark_cc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fmul"));
                     } else {
-                        asmbuf_puts(&buf, "ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa * ark_fc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fmul_2"));
                     }
                     break;
                 case IR_FDIV:
@@ -1666,23 +1305,23 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * The result feeds isnan/isinf classification paths; we keep
                      * the division at IR_FDIV rather than IR_BINARY+emit_binop. */
                     if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, "ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; stk[sp++].c = ark_ca / ark_cc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fdiv"));
                     } else {
-                        asmbuf_puts(&buf, "ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].f = ark_fa / ark_fc;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_fdiv_2"));
                     }
                     break;
                 case IR_FCMP: {
                     /* Mask out the aux double bit (0x200) and pick the comparison op.
                      * C99 floats use the same comparison regardless of width. */
                     int op = I->aux & ~(0x200 | IR_AUX_COMPLEX);
-                    const char *cop = "==";
+                    const char *cop = xh_c_rule_text("ir_fcmp");
                     switch (op) {
-                        case (int)TOK_EQ: cop = "=="; break;
-                        case (int)TOK_NE: cop = "!="; break;
-                        case (int)TOK_LT: cop = "<";  break;
-                        case (int)TOK_GT: cop = ">";  break;
-                        case (int)TOK_LE: cop = "<="; break;
-                        case (int)TOK_GE: cop = ">="; break;
+                        case (int)TOK_EQ: cop = xh_c_rule_text("ir_fcmp"); break;
+                        case (int)TOK_NE: cop = xh_c_rule_text("tok_ne_2"); break;
+                        case (int)TOK_LT: cop = xh_c_rule_text("tok_lt_3");  break;
+                        case (int)TOK_GT: cop = xh_c_rule_text("tok_gt_3");  break;
+                        case (int)TOK_LE: cop = xh_c_rule_text("tok_le_3"); break;
+                        case (int)TOK_GE: cop = xh_c_rule_text("abi_tok_ge_38"); break;
                         default: break;
                     }
                     if (I->aux & IR_AUX_COMPLEX) {
@@ -1690,19 +1329,15 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                          * complex operands are == and !=, and they compare both
                          * parts (NaN propagating exactly like the real case). */
                         if (op == (int)TOK_NE) {
-                            asmbuf_puts(&buf, "ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; "
-                                              "stk[sp++].i = ((__real__ ark_ca != __real__ ark_cc) || "
-                                              "(__imag__ ark_ca != __imag__ ark_cc)) ? 1 : 0;");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_39"));
                         } else {
-                            asmbuf_puts(&buf, "ark_cc = stk[--sp].c; ark_ca = stk[--sp].c; "
-                                              "stk[sp++].i = ((__real__ ark_ca == __real__ ark_cc) && "
-                                              "(__imag__ ark_ca == __imag__ ark_cc)) ? 1 : 0;");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_40"));
                         }
                         break;
                     }
-                    asmbuf_puts(&buf, "ark_fc = stk[--sp].f; ark_fa = stk[--sp].f; stk[sp++].i = (ark_fa ");
+                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_41"));
                     asmbuf_puts(&buf, cop);
-                    asmbuf_puts(&buf, " ark_fc) ? 1 : 0;");
+                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_42"));
                     break;
                 }
                 case IR_F2I:
@@ -1714,15 +1349,15 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                          *   0x300 carg    (needs libm) */
                         int k = I->aux & 0x300;
                         if (k == 0x200)
-                            asmbuf_puts(&buf, "ark_ca = stk[--sp].c; stk[sp++].f = cabs(ark_ca);");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_f2i"));
                         else if (k == 0x300)
-                            asmbuf_puts(&buf, "ark_ca = stk[--sp].c; stk[sp++].f = carg(ark_ca);");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_f2i_2"));
                         else if (k == 0x100)
-                            asmbuf_puts(&buf, "ark_ca = stk[--sp].c; stk[sp++].f = cimag(ark_ca);");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_f2i_3"));
                         else
-                            asmbuf_puts(&buf, "ark_ca = stk[--sp].c; stk[sp++].f = creal(ark_ca);");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_f2i_4"));
                     } else {
-                        asmbuf_puts(&buf, "ark_fa = stk[--sp].f; stk[sp++].i = (long long)ark_fa;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_f2i_5"));
                     }
                     break;
                 case IR_I2F:
@@ -1736,14 +1371,14 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         int k = I->aux & 0x700;
                         if (k == 0x100 || k == 0x500) {
                             if (k == 0x500)
-                                asmbuf_puts(&buf, "ark_a = stk[--sp].i; ark_ca = (double)(unsigned long long)ark_a; stk[sp++].c = ark_ca;");
+                                asmbuf_puts(&buf, xh_c_rule_text("ir_i2f"));
                             else
-                                asmbuf_puts(&buf, "ark_ca = (double)stk[--sp].i; stk[sp++].c = ark_ca;");
+                                asmbuf_puts(&buf, xh_c_rule_text("ir_i2f_2"));
                         } else {
-                            asmbuf_puts(&buf, "ark_ca = stk[--sp].f; stk[sp++].c = ark_ca;");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_i2f_3"));
                         }
                     } else {
-                        asmbuf_puts(&buf, "ark_a = stk[--sp].i; stk[sp++].f = (double)ark_a;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_i2f_4"));
                     }
                     break;
                 case IR_64I2F:
@@ -1751,18 +1386,18 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * 8-byte slots, so this is a numeric cast (not bit reinterpret).
                      * 0x400 = unsigned: cast through (unsigned long long) first. */
                     if (I->aux & 0x400) {
-                        asmbuf_puts(&buf, "ark_a = stk[--sp].i; stk[sp++].f = (double)(unsigned long long)ark_a;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_64i2f"));
                     } else {
-                        asmbuf_puts(&buf, "ark_a = stk[--sp].i; stk[sp++].f = (double)ark_a;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_i2f_4"));
                     }
                     break;
                 case IR_64F2I:
                     /* double -> long long. Numeric cast, not bit reinterpret.
                      * 0x400 = unsigned: cast to (unsigned long long) then store. */
                     if (I->aux & 0x400) {
-                        asmbuf_puts(&buf, "ark_fa = stk[--sp].f; stk[sp++].i = (long long)(unsigned long long)ark_fa;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_64f2i"));
                     } else {
-                        asmbuf_puts(&buf, "ark_fa = stk[--sp].f; stk[sp++].i = (long long)ark_fa;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_f2i_5"));
                     }
                     break;
                 case IR_F2F:
@@ -1772,7 +1407,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * promotes back to double). Stack effect: 0. */
                     if (I->aux & 0x200) {
                         /* double -> float */
-                        asmbuf_puts(&buf, "stk[sp-1].f = (float)stk[sp-1].f;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_f2f"));
                     }
                     /* float -> double: no-op in C backend */
                     break;
@@ -1781,16 +1416,16 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * Otherwise we emit a basic asm string literal; gcc accepts both forms.
                      * Note: IR_ASM is always volatile; the parser has already validated syntax. */
                     if (I->name && I->name[0] == '@') {
-                        asmbuf_puts(&buf, "__asm__ __volatile__(");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_asm"));
                         asmbuf_puts(&buf, I->name + 1);
-                        asmbuf_puts(&buf, ");");
+                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     } else {
-                        asmbuf_puts(&buf, "__asm__ __volatile__(");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_asm"));
                         {
-                            const char *s = I->name ? I->name : "";
+                            const char *s = I->name ? I->name : xh_c_rule_text("type_ptr_4");
                             emit_str_literal(&buf, s, ark_strlen(s));
                         }
-                        asmbuf_puts(&buf, ");");
+                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     }
                     break;
                 case IR_UNARY: {
@@ -1798,57 +1433,53 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     int is_float = (I->val == 1);
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* Complex unary conj: 1 complex in -> 1 complex out. */
-                        asmbuf_puts(&buf, "ark_ca = stk[--sp].c; stk[sp++].c = conj(ark_ca);");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_unary"));
                     } else if (is_float) {
                         /* Float negation: respects IEEE754 sign bit (handles -0.0/NaN).
                          * Uses the stk[].f member to preserve the sign bit semantics. */
-                        asmbuf_puts(&buf, "ark_fc = stk[--sp].f; stk[sp++].f = (-ark_fc);");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_unary_2"));
                     } else {
-                        asmbuf_puts(&buf, "ark_a = stk[--sp].i; stk[sp++].i = ");
-                        if (op == (int)TOK_MINUS) asmbuf_puts(&buf, "(-ark_a)");
-                        else if (op == (int)TOK_BNOT) asmbuf_puts(&buf, "(~ark_a)");
-                        else if (op == (int)TOK_NOT)  asmbuf_puts(&buf, "(!ark_a)");
-                        else asmbuf_puts(&buf, "(ark_a)");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_unary_3"));
+                        if (op == (int)TOK_MINUS) asmbuf_puts(&buf, xh_c_rule_text("ir_unary_4"));
+                        else if (op == (int)TOK_BNOT) asmbuf_puts(&buf, xh_c_rule_text("ir_unary_5"));
+                        else if (op == (int)TOK_NOT)  asmbuf_puts(&buf, xh_c_rule_text("ir_unary_6"));
+                        else asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_3"));
                         asmbuf_putc(&buf, ';');
                     }
                     break;
                 }
                 case IR_LABEL:
-                    asmbuf_puts(&buf, "L_");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ": ;");
+                    xh_c_rule_ints(&buf, "ir_label_value", I->val, 0);
                     break;
                 case IR_LABEL_NAMED:
-                    asmbuf_puts(&buf, "LN_");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_label_named"));
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, ": ;");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_label_named_2"));
                     break;
                 case IR_JMP:
-                    asmbuf_puts(&buf, "goto L_");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_jmp"));
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, ';');
                     break;
                 case IR_JMP_NAMED:
-                    asmbuf_puts(&buf, "goto LN_");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_jmp_named"));
                     asmbuf_puts(&buf, I->name);
                     asmbuf_putc(&buf, ';');
                     break;
                 case IR_JZ:
-                    asmbuf_puts(&buf, "ark_a = stk[--sp].i; if (!ark_a) goto L_");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_jz"));
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, ';');
                     break;
                 case IR_JNZ:
-                    asmbuf_puts(&buf, "ark_a = stk[--sp].i; if (ark_a) goto L_");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_jnz"));
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, ';');
                     break;
                 case IR_CMP_JMP_EQ:
-                    asmbuf_puts(&buf, "ark_a = stk[sp-1].i; if (ark_a == ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ") { --sp; goto L_");
+                    xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_10", I->val, 0);
                     asmbuf_int(&buf, I->aux);
-                    asmbuf_puts(&buf, "; }");
+                    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_70"));
                     break;
                 case IR_CALL: {
                     int n = I->val;
@@ -1858,26 +1489,22 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * Without volatile, gcc -O2 would erase the union(ark_slot) write
                      * pattern, breaking printf's variadic ABI. The default values are
                      * 0 so unused slots read as NULL (avoids %s printing "(null)"). */
-                    asmbuf_puts(&buf, "{ long long volatile aa[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; ");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_call"));
                     if (n > MAX_CALL_ARGS) n = MAX_CALL_ARGS;
                     if (is_complex_ret_func(I->name)) {
                         /* Complex-function args are _Complex double (16 bytes, .c member);
                          * popping via .i reads only 8 bytes. Use a separate _Complex array. */
-                        asmbuf_puts(&buf, "_Complex double volatile aac[8] = {0}; ");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_2"));
                         for (k = 0; k < n; k++) {
-                            asmbuf_puts(&buf, "aac[");
-                            asmbuf_int(&buf, k);
-                            asmbuf_puts(&buf, "] = stk[--sp].c; ");
+                            xh_c_rule_ints(&buf, "ir_call_value", k, 0);
                         }
                     } else {
                         for (k = 0; k < n; k++) {
-                            asmbuf_puts(&buf, "aa[");
-                            asmbuf_int(&buf, k);
-                            asmbuf_puts(&buf, "] = stk[--sp].i; ");
+                            xh_c_rule_ints(&buf, "ir_call_value_2", k, 0);
                         }
                     }
                     /* Dispatch to libc if the function is host libc; otherwise ark_ prefix. */
-                    if (ark_streq(I->name, "printf")) {
+                    if (ark_streq(I->name, xh_c_rule_text("ir_call_3"))) {
                         /* printf variadic ABI: arkcc stores all args as long long in aa[].
                          * aux encodes per-argument type using 2 bits per arg:
                          *   bit(2*i)   = 1 => float/double (promoted to double, XMM/8B)
@@ -1888,43 +1515,37 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                          * arguments and produces garbage. Casting to `int` for int-typed
                          * args restores the proper stack layout. */
                         int amask = I->aux;
-                        asmbuf_puts(&buf, "stk[sp++].i = printf((const char*)(intptr_t)aa[0],");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_4"));
                         for (k = 1; k < MAX_CALL_ARGS; k++) {
                             int is_double = (amask >> (2 * k)) & 1;
                             int is_llong  = (amask >> (2 * k + 1)) & 1;
                             if (k > 1) asmbuf_putc(&buf, ',');
                             if (is_double) {
-                                asmbuf_puts(&buf, "_ark_ll2d(aa[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "])");
+                                xh_c_rule_ints(&buf, "ir_call_value_3", k, 0);
                             } else if (is_llong) {
-                                asmbuf_puts(&buf, "(long long)aa[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "]");
+                                xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
                             } else {
-                                asmbuf_puts(&buf, "(int)aa[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "]");
+                                xh_c_rule_ints(&buf, "ir_call_value_5", k, 0);
                             }
                         }
-                        asmbuf_puts(&buf, ");");
-                    } else if (ark_streq(I->name, "putchar")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = putchar((int)aa[0]);");
-                    } else if (ark_streq(I->name, "puts")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = puts((const char*)(intptr_t)aa[0]);");
-                    } else if (ark_streq(I->name, "strlen")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)strlen((const char*)(intptr_t)aa[0]);");
-                    } else if (ark_streq(I->name, "strcmp")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = strcmp((const char*)(intptr_t)aa[0],(const char*)(intptr_t)aa[1]);");
-                    } else if (ark_streq(I->name, "strcpy")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)strcpy((char*)(intptr_t)aa[0],(const char*)(intptr_t)aa[1]);");
-                    } else if (ark_streq(I->name, "memset")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)memset((void*)(intptr_t)aa[0],(int)aa[1],(size_t)aa[2]);");
-                    } else if (ark_streq(I->name, "memcpy")) {
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)(intptr_t)memcpy((void*)(intptr_t)aa[0],(const void*)(intptr_t)aa[1],(size_t)aa[2]);");
-                    } else if (ark_streq(I->name, "abort")) {
-                        asmbuf_puts(&buf, "abort(); stk[sp++].i = 0;");
-                    } else if (ark_streq(I->name, "setjmp")) {
+                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_5"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_6"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_7"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_8"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_9"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_10"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_11"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_12"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_13"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_14"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_15"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_16"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_17"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_18"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_19"))) {
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_20"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_21"))) {
                         /* setjmp: dispatched inline because .gen.c has #include <setjmp.h>.
                          * The IR folds jmp_buf as int[20]=80B; we cast the slot back to
                          * jmp_buf. Requires host jmp_buf to fit in 80B; if it grows,
@@ -1938,31 +1559,28 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                          * stk[] (observed as a segfault on the second traversal). ark_sp0 is
                          * not modified after the setjmp, so its value is retained. */
                         asmbuf_puts(&buf,
-                            "{ int ark_sp0 = sp, ark_rv = setjmp(*(jmp_buf*)(void*)(intptr_t)aa[0]); "
-                            "sp = ark_sp0; stk[sp++].i = ark_rv; }");
-                    } else if (ark_streq(I->name, "longjmp")) {
+                            xh_c_rule_text("ir_call_22"));
+                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_23"))) {
                         /* longjmp: never returns; we still push a 0 result so gcc -O2
                          * does not delete the push. C mandates val==0 returns 1. */
                         asmbuf_puts(&buf,
-                            "longjmp(*(jmp_buf*)(void*)(intptr_t)aa[0], (int)aa[1] ? (int)aa[1] : 1); stk[sp++].i = 0;");
+                            xh_c_rule_text("ir_call_24"));
                     } else if (I->name[0] == '?') {
                         /* Indirect call through function pointer: aa[0] is the
                          * function pointer, aa[1..n-1] are the actual arguments.
                          * Cast aa[0] to a function pointer and call through it. */
                         int k;
-                        asmbuf_puts(&buf, "stk[sp++].i = (long long)((long long (*)(");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_25"));
                         for (k = 1; k < n; k++) {
-                            if (k > 1) asmbuf_puts(&buf, ",");
-                            asmbuf_puts(&buf, "long long");
+                            if (k > 1) asmbuf_puts(&buf, xh_c_rule_text("ir_call_26"));
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_call_27"));
                         }
-                        asmbuf_puts(&buf, "))(intptr_t)aa[0])(");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_28"));
                         for (k = 1; k < n; k++) {
-                            if (k > 1) asmbuf_puts(&buf, ", ");
-                            asmbuf_puts(&buf, "(long long)aa[");
-                            asmbuf_int(&buf, k);
-                            asmbuf_puts(&buf, "]");
+                            if (k > 1) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
+                            xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
                         }
-                        asmbuf_puts(&buf, ");");
+                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     } else {
                         int is_libc = is_libc_func(I->name) && !is_wrapped_func(I->name);
                         int is_wrapped = is_wrapped_func(I->name);
@@ -1993,75 +1611,67 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         int k;
                         /* libc: pass only n args; wrapped: wrappers have fixed 8-arg
                          * signature; user-defined: pass all MAX_CALL_ARGS args. */
-                        int nargs = is_libc ? n : (is_wrapped ? 8 : MAX_CALL_ARGS);
+                        int nargs = is_libc ? n : (is_wrapped ? xh_c_abi()->wrapper_args : MAX_CALL_ARGS);
                         if (is_struct_ret) {
                             const char *tname = struct_ret_type(I->name);
-                            asmbuf_puts(&buf, "{ ");
+                            asmbuf_puts(&buf, xh_c_rule_text("type_union"));
                             asmbuf_puts(&buf, tname);
-                            asmbuf_puts(&buf, " _r = ");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_call_29"));
                             asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, "(");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
                             for (k = 0; k < n; k++) {
-                                if (k) asmbuf_puts(&buf, ", ");
-                                asmbuf_puts(&buf, "(intptr_t)aa[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "]");
+                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
+                                xh_c_rule_ints(&buf, "ir_call_value_6", k, 0);
                             }
                             /* Store the returned aggregate with memcpy: writing through a casted
                              * T* into the char[] frame is the same aliasing violation, and sizeof(_r)
                              * keeps the copy exact without re-spelling the type name. */
-                            asmbuf_puts(&buf, "); memcpy(frame + 8176, &_r, sizeof(_r)); stk[sp++].i = (long long)(intptr_t)(frame + 8176); }");
+                            xh_c_rule_ints(&buf, "ir_call_30", xh_c_abi()->struct_return_offset, 0);
                         } else if (is_complex_ret_func(I->name)) {
                             /* Complex-returning functions: store result via .c member, pass
                              * args from aac[] (_Complex array). Do NOT cast to long long
                              * (would lose the imaginary part). These are in is_libc_func,
                              * so call host libc directly. */
-                            asmbuf_puts(&buf, "stk[sp++].c = ");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_call_31"));
                             asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, "(");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
                             for (k = 0; k < n; k++) {
-                                if (k) asmbuf_puts(&buf, ", ");
-                                asmbuf_puts(&buf, "aac[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "]");
+                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
+                                xh_c_rule_ints(&buf, "ir_call_value_7", k, 0);
                             }
-                            asmbuf_puts(&buf, ");");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                         } else if (is_void_ret) {
                             /* ROUND4-P2 FIX: Do not push a synthesized 0 result.
                              * irgen_discard_result skips IR_POP for direct void
                              * calls, so pushing here would leave sp unbalanced. */
-                            asmbuf_puts(&buf, "");
-                            if (!is_libc) asmbuf_puts(&buf, "ark_");
+                            asmbuf_puts(&buf, xh_c_rule_text("type_ptr_4"));
+                            if (!is_libc) asmbuf_puts(&buf, xh_c_rule_text("ir_call_32"));
                             asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, "(");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
                             for (k = 0; k < nargs; k++) {
-                                if (k) asmbuf_puts(&buf, ", ");
+                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
                                 if (is_libc)
-                                    asmbuf_puts(&buf, "(intptr_t)aa[");
+                                    asmbuf_puts(&buf, xh_c_rule_text("ir_call_33"));
                                 else
-                                    asmbuf_puts(&buf, "(long long)aa[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "]");
+                                    xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
                             }
-                            asmbuf_puts(&buf, ");");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                         } else {
-                            asmbuf_puts(&buf, "stk[sp++].i = (long long)");
-                            if (!is_libc) asmbuf_puts(&buf, "ark_");
+                            asmbuf_puts(&buf, xh_c_rule_text("ir_push_global_3"));
+                            if (!is_libc) asmbuf_puts(&buf, xh_c_rule_text("ir_call_32"));
                             asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, "(");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
                             for (k = 0; k < nargs; k++) {
-                                if (k) asmbuf_puts(&buf, ", ");
+                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
                                 if (is_libc)
-                                    asmbuf_puts(&buf, "(intptr_t)aa[");
+                                    asmbuf_puts(&buf, xh_c_rule_text("ir_call_33"));
                                 else
-                                    asmbuf_puts(&buf, "(long long)aa[");
-                                asmbuf_int(&buf, k);
-                                asmbuf_puts(&buf, "]");
+                                    xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
                             }
-                            asmbuf_puts(&buf, ");");
+                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                         }
                     }
-                    asmbuf_puts(&buf, " }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_call_34"));
                     break;
                 }
                 case IR_SVC: {
@@ -2069,38 +1679,34 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * We emit the comment so the SVC number is preserved in code. */
                     int svc_n = I->val;
                     (void)svc_n;
-                    asmbuf_puts(&buf, "{ long long _svc_arg = stk[--sp].i; ");
-                    asmbuf_puts(&buf, "/* SVC #");
-                    asmbuf_int(&buf, svc_n);
-                    asmbuf_puts(&buf, " (no-op on host) */ ");
-                    asmbuf_puts(&buf, "stk[sp++].i = _svc_arg; }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_svc"));
+                    xh_c_rule_ints(&buf, "ir_svc_value", svc_n, 0);
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_svc_2"));
                     break;
                 }
                 /* === Signed/unsigned 32-bit division: aux=0 signed, aux=1 unsigned === */
                 case IR_DIV:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i = (");
-                    if (I->aux) asmbuf_puts(&buf, "(unsigned)ark_a / (unsigned)ark_c");
-                    else        asmbuf_puts(&buf, "ark_a / ark_c");
-                    asmbuf_puts(&buf, ");");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
+                    if (I->aux) asmbuf_puts(&buf, xh_c_rule_text("ir_div_2"));
+                    else        asmbuf_puts(&buf, xh_c_rule_text("ir_div_3"));
+                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     break;
                 case IR_MOD:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i = (");
-                    if (I->aux) asmbuf_puts(&buf, "(unsigned)ark_a % (unsigned)ark_c");
-                    else        asmbuf_puts(&buf, "ark_a % ark_c");
-                    asmbuf_puts(&buf, ");");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
+                    if (I->aux) asmbuf_puts(&buf, xh_c_rule_text("ir_mod"));
+                    else        asmbuf_puts(&buf, xh_c_rule_text("ir_mod_2"));
+                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     break;
                 /* === 64-bit operations: C uses long long natively === */
                 case IR_64PUSH:
                     /* val=high 32 bits, aux=low 32 bits; assemble into a long long. */
-                    asmbuf_puts(&buf, "stk[sp++].i = ((long long)(unsigned)");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, " << 32) | (unsigned)");
+                    xh_c_rule_ints(&buf, "ir_64push_value", I->val, 0);
                     asmbuf_int(&buf, I->aux);
-                    asmbuf_puts(&buf, ";");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_64push"));
                     break;
                 case IR_64BINARY:
                     /* Same as IR_BINARY but a/c are long long, preserving 64-bit. */
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i = ");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_binary"));
                     emit_binop(&buf, I->aux, 1);
                     asmbuf_putc(&buf, ';');
                     break;
@@ -2110,44 +1716,38 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * EQ/NE are bit-equal regardless of sign, but LT/LE/GT/GE differ. */
                     int is_unsigned = (I->aux & 0x100) != 0;
                     int op = I->aux & ~0x100;
-                    const char *cop = "==";
-                    const char *lcast = is_unsigned ? "(unsigned long long)ark_a" : "ark_a";
-                    const char *rcast = is_unsigned ? "(unsigned long long)ark_c" : "ark_c";
+                    const char *cop = xh_c_rule_text("ir_fcmp");
+                    const char *lcast = is_unsigned ? xh_c_rule_text("ir_64cmp") : xh_c_rule_text("ir_64cmp_2");
+                    const char *rcast = is_unsigned ? xh_c_rule_text("ir_64cmp_3") : xh_c_rule_text("ir_64cmp_4");
                     switch (op) {
-                        case (int)TOK_EQ: cop = "=="; break;
-                        case (int)TOK_NE: cop = "!="; break;
-                        case (int)TOK_LT: cop = "<";  break;
-                        case (int)TOK_GT: cop = ">";  break;
-                        case (int)TOK_LE: cop = "<="; break;
-                        case (int)TOK_GE: cop = ">="; break;
+                        case (int)TOK_EQ: cop = xh_c_rule_text("ir_fcmp"); break;
+                        case (int)TOK_NE: cop = xh_c_rule_text("tok_ne_2"); break;
+                        case (int)TOK_LT: cop = xh_c_rule_text("tok_lt_3");  break;
+                        case (int)TOK_GT: cop = xh_c_rule_text("tok_gt_3");  break;
+                        case (int)TOK_LE: cop = xh_c_rule_text("tok_le_3"); break;
+                        case (int)TOK_GE: cop = xh_c_rule_text("abi_tok_ge_38"); break;
                         default: break;
                     }
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; stk[sp++].i = (");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
                     asmbuf_puts(&buf, lcast);
-                    asmbuf_puts(&buf, " ");
+                    asmbuf_puts(&buf, xh_c_rule_text("type_ptr_3"));
                     asmbuf_puts(&buf, cop);
-                    asmbuf_puts(&buf, " ");
+                    asmbuf_puts(&buf, xh_c_rule_text("type_ptr_3"));
                     asmbuf_puts(&buf, rcast);
-                    asmbuf_puts(&buf, ") ? 1 : 0;");
+                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_43"));
                     break;
                 }
                 /* === Stack-based memcpy: pop order = dst, then src === */
                 case IR_MEMCPY:
-                    asmbuf_puts(&buf, "{ long long _dst = stk[--sp].i; long long _src = stk[--sp].i; memcpy((void*)(intptr_t)_dst, (void*)(intptr_t)_src, (size_t)");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, "); }");
+                    xh_c_rule_ints(&buf, "ir_memcpy_value", I->val, 0);
                     break;
                 /* === Bitfield store/load: val=bit offset, aux=bit width === */
                 case IR_STORE_FLD:
                     /* aux = bit width. Use unsigned long long arithmetic so a
                      * 32-bit field (`1 << 32`) is still well defined. */
-                    asmbuf_puts(&buf, "{ long long _v = stk[--sp].i; long long _ad = stk[--sp].i; unsigned long long _mask = ((unsigned long long)1 << ");
-                    asmbuf_int(&buf, I->aux);
-                    asmbuf_puts(&buf, ") - 1; unsigned int *_p = (unsigned int*)(intptr_t)_ad; *_p = (unsigned int)((*_p & ~(_mask << ");
+                    xh_c_rule_ints(&buf, "ir_store_fld_value", I->aux, 0);
                     asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ")) | ((((unsigned long long)_v) & _mask) << ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ")); }");
+                    xh_c_rule_ints(&buf, "ir_store_fld_value_2", I->val, 0);
                     break;
                 case IR_LOAD_FLD: {
                     /* aux low 8 bits = bit width, aux bit 8 (0x100) = the field
@@ -2160,24 +1760,20 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     int fld_signed = (I->aux & 0x100) != 0;
                     if (fld_w < 0) fld_w = 0;
                     if (fld_w > 32) fld_w = 32;
-                    asmbuf_puts(&buf, "{ long long _ad = stk[--sp].i; unsigned long long _v = ((unsigned long long)(*(unsigned int*)(intptr_t)_ad) >> ");
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_puts(&buf, ") & (((unsigned long long)1 << ");
+                    xh_c_rule_ints(&buf, "ir_load_fld_value", I->val, 0);
                     asmbuf_int(&buf, fld_w);
-                    asmbuf_puts(&buf, ") - 1); ");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld"));
                     if (fld_signed && fld_w > 0 && fld_w < 32) {
                         /* Narrow through (int) before the arithmetic shift so
                          * the sign bit lands where a 32-bit shift expects it
                          * (_v is 64-bit, so <<28 of 8 would stay positive). */
-                        asmbuf_puts(&buf, "_v = (unsigned long long)((long long)(int)((unsigned int)_v << ");
+                        xh_c_rule_ints(&buf, "ir_load_fld_value_2", 32 - fld_w, 0);
                         asmbuf_int(&buf, 32 - fld_w);
-                        asmbuf_puts(&buf, ") >> ");
-                        asmbuf_int(&buf, 32 - fld_w);
-                        asmbuf_puts(&buf, "); ");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_2"));
                     } else if (fld_signed && fld_w == 32) {
-                        asmbuf_puts(&buf, "_v = (unsigned long long)(long long)(int)(unsigned int)_v; ");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_3"));
                     }
-                    asmbuf_puts(&buf, "stk[sp++].i = (long long)_v; }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_4"));
                     break;
                 }
                 case IR_RETURN: {
@@ -2196,13 +1792,15 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                      * them, since the result is an rvalue, not a pointer. */
                     Type *rt = f->ret_type;
                     if (rt && (rt->kind == TYPE_STRUCT || rt->kind == TYPE_UNION) &&
-                        type_size(rt) > 8) {
+                        type_size(rt) > xh_c_abi()->slot_bytes) {
                         int rsz = type_size(rt);
-                        asmbuf_puts(&buf, "{ static char _ark_ret_buf[256]; long long _ret_addr = stk[--sp].i; memcpy(_ark_ret_buf, (void*)(intptr_t)_ret_addr, ");
-                        asmbuf_int(&buf, rsz);
-                        asmbuf_puts(&buf, "); return (long long)(intptr_t)_ark_ret_buf; }");
+                        if (rsz > xh_c_abi()->return_buffer_bytes) {
+                            if (cap > 0) out[0] = 0;
+                            return -1;
+                        }
+                        xh_c_rule_ints(&buf, "ir_return_value", rsz, xh_c_abi()->return_buffer_bytes);
                     } else {
-                        asmbuf_puts(&buf, "return (long long)stk[--sp].i;");
+                        asmbuf_puts(&buf, xh_c_rule_text("ir_return"));
                     }
                     break;
                 }
@@ -2211,51 +1809,34 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                  * SADD8/SSUB8: split into four 8-bit lanes.
                  * These emulate ARM DSP intrinsics for the host C backend. */
                 case IR_SIMD_ADD16:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; "
-                                      "unsigned lo=(_a&0xFFFF)+(_c&0xFFFF); "
-                                      "unsigned hi=((_a>>16)&0xFFFF)+((_c>>16)&0xFFFF); "
-                                      "stk[sp++].i=(long long)((unsigned)((hi<<16)|(lo&0xFFFF))); }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_add16"));
                     break;
                 case IR_SIMD_SUB16:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; "
-                                      "unsigned lo=(_a&0xFFFF)-(_c&0xFFFF); "
-                                      "unsigned hi=((_a>>16)&0xFFFF)-((_c>>16)&0xFFFF); "
-                                      "stk[sp++].i=(long long)((unsigned)((hi<<16)|(lo&0xFFFF))); }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub16"));
                     break;
                 case IR_SIMD_ADD8:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; "
-                                      "unsigned b0=(_a&0xFF)+(_c&0xFF); "
-                                      "unsigned b1=((_a>>8)&0xFF)+((_c>>8)&0xFF); "
-                                      "unsigned b2=((_a>>16)&0xFF)+((_c>>16)&0xFF); "
-                                      "unsigned b3=((_a>>24)&0xFF)+((_c>>24)&0xFF); "
-                                      "stk[sp++].i=(long long)((unsigned)((b3<<24)|((b2&0xFF)<<16)|((b1&0xFF)<<8)|(b0&0xFF))); }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_add8"));
                     break;
                 case IR_SIMD_SUB8:
-                    asmbuf_puts(&buf, "ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; "
-                                      "unsigned b0=(_a&0xFF)-(_c&0xFF); "
-                                      "unsigned b1=((_a>>8)&0xFF)-((_c>>8)&0xFF); "
-                                      "unsigned b2=((_a>>16)&0xFF)-((_c>>16)&0xFF); "
-                                      "unsigned b3=((_a>>24)&0xFF)-((_c>>24)&0xFF); "
-                                      "stk[sp++].i=(long long)((unsigned)((b3<<24)|((b2&0xFF)<<16)|((b1&0xFF)<<8)|(b0&0xFF))); }");
+                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub8"));
                     break;
                 default:
-                    asmbuf_puts(&buf, "/* unknown ir (op ");
-                    asmbuf_int(&buf, (int)I->op);
-                    asmbuf_puts(&buf, ") */");
+                    xh_c_rule_ints(&buf, "ir_simd_sub8_value", (int)I->op, 0);
                     break;
             }
             asmbuf_putc(&buf, '\n');
         }
-        asmbuf_puts(&buf, "    return 0;\n}\n\n");
+        asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub8_2"));
     }
 
     if (main_idx >= 0) {
-        asmbuf_puts(&buf, "int main(int argc, char **argv) {\n");
-        asmbuf_puts(&buf, "    return (int)ark_main((long long)argc,(long long)(intptr_t)argv,0,0,0,0,0,0,0,0,0,0,0,0,0,0);\n}\n");
+        asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub8_3"));
+        asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub8_4"));
     }
 
     {
         int n = buf.len;
+        if (xh_c_rules_failed()) { if (cap > 0) out[0] = 0; return -1; }
         int i;
         if (n + 1 > cap) {
             /* A truncated program is an answer nobody asked for:
@@ -2277,7 +1858,7 @@ static int c_assemble(const char *asm_text, unsigned char *out, int cap) {
      * The driver writes it to a .c file and invokes gcc externally. */
     int n = ark_strlen(asm_text);
     int i;
-    if (n > cap) n = cap;
+    if (n > cap) return -1;
     for (i = 0; i < n; i++) out[i] = (unsigned char)asm_text[i];
     return n;
 }

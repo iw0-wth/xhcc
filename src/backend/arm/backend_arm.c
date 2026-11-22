@@ -17,6 +17,8 @@
 
 #include "backend.h"
 #include "codegen.h"
+#include "xh_arm_rules.h"
+#include "xh_rules.h"
 #include "memory.h"
 #include "platform.h"
 #include "common.h"
@@ -35,45 +37,17 @@
 #endif
 
 /* --- Internal helpers: emit common instruction fragments --- */
-static void emit_line(AsmBuffer *b, const char *s) {
-    asmbuf_puts(b, "    ");
-    asmbuf_puts(b, s);
-    asmbuf_putc(b, '\n');
+static void emit_add_sp(AsmBuffer *b,int amount) {
+    xh_arm_rule_ints(b,"stack.add",amount,0,0);
 }
-static void emit_add_sp(AsmBuffer *b, int amount) {
-    asmbuf_puts(b, "    ADD sp, sp, #");
-    asmbuf_int(b, amount);
-    asmbuf_putc(b, '\n');
+static void emit_mov_imm(AsmBuffer *b,int rd,int imm) {
+    if(imm>=0&&imm<=255)xh_arm_rule_ints(b,"constant.small",rd,imm,0);
+    else xh_arm_rule_ints(b,"constant.wide",rd,imm&0xffff,(imm>>16)&0xffff);
 }
 
-static void emit_mov_imm(AsmBuffer *b, int rd, int imm) {
-    if (imm >= 0 && imm <= 255) {
-        asmbuf_puts(b, "    MOV r");
-        asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #");
-        asmbuf_int(b, imm);
-        asmbuf_putc(b, '\n');
-    } else {
-        /* Always emit MOVW + MOVT pair. MOVW only sets bits[15:0];
-         * without MOVT, bits[31:16] retain stale values from previous
-         * operations, causing incorrect constants (e.g., 0x40022000
-         * instead of 0x00002000 for 1u<<13). */
-        asmbuf_puts(b, "    MOVW r");
-        asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #");
-        asmbuf_int(b, imm & 0xFFFF);
-        asmbuf_putc(b, '\n');
-        asmbuf_puts(b, "    MOVT r");
-        asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #");
-        asmbuf_int(b, (imm >> 16) & 0xFFFF);
-        asmbuf_putc(b, '\n');
-    }
-}
-
-static void emit_push_r0(AsmBuffer *b) { emit_line(b, "PUSH {r0}"); }
-static void emit_pop_r0(AsmBuffer *b)  { emit_line(b, "POP {r0}");  }
-static void emit_pop_r1(AsmBuffer *b)  { emit_line(b, "POP {r1}");  }
+static void emit_push_r0(AsmBuffer *b) { xh_arm_rule(b, "text.0006"); }
+static void emit_pop_r0(AsmBuffer *b)  { xh_arm_rule(b, "text.0007");  }
+static void emit_pop_r1(AsmBuffer *b)  { xh_arm_rule(b, "text.0008");  }
 #if ARKCC_FEATURE_DIVCONST
 /* --- 0.9.1 P3: divide by a constant -> multiply by a magic number + shift ---
  *
@@ -177,25 +151,25 @@ static int divconst_prepare(DivConst *st, int is_unsigned, unsigned c) {
  * quotient is left in r0.  Clobbers r1-r3. */
 static void divconst_q(AsmBuffer *b, const DivConst *st) {
     if (st->kind == 1) {                       /* 2^k */
-        asmbuf_puts(b, "    LSR r0, r0, #");
+        xh_arm_rule(b, "text.0009");
         asmbuf_int(b, st->shift);
         asmbuf_putc(b, '\n');
         return;
     }
     emit_mov_imm(b, 1, (int)st->M);
-    emit_line(b, "UMULL r2, r3, r0, r1");
+    xh_arm_rule(b, "text.0010");
     if (st->kind == 0) {                       /* m < 2^32 */
-        asmbuf_puts(b, "    LSR r0, r3, #");
+        xh_arm_rule(b, "text.0011");
         asmbuf_int(b, st->shift);
         asmbuf_putc(b, '\n');
         return;
     }
     /* add form (m >= 2^32); shift is L - 1 >= 1 because L == 1 would mean
      * d == 2, which is a power of two and never reaches here. */
-    emit_line(b, "SUB r2, r0, r3");
-    emit_line(b, "LSR r2, r2, #1");
-    emit_line(b, "ADD r2, r3, r2");
-    asmbuf_puts(b, "    LSR r0, r2, #");
+    xh_arm_rule(b, "text.0012");
+    xh_arm_rule(b, "text.0013");
+    xh_arm_rule(b, "text.0014");
+    xh_arm_rule(b, "text.0015");
     asmbuf_int(b, st->shift - 1);
     asmbuf_putc(b, '\n');
 }
@@ -209,12 +183,12 @@ static void divconst_emit(AsmBuffer *b, const DivConst *st, int is_mod) {
         if (is_mod && st->kind == 1) {          /* n & (2^k - 1) */
             unsigned mask = st->d - 1;
             if (mask <= 255) {
-                asmbuf_puts(b, "    AND r0, r0, #");
+                xh_arm_rule(b, "text.0016");
                 asmbuf_int(b, (long long)mask);
                 asmbuf_putc(b, '\n');
             } else {
                 emit_mov_imm(b, 1, (int)mask);
-                emit_line(b, "AND r0, r0, r1");
+                xh_arm_rule(b, "text.0017");
             }
             emit_push_r0(b);
             return;
@@ -224,8 +198,8 @@ static void divconst_emit(AsmBuffer *b, const DivConst *st, int is_mod) {
         if (is_mod) {
             emit_pop_r1(b);                    /* dividend */
             emit_mov_imm(b, 2, (int)st->d);
-            emit_line(b, "MUL r0, r0, r2");
-            emit_line(b, "SUB r0, r1, r0");
+            xh_arm_rule(b, "text.0018");
+            xh_arm_rule(b, "text.0019");
         }
         emit_push_r0(b);
         return;
@@ -233,21 +207,21 @@ static void divconst_emit(AsmBuffer *b, const DivConst *st, int is_mod) {
     /* signed: |n| / |d|, then put the quotient's sign back on. */
     emit_pop_r0(b);                            /* n */
     if (is_mod) emit_push_r0(b);               /* keep n for the remainder */
-    emit_line(b, "ASR r1, r0, #31");
-    emit_line(b, "EOR r0, r0, r1");
-    emit_line(b, "SUB r0, r0, r1");            /* |n| */
+    xh_arm_rule(b, "text.0020");
+    xh_arm_rule(b, "text.0021");
+    xh_arm_rule(b, "text.0022");            /* |n| */
     if (st->c & 0x80000000u)
-        emit_line(b, "MVN r1, r1");            /* a negative divisor flips the quotient's sign */
-    emit_line(b, "PUSH {r1}");                 /* the sign must survive divconst_q (r1-r3) */
+        xh_arm_rule(b, "text.0023");            /* a negative divisor flips the quotient's sign */
+    xh_arm_rule(b, "text.0024");                 /* the sign must survive divconst_q (r1-r3) */
     divconst_q(b, st);
     emit_pop_r1(b);
-    emit_line(b, "EOR r0, r0, r1");
-    emit_line(b, "SUB r0, r0, r1");            /* q */
+    xh_arm_rule(b, "text.0021");
+    xh_arm_rule(b, "text.0022");            /* q */
     if (is_mod) {
         emit_pop_r1(b);                        /* n */
         emit_mov_imm(b, 2, (int)st->c);        /* arithmetic uses the real divisor */
-        emit_line(b, "MUL r0, r0, r2");
-        emit_line(b, "SUB r0, r1, r0");
+        xh_arm_rule(b, "text.0018");
+        xh_arm_rule(b, "text.0019");
     }
     emit_push_r0(b);
 }
@@ -264,27 +238,15 @@ static void divconst_emit(AsmBuffer *b, const DivConst *st, int is_mod) {
  * Every routine below only touches r0-r3 and sp, so nothing has to be saved
  * and the emitted sequence is the same with and without --reg-top.
  */
-static void arm_push_reg(AsmBuffer *b, int reg) {
-    char s[16];
-    snprintf(s, sizeof s, "PUSH {r%d}", reg);
-    emit_line(b, s);
-}
-static void arm_ldr_sp(AsmBuffer *b, int reg, int off) {
-    char s[40];
-    if (off) snprintf(s, sizeof s, "LDR r%d, [sp, #%d]", reg, off);
-    else     snprintf(s, sizeof s, "LDR r%d, [sp]", reg);
-    emit_line(b, s);
-}
-static void arm_str_sp(AsmBuffer *b, int reg, int off) {
-    char s[40];
-    if (off) snprintf(s, sizeof s, "STR r%d, [sp, #%d]", reg, off);
-    else     snprintf(s, sizeof s, "STR r%d, [sp]", reg);
-    emit_line(b, s);
-}
+static void arm_push_reg(AsmBuffer *b,int reg){xh_arm_rule_ints(b,"register.push",reg,0,0);}
+static void arm_ldr_sp(AsmBuffer *b,int reg,int off){xh_arm_rule_ints(b,off?"memory.ldr.sp.offset":"memory.ldr.sp",reg,off,0);}
+static void arm_str_sp(AsmBuffer *b,int reg,int off){xh_arm_rule_ints(b,off?"memory.str.sp.offset":"memory.str.sp",reg,off,0);}
+
 static void arm_word_hex(AsmBuffer *b, unsigned int w) {
     char s[32];
-    snprintf(s, sizeof s, "    .word 0x%08x", w);
-    emit_line(b, s);
+    const char *args[1];
+    snprintf(s, sizeof s, "%08x", w);args[0]=s;
+    xh_arm_rule_args(b,"data.word.hex",args,1);
 }
 /* r0:r1 = double at [sp+alo]/[sp+ahi], r2:r3 = double at [sp+blo]/[sp+bhi],
  * then call helper (AAPCS soft-float: first double in r0:r1, second in r2:r3,
@@ -296,13 +258,11 @@ static void arm_dcall(AsmBuffer *b, const char *helper,
     arm_ldr_sp(b, 1, ahi);
     arm_ldr_sp(b, 2, blo);
     arm_ldr_sp(b, 3, bhi);
-    snprintf(s, sizeof s, "BL %s", helper);
-    emit_line(b, s);
+    {const char *args[1];args[0]=helper;xh_arm_rule_args(b,"call.direct",args,1);}
 }
 static void arm_call1(AsmBuffer *b, const char *helper) {
     char s[32];
-    snprintf(s, sizeof s, "BL %s", helper);
-    emit_line(b, s);
+    {const char *args[1];args[0]=helper;xh_arm_rule_args(b,"call.direct",args,1);}
 }
 /* r0:r1 = real part, r2:r3 = imaginary part -> push as a complex value. */
 static void arm_cplx_push4(AsmBuffer *b) {
@@ -318,7 +278,7 @@ static void arm_cplx_addsub(AsmBuffer *b, const char *helper) {
      * otherwise destroy it. After SUB sp,#8 the input block (and therefore
      * every offset below) has moved up by exactly 8 bytes. */
     arm_dcall(b, helper, 28, 24, 12, 8);          /* A_im / B_im */
-    emit_line(b, "SUB sp, sp, #8");
+    xh_arm_rule(b, "text.0025");
     arm_str_sp(b, 0, 0);
     arm_str_sp(b, 1, 4);
     arm_dcall(b, helper, 28, 24, 12, 8);          /* A_re / B_re */
@@ -329,13 +289,13 @@ static void arm_cplx_addsub(AsmBuffer *b, const char *helper) {
 }
 /* (a+bi)(c+di) = (ac-bd) + (ad+bc)i */
 static void arm_cplx_mul(AsmBuffer *b) {
-    emit_line(b, "SUB sp, sp, #32");               /* operands now at sp+32 */
+    xh_arm_rule(b, "text.0026");               /* operands now at sp+32 */
     arm_dcall(b, "__aeabi_dmul", 52, 48, 36, 32);   /* ac */
     arm_str_sp(b, 0, 0);
     arm_str_sp(b, 1, 4);
     arm_dcall(b, "__aeabi_dmul", 60, 56, 44, 40);   /* bd */
-    emit_line(b, "MOV r2, r0");
-    emit_line(b, "MOV r3, r1");
+    xh_arm_rule(b, "text.0027");
+    xh_arm_rule(b, "text.0028");
     arm_ldr_sp(b, 0, 0);
     arm_ldr_sp(b, 1, 4);
     arm_call1(b, "__aeabi_dsub");                   /* ac - bd = real */
@@ -345,13 +305,13 @@ static void arm_cplx_mul(AsmBuffer *b) {
     arm_str_sp(b, 0, 0);
     arm_str_sp(b, 1, 4);
     arm_dcall(b, "__aeabi_dmul", 60, 56, 36, 32);   /* bc */
-    emit_line(b, "MOV r2, r0");
-    emit_line(b, "MOV r3, r1");
+    xh_arm_rule(b, "text.0027");
+    xh_arm_rule(b, "text.0028");
     arm_ldr_sp(b, 0, 0);
     arm_ldr_sp(b, 1, 4);
     arm_call1(b, "__aeabi_dadd");                   /* ad + bc = imag */
-    emit_line(b, "MOV r2, r0");
-    emit_line(b, "MOV r3, r1");
+    xh_arm_rule(b, "text.0027");
+    xh_arm_rule(b, "text.0028");
     arm_ldr_sp(b, 0, 16);
     arm_ldr_sp(b, 1, 20);
     emit_add_sp(b, 64);                             /* scratch + both operands */
@@ -359,7 +319,7 @@ static void arm_cplx_mul(AsmBuffer *b) {
 }
 /* (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i) / (c*c + d*d) */
 static void arm_cplx_div(AsmBuffer *b) {
-    emit_line(b, "SUB sp, sp, #40");               /* operands now at sp+40 */
+    xh_arm_rule(b, "text.0029");               /* operands now at sp+40 */
     arm_dcall(b, "__aeabi_dmul", 44, 40, 44, 40);   /* c*c        -> S0 */
     arm_str_sp(b, 0, 0);
     arm_str_sp(b, 1, 4);
@@ -391,8 +351,8 @@ static void arm_cplx_div(AsmBuffer *b) {
     arm_str_sp(b, 0, 24);
     arm_str_sp(b, 1, 28);
     arm_dcall(b, "__aeabi_ddiv", 32, 36, 16, 20);   /* imag */
-    emit_line(b, "MOV r2, r0");
-    emit_line(b, "MOV r3, r1");
+    xh_arm_rule(b, "text.0027");
+    xh_arm_rule(b, "text.0028");
     arm_ldr_sp(b, 0, 24);
     arm_ldr_sp(b, 1, 28);
     emit_add_sp(b, 72);                             /* scratch + both operands */
@@ -406,13 +366,13 @@ static void arm_cplx_cmp(AsmBuffer *b, int want_ne) {
      * the negation of `==` instead of naming a helper that does not link.
      * It is also the NaN-correct form: dcmpeq answers 0 for an unordered
      * pair, so `z != z` is 1 for a complex NaN, as IEEE requires. */
-    emit_line(b, "SUB sp, sp, #8");                /* operands now at sp+8 */
+    xh_arm_rule(b, "text.0025");                /* operands now at sp+8 */
     arm_dcall(b, "__aeabi_dcmpeq", 12, 8, 28, 24);
     arm_str_sp(b, 0, 0);
     arm_dcall(b, "__aeabi_dcmpeq", 20, 16, 36, 32);
     arm_ldr_sp(b, 1, 0);
-    emit_line(b, "ANDS r0, r0, r1");
-    if (want_ne) emit_line(b, "EORS r0, r0, #1");
+    xh_arm_rule(b, "text.0030");
+    if (want_ne) xh_arm_rule(b, "text.0031");
     emit_add_sp(b, 40);                             /* scratch + both operands */
     arm_push_reg(b, 0);
 }
@@ -426,51 +386,42 @@ static void arm_cplx_cmp(AsmBuffer *b, int want_ne) {
 /* Single-precision binary op: pop b(s1), a(s0), emit VOP.F32 s0,s0,s1, push result s0. */
 static void emit_vfp_f32_binop(AsmBuffer *b, const char *vop) {
     emit_pop_r1(b); emit_pop_r0(b);
-    emit_line(b, "VMOV s0, r0");
-    emit_line(b, "VMOV s1, r1");
-    asmbuf_puts(b, "    ");
+    xh_arm_rule(b, "text.0032");
+    xh_arm_rule(b, "text.0033");
+    xh_arm_rule(b, "text.0000");
     asmbuf_puts(b, vop);
-    asmbuf_puts(b, ".F32 s0, s0, s1\n");
-    emit_line(b, "VMOV r0, s0");
+    xh_arm_rule(b, "text.0034");
+    xh_arm_rule(b, "text.0035");
     emit_push_r0(b);
 }
 
 /* Double-precision binary op: pop b(d1), a(d0), emit VOP.F64 d0,d0,d1, push result d0. */
 static void emit_vfp_f64_binop(AsmBuffer *b, const char *vop) {
-    emit_line(b, "POP {r3}");  /* b_high */
-    emit_line(b, "POP {r2}");  /* b_low  */
-    emit_line(b, "POP {r1}");  /* a_high */
-    emit_line(b, "POP {r0}");  /* a_low  */
-    emit_line(b, "VMOV s0, r0");
-    emit_line(b, "VMOV s1, r1");
-    emit_line(b, "VMOV s2, r2");
-    emit_line(b, "VMOV s3, r3");
-    asmbuf_puts(b, "    ");
+    xh_arm_rule(b, "text.0036");  /* b_high */
+    xh_arm_rule(b, "text.0037");  /* b_low  */
+    xh_arm_rule(b, "text.0008");  /* a_high */
+    xh_arm_rule(b, "text.0007");  /* a_low  */
+    xh_arm_rule(b, "text.0032");
+    xh_arm_rule(b, "text.0033");
+    xh_arm_rule(b, "text.0038");
+    xh_arm_rule(b, "text.0039");
+    xh_arm_rule(b, "text.0000");
     asmbuf_puts(b, vop);
-    asmbuf_puts(b, ".F64 d0, d0, d1\n");
-    emit_line(b, "VMOV r0, s0");
-    emit_line(b, "VMOV r1, s1");
+    xh_arm_rule(b, "text.0040");
+    xh_arm_rule(b, "text.0035");
+    xh_arm_rule(b, "text.0041");
     emit_push_r0(b);
-    asmbuf_puts(b, "    PUSH {r1}\n");
+    xh_arm_rule(b, "text.0024");
 }
 #endif /* ARKCC_FEATURE_FPU_HW */
 
-static void emit_label(AsmBuffer *b, const char *fn, int n) {
-    asmbuf_puts(b, ".L_");
-    asmbuf_puts(b, fn);
-    asmbuf_putc(b, '_');
-    asmbuf_int(b, n);
-    asmbuf_puts(b, ":\n");
+static void emit_label(AsmBuffer *b,const char *fn,int n) {
+    char number[24];const char *args[2];snprintf(number,sizeof number,"%d",n);
+    args[0]=fn;args[1]=number;xh_arm_rule_args(b,"label",args,2);
 }
-
-static void emit_b_label(AsmBuffer *b, const char *op, const char *fn, int n) {
-    asmbuf_puts(b, "    ");
-    asmbuf_puts(b, op);
-    asmbuf_puts(b, " .L_");
-    asmbuf_puts(b, fn);
-    asmbuf_putc(b, '_');
-    asmbuf_int(b, n);
-    asmbuf_putc(b, '\n');
+static void emit_b_label(AsmBuffer *b,const char *op,const char *fn,int n) {
+    char number[24];const char *args[3];snprintf(number,sizeof number,"%d",n);
+    args[0]=op;args[1]=fn;args[2]=number;xh_arm_rule_args(b,"branch.label",args,3);
 }
 
 /* Emit binary operation. The high bit 0x100 of aux marks unsigned comparison/shift-right:
@@ -480,37 +431,32 @@ static void emit_b_label(AsmBuffer *b, const char *op, const char *fn, int n) {
 /* The conditional-move tail shared by the six comparison ops: after CMP has
  * set the flags, produce 1 or 0 in r0.  Factored out because -fopt-imm needs
  * the same sequence behind "CMP r0, #imm" (see emit_binary_imm). */
-static void emit_cmp_result(AsmBuffer *b, int base_op, int is_unsigned) {
-    switch (base_op) {
-        case (int)TOK_EQ:
-            emit_line(b, "ITE EQ");
-            emit_line(b, "MOVEQ r0, #1");
-            emit_line(b, "MOVNE r0, #0");
-            break;
-        case (int)TOK_NE:
-            emit_line(b, "ITE NE");
-            emit_line(b, "MOVNE r0, #1");
-            emit_line(b, "MOVEQ r0, #0");
-            break;
-        case (int)TOK_LT:
-            if (is_unsigned) { emit_line(b, "ITE LO"); emit_line(b, "MOVLO r0, #1"); emit_line(b, "MOVHS r0, #0"); }
-            else             { emit_line(b, "ITE LT"); emit_line(b, "MOVLT r0, #1"); emit_line(b, "MOVGE r0, #0"); }
-            break;
-        case (int)TOK_GT:
-            if (is_unsigned) { emit_line(b, "ITE HI"); emit_line(b, "MOVHI r0, #1"); emit_line(b, "MOVLS r0, #0"); }
-            else             { emit_line(b, "ITE GT"); emit_line(b, "MOVGT r0, #1"); emit_line(b, "MOVLE r0, #0"); }
-            break;
-        case (int)TOK_LE:
-            if (is_unsigned) { emit_line(b, "ITE LS"); emit_line(b, "MOVLS r0, #1"); emit_line(b, "MOVHI r0, #0"); }
-            else             { emit_line(b, "ITE LE"); emit_line(b, "MOVLE r0, #1"); emit_line(b, "MOVGT r0, #0"); }
-            break;
-        case (int)TOK_GE:
-            if (is_unsigned) { emit_line(b, "ITE HS"); emit_line(b, "MOVHS r0, #1"); emit_line(b, "MOVLO r0, #0"); }
-            else             { emit_line(b, "ITE GE"); emit_line(b, "MOVGE r0, #1"); emit_line(b, "MOVLT r0, #0"); }
-            break;
-        default:
-            break;
+static const char *arm_scalar_rule(int op) {
+    int u=(op & 0x100)!=0;
+    switch(op & ~0x100) {
+    case (int)TOK_PLUS: return "add";
+    case (int)TOK_MINUS: return "sub";
+    case (int)TOK_MUL: return "mul";
+    case (int)TOK_DIV: return "div";
+    case (int)TOK_MOD: return "mod";
+    case (int)TOK_BAND: return "and";
+    case (int)TOK_BOR: return "or";
+    case (int)TOK_BXOR: return "xor";
+    case (int)TOK_SHL: return "shl";
+    case (int)TOK_SHR: return u?"ushr":"shr";
+    case (int)TOK_EQ: return "eq";
+    case (int)TOK_NE: return "ne";
+    case (int)TOK_LT: return u?"ult":"lt";
+    case (int)TOK_GT: return u?"ugt":"gt";
+    case (int)TOK_LE: return u?"ule":"le";
+    case (int)TOK_GE: return u?"uge":"ge";
+    default:return 0;
     }
+}
+static void emit_cmp_result(AsmBuffer *b,int base_op,int is_unsigned) {
+    const char *name=arm_scalar_rule(base_op|(is_unsigned?0x100:0));
+    char key[48];if(!name)return;
+    snprintf(key,sizeof key,"compare.%s",name);xh_arm_rule(b,key);
 }
 
 #if ARKCC_FEATURE_OPT_CBRANCH
@@ -548,37 +494,10 @@ static const char *cbranch_mnemonic(int base_op, int is_unsigned, int want_true)
 }
 #endif
 
-static void emit_binary(AsmBuffer *b, int op) {
-    int is_unsigned = (op & 0x100) != 0;
-    int base_op = op & ~0x100;
-    switch (base_op) {
-        case (int)TOK_PLUS:  emit_line(b, "ADD r0, r0, r1"); break;
-        case (int)TOK_MINUS: emit_line(b, "SUB r0, r0, r1"); break;
-        case (int)TOK_MUL:   emit_line(b, "MUL r0, r1");     break;
-        case (int)TOK_DIV:   emit_line(b, "SDIV r0, r0, r1"); break;
-        case (int)TOK_MOD:
-            emit_line(b, "SDIV r2, r0, r1");
-            emit_line(b, "MUL r2, r1");
-            emit_line(b, "SUB r0, r0, r2");
-            break;
-        case (int)TOK_BAND:  emit_line(b, "AND r0, r1");     break;
-        case (int)TOK_BOR:   emit_line(b, "ORR r0, r1");     break;
-        case (int)TOK_BXOR:  emit_line(b, "EOR r0, r1");     break;
-        case (int)TOK_SHL:   emit_line(b, "LSL r0, r1");     break;
-        case (int)TOK_SHR:
-            /* Unsigned uses LSR (logical shift right), signed uses ASR (arithmetic shift right) */
-            emit_line(b, is_unsigned ? "LSR r0, r1" : "ASR r0, r1");
-            break;
-        case (int)TOK_EQ: case (int)TOK_NE:
-        case (int)TOK_LT: case (int)TOK_GT:
-        case (int)TOK_LE: case (int)TOK_GE:
-            emit_line(b, "CMP r0, r1");
-            emit_cmp_result(b, base_op, is_unsigned);
-            break;
-        default:
-            emit_line(b, "; unknown binary op");
-            break;
-    }
+static void emit_binary(AsmBuffer *b,int op) {
+    const char *name=arm_scalar_rule(op);char key[48];
+    if(!name){xh_arm_rule(b, "text.0045");return;}
+    snprintf(key,sizeof key,"binary.%s",name);xh_arm_rule(b,key);
 }
 
 #if ARKCC_FEATURE_OPT_IMM
@@ -609,27 +528,26 @@ static int thumb_imm12_a(unsigned val, unsigned *out_i, unsigned *out_imm3,
 static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
     int is_unsigned = (op & 0x100) != 0;
     int base_op = op & ~0x100;
-    char t[64];
     switch (base_op) {
     case (int)TOK_PLUS:
         if (!left && v >= 0 && v <= 4095) {
-            if (emit) { snprintf(t, sizeof t, "ADD r0, r0, #%d", v); emit_line(b, t); }
+            if (emit) { xh_arm_rule_ints(b,"immediate.add",v,0,0); }
             return 1;
         }
         /* a + (-k) is a - k: the same instruction with the sign moved into
          * the mnemonic, so -1 folds as readily as 1. */
         if (v < 0 && v >= -4095) {
-            if (emit) { snprintf(t, sizeof t, "SUB r0, r0, #%d", -v); emit_line(b, t); }
+            if (emit) { xh_arm_rule_ints(b,"immediate.sub",-v,0,0); }
             return 1;
         }
         return 0;
     case (int)TOK_MINUS:
         if (!left && v >= 0 && v <= 4095) {
-            if (emit) { snprintf(t, sizeof t, "SUB r0, r0, #%d", v); emit_line(b, t); }
+            if (emit) { xh_arm_rule_ints(b,"immediate.sub",v,0,0); }
             return 1;
         }
         if (!left && v < 0 && v >= -4095) {
-            if (emit) { snprintf(t, sizeof t, "ADD r0, r0, #%d", -v); emit_line(b, t); }
+            if (emit) { xh_arm_rule_ints(b,"immediate.add",-v,0,0); }
             return 1;
         }
         return 0;
@@ -642,18 +560,16 @@ static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
             if (!thumb_imm12_a((unsigned)v, &a, &c, &d)) return 0;
         }
         if (emit) {
-            snprintf(t, sizeof t, "%s r0, r0, #%d",
-                     base_op == (int)TOK_BAND ? "AND" : base_op == (int)TOK_BOR ? "ORR" : "EOR", v);
-            emit_line(b, t);
+            xh_arm_rule_ints(b,base_op==(int)TOK_BAND?"immediate.and":base_op==(int)TOK_BOR?"immediate.orr":"immediate.eor",v,0,0);
         }
         return 1;
     case (int)TOK_SHL:
         if (v < 0 || v > 31) return 0;
-        if (emit) { snprintf(t, sizeof t, "LSL r0, r0, #%d", v); emit_line(b, t); }
+        if (emit) { xh_arm_rule_ints(b,"immediate.lsl",v,0,0); }
         return 1;
     case (int)TOK_SHR:
         if (v < 0 || v > 31) return 0;
-        if (emit) { snprintf(t, sizeof t, "%s r0, r0, #%d", is_unsigned ? "LSR" : "ASR", v); emit_line(b, t); }
+        if (emit) { xh_arm_rule_ints(b,is_unsigned?"immediate.lsr":"immediate.asr",v,0,0); }
         return 1;
     case (int)TOK_EQ: case (int)TOK_NE:
     case (int)TOK_LT: case (int)TOK_GT:
@@ -665,8 +581,7 @@ static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
          * modified immediate.  Anything else would be an assembler error. */
         if (v > 255 && !thumb_imm12_a((unsigned)v, &a, &c, &d)) return 0;
         if (emit) {
-            snprintf(t, sizeof t, "CMP r0, #%d", v);
-            emit_line(b, t);
+            xh_arm_rule_ints(b,"immediate.cmp",v,0,0);
             emit_cmp_result(b, base_op, is_unsigned);
         }
         return 1;
@@ -677,31 +592,12 @@ static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
 }
 #endif /* ARKCC_FEATURE_OPT_IMM */
 
-static void emit_unary(AsmBuffer *b, int op) {
-    switch (op) {
-        case (int)TOK_MINUS:
-            emit_line(b, "NEG r0, r0");
-            break;
-        case (int)TOK_BNOT:
-            emit_line(b, "MVN r0, r0");
-            break;
-        case (int)TOK_NOT:
-            /* FIX(logical-not): the old sequence was
-               CMP / MOV r0,#0 / IT EQ / MOVEQ r0,#1.
-               "MOV r0, #0" assembles to 16-bit "movs r0,#0" which
-               overwrites the flags set by CMP, so IT EQ always fired
-               and "!x" was constantly 1 (this deadlocked
-               while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) on the H7).
-               Use the same ITE + two conditional MOV shape as
-               TOK_EQ/TOK_NE: conditional MOVs do not update flags. */
-            emit_line(b, "CMP r0, #0");
-            emit_line(b, "ITE EQ");
-            emit_line(b, "MOVEQ r0, #1");
-            emit_line(b, "MOVNE r0, #0");
-            break;
-        default:
-            emit_line(b, "; unknown unary op");
-            break;
+static void emit_unary(AsmBuffer *b,int op) {
+    switch(op){
+    case (int)TOK_MINUS:xh_arm_rule(b,"unary.neg");break;
+    case (int)TOK_BNOT:xh_arm_rule(b,"unary.bnot");break;
+    case (int)TOK_NOT:xh_arm_rule(b,"unary.not");break;
+    default:xh_arm_rule(b, "text.0046");break;
     }
 }
 
@@ -800,21 +696,21 @@ static void ark_fix_far_offset(AsmBuffer *b, int from) {
          * the assembler rejects; and emitting "ADD ip, r6, ip" first made the
          * next "ADD r0, r6, ip" compute r6 + (r6 + n), which faults at once.
          */
-        asmbuf_puts(&out, "    MOVW ip, #");
+        xh_arm_rule(&out, "text.0047");
         asmbuf_int(&out, (long)n & 0xFFFF);
         asmbuf_putc(&out, '\n');
-        asmbuf_puts(&out, "    MOVT ip, #");
+        xh_arm_rule(&out, "text.0048");
         asmbuf_int(&out, ((long)n >> 16) & 0xFFFF);
         asmbuf_putc(&out, '\n');
         if (br != s) {
             int head = (int)(br - line);   /* just before the '[' */
-            asmbuf_puts(&out, "    ADD ip, r6, ip\n");
+            xh_arm_rule(&out, "text.0049");
             for (i = 0; i < head; i++) asmbuf_putc(&out, line[i]);
-            asmbuf_puts(&out, "[ip]\n");
+            xh_arm_rule(&out, "text.0050");
         } else {
             int head = (int)(br - line);   /* "    ADD Rt, " */
             for (i = 0; i < head; i++) asmbuf_putc(&out, line[i]);
-            asmbuf_puts(&out, "r6, ip\n");
+            xh_arm_rule(&out, "text.0051");
         }
         changed++;
         pos += len + 1;
@@ -1842,10 +1738,10 @@ static int lv_pass_work(AsmBuffer *b, int from, LvScratch *scratch) {
                         lv_rebuild(o2, sizeof o2, &iv[j1]);
                         for (j = i + 1; j < j1; j++)
                             pp_copy_line(&out, b->buf + ls[j], ll[j]);
-                        asmbuf_puts(&out, "    ");
+                        xh_arm_rule(&out, "text.0000");
                         asmbuf_puts(&out, nw);
                         asmbuf_putc(&out, '\n');
-                        asmbuf_puts(&out, "    ");
+                        xh_arm_rule(&out, "text.0000");
                         asmbuf_puts(&out, o2);
                         asmbuf_putc(&out, '\n');
                         for (j = j1 + 1; j < j2; j++)
@@ -1900,7 +1796,7 @@ static int lv_pass_work(AsmBuffer *b, int from, LvScratch *scratch) {
                             lv_rebuild(nw, sizeof nw, &iv[j])) {
                             for (v = i + 1; v < j; v++)
                                 pp_copy_line(&out, b->buf + ls[v], ll[v]);
-                            asmbuf_puts(&out, "    ");
+                            xh_arm_rule(&out, "text.0000");
                             asmbuf_puts(&out, nw);
                             asmbuf_putc(&out, '\n');
                             changed++;
@@ -1922,7 +1818,7 @@ static int lv_pass_work(AsmBuffer *b, int from, LvScratch *scratch) {
                         if (ok && samej && lv_rebuild(nw, sizeof nw, &iv[j])) {
                             for (v = i + 1; v < j; v++)
                                 pp_copy_line(&out, b->buf + ls[v], ll[v]);
-                            asmbuf_puts(&out, "    ");
+                            xh_arm_rule(&out, "text.0000");
                             asmbuf_puts(&out, nw);
                             asmbuf_putc(&out, '\n');
                             changed++;
@@ -2320,9 +2216,9 @@ static void ark_regalloc_function(AsmBuffer *b, int from, IrFunc *f, int local_e
             int s = ra_slot(slots, &nslots, off);
             int r = (s >= 0) ? slots[s].reg : 0;
             if (r) {
-                asmbuf_puts(&out, is_ldr ? "    MOV r0, r" : "    MOV r");
+                xh_arm_rule(&out,is_ldr ? "extra.000" : "extra.001");
                 asmbuf_int(&out, r);
-                asmbuf_puts(&out, is_ldr ? "\n" : ", r0\n");
+                xh_arm_rule(&out,is_ldr ? "extra.002" : "extra.003");
                 pos += len + 1;
                 continue;
             }
@@ -2330,12 +2226,12 @@ static void ark_regalloc_function(AsmBuffer *b, int from, IrFunc *f, int local_e
         if (line[0] == ' ' && line[1] == ' ' && line[2] == ' ' && line[3] == ' ' &&
             ra_pre8(line + 4, "PUSH {r5")) {
             /* Same list, plus the registers this function really holds. */
-            asmbuf_puts(&out, "    PUSH {r5, r6, r7");
+            xh_arm_rule(&out, "text.0052");
             for (k = 0; k < nregs; k++) {
-                asmbuf_puts(&out, ", r");
+                xh_arm_rule(&out, "text.0053");
                 asmbuf_int(&out, made[k]);
             }
-            asmbuf_puts(&out, ", lr}\n");
+            xh_arm_rule(&out, "text.0054");
             pos += len + 1;
             continue;
         }
@@ -2347,12 +2243,12 @@ static void ark_regalloc_function(AsmBuffer *b, int from, IrFunc *f, int local_e
              * with the pad still on the stack.  Keep lr; the rest of the list
              * is widened exactly like the non-variadic case. */
             int keeps_lr = (strstr(line, ", lr}") != 0);
-            asmbuf_puts(&out, "    POP {r5, r6, r7");
+            xh_arm_rule(&out, "text.0055");
             for (k = 0; k < nregs; k++) {
-                asmbuf_puts(&out, ", r");
+                xh_arm_rule(&out, "text.0053");
                 asmbuf_int(&out, made[k]);
             }
-            asmbuf_puts(&out, keeps_lr ? ", lr}\n" : ", pc}\n");
+            xh_arm_rule(&out,keeps_lr ? "extra.004" : "extra.005");
             pos += len + 1;
             continue;
         }
@@ -2820,10 +2716,10 @@ static void vs_put_ins(AsmBuffer *o, const char *mn,
 {
     int i;
     if (dest_off) *dest_off = -1;
-    asmbuf_puts(o, "    ");
+    xh_arm_rule(o, "text.0000");
     asmbuf_puts(o, mn);
     for (i = 0; i < nops; i++) {
-        asmbuf_puts(o, i == 0 ? " " : ", ");
+        xh_arm_rule(o,i == 0 ? "extra.006" : "extra.007");
         if (i == 0 && dest_off) *dest_off = o->len;
         asmbuf_puts(o, ops[i]);
     }
@@ -2864,9 +2760,9 @@ static void vs_flush_all(AsmBuffer *o, int *pend, int *pref, int *pbusy,
     for (j = 0; j < VS_MAX_REG; j++) {
         if (pend[j] < 0) continue;
         vs_rname(pool[pend[j]], nm);
-        asmbuf_puts(o, "    MOV r");
+        xh_arm_rule(o, "text.0002");
         asmbuf_int(o, j);
-        asmbuf_puts(o, ", ");
+        xh_arm_rule(o, "text.0056");
         asmbuf_puts(o, nm);
         asmbuf_putc(o, '\n');
         vs_ref_rel(pend[j], pref, pbusy);
@@ -2916,9 +2812,9 @@ static void vs_cut_verbatim(AsmBuffer *o, int depth, const int *skind,
     for (k = 0; k < depth; k++) {
         if (skind[k] != 1) continue;
         vs_rname(pool[spool[k]], nm);
-        asmbuf_puts(o, "    PUSH {");
+        xh_arm_rule(o, "text.0057");
         asmbuf_puts(o, nm);
-        asmbuf_puts(o, "}\n");
+        xh_arm_rule(o, "text.0058");
     }
     vs_flush_all(o, pend, pref, pbusy, pool);
 }
@@ -3351,13 +3247,13 @@ static void ark_vstack_function(AsmBuffer *b, int from)
                  * it. */
                 if (pend[r] >= 0) {
                     vs_rname(pool[pend[r]], nm);
-                    asmbuf_puts(&out, "    PUSH {");
+                    xh_arm_rule(&out, "text.0057");
                     asmbuf_puts(&out, nm);
-                    asmbuf_puts(&out, "}\n");
+                    xh_arm_rule(&out, "text.0058");
                 } else {
-                    asmbuf_puts(&out, "    PUSH {r");
+                    xh_arm_rule(&out, "text.0059");
                     asmbuf_int(&out, r);
-                    asmbuf_puts(&out, "}\n");
+                    xh_arm_rule(&out, "text.0058");
                 }
                 nmem++;
                 skind[depth] = 0;
@@ -3382,9 +3278,9 @@ static void ark_vstack_function(AsmBuffer *b, int from)
                     out.buf[last_dest_off]     = nm[0];
                     out.buf[last_dest_off + 1] = nm[1];
                 } else {
-                    asmbuf_puts(&out, "    MOV ");
+                    xh_arm_rule(&out, "text.0060");
                     asmbuf_puts(&out, nm);
-                    asmbuf_puts(&out, ", r");
+                    xh_arm_rule(&out, "text.0053");
                     asmbuf_int(&out, r);
                     asmbuf_putc(&out, '\n');
                 }
@@ -3398,9 +3294,9 @@ static void ark_vstack_function(AsmBuffer *b, int from)
                 pend[r] = p;
                 vs_ref_add(p, pref, pbusy);
             } else {
-                asmbuf_puts(&out, "    PUSH {r");
+                xh_arm_rule(&out, "text.0059");
                 asmbuf_int(&out, r);
-                asmbuf_puts(&out, "}\n");
+                xh_arm_rule(&out, "text.0058");
                 nmem++;
                 skind[depth] = 0;
                 spool[depth] = -1;
@@ -3434,9 +3330,9 @@ static void ark_vstack_function(AsmBuffer *b, int from)
                  * *not* written -- every later read has to be rewritten. */
                 pend[r] = spool[depth];
             } else {
-                asmbuf_puts(&out, "    POP {r");
+                xh_arm_rule(&out, "text.0061");
                 asmbuf_int(&out, r);
-                asmbuf_puts(&out, "}\n");
+                xh_arm_rule(&out, "text.0058");
                 nmem--;
             }
             last_dest = -1;
@@ -3533,9 +3429,9 @@ static void ark_vstack_function(AsmBuffer *b, int from)
                 if (!need_mov && !any_sub && !dead) continue;
                 vs_rname(pool[pend[j]], nm);
                 if (need_mov) {
-                    asmbuf_puts(&out, "    MOV r");
+                    xh_arm_rule(&out, "text.0002");
                     asmbuf_int(&out, j);
-                    asmbuf_puts(&out, ", ");
+                    xh_arm_rule(&out, "text.0056");
                     asmbuf_puts(&out, nm);
                     asmbuf_putc(&out, '\n');
                 } else if (any_sub) {
@@ -4099,24 +3995,24 @@ static char *ad_mem_line(const char *mn, int dst, int base,
     AsmBuffer t;
     char nm[4];
     asmbuf_init(&t);
-    asmbuf_puts(&t, "    ");
+    xh_arm_rule(&t, "text.0000");
     asmbuf_puts(&t, mn);
     asmbuf_putc(&t, ' ');
     ad_rname(dst, nm);
     asmbuf_puts(&t, nm);
-    asmbuf_puts(&t, ", [");
+    xh_arm_rule(&t, "text.0062");
     ad_rname(base, nm);
     asmbuf_puts(&t, nm);
     if (index >= 0) {
-        asmbuf_puts(&t, ", ");
+        xh_arm_rule(&t, "text.0056");
         ad_rname(index, nm);
         asmbuf_puts(&t, nm);
         if (shift > 0) {
-            asmbuf_puts(&t, ", LSL #");
+            xh_arm_rule(&t, "text.0063");
             asmbuf_int(&t, shift);
         }
     } else {
-        asmbuf_puts(&t, ", #");
+        xh_arm_rule(&t, "text.0003");
         asmbuf_int(&t, off);
     }
     asmbuf_putc(&t, ']');
@@ -4615,11 +4511,11 @@ static char *cbz_new_line(const char *op, int reg, const char *label)
 {
     AsmBuffer t;
     asmbuf_init(&t);
-    asmbuf_puts(&t, "    ");
+    xh_arm_rule(&t, "text.0000");
     asmbuf_puts(&t, op);
-    asmbuf_puts(&t, " r");
+    xh_arm_rule(&t, "text.0064");
     asmbuf_int(&t, reg);
-    asmbuf_puts(&t, ", ");
+    xh_arm_rule(&t, "text.0056");
     asmbuf_puts(&t, label);
     return cbz_dup(t.buf);
 }
@@ -4749,25 +4645,20 @@ static int g_va_epilogue_pad;
  * turned into "sub sp, #312" -- a wrong answer on a stack pointer, and it is
  * now a hard error instead.  Split it into <=4095 pieces: a handful of extra
  * instructions, once per function. */
-static void emit_sp_adjust(AsmBuffer *b, int amount, int is_sub) {
-    while (amount > 0) {
-        int piece = (amount > 4095) ? 4095 : amount;
-        asmbuf_puts(b, is_sub ? "    SUB sp, sp, #" : "    ADD sp, sp, #");
-        asmbuf_int(b, piece);
-        asmbuf_putc(b, '\n');
-        amount -= piece;
+static void emit_sp_adjust(AsmBuffer *b,int amount,int is_sub) {
+    while(amount>0){int piece=amount>4095?4095:amount;
+        xh_arm_rule_ints(b,is_sub?"stack.sub":"stack.add",piece,0,0);
+        amount-=piece;
     }
 }
 
 static void emit_prologue(AsmBuffer *b, const char *fn_name, int local_size,
                           int va_lo, int va_pad, int is_irq, int is_naked, int dbg) {
 #ifdef XHCC
-    asmbuf_puts(b, ".type "); asmbuf_puts(b, fn_name);
-    asmbuf_puts(b, ", %function\n.thumb_func\n");
+    {const char *args[1];args[0]=fn_name;xh_arm_rule_args(b,"function.type",args,1);}
 #endif
-    asmbuf_puts(b, fn_name);
-    asmbuf_puts(b, ":\n");
-    if (dbg) emit_line(b, ".cfi_startproc");
+    {const char *args[1];args[0]=fn_name;xh_arm_rule_args(b,"function.label",args,1);}
+    if (dbg) xh_arm_rule(b, "frame.debug.start");
     if (is_naked) {
         /* __naked: emit no prologue; the function body is entirely the user's responsibility */
         return;
@@ -4782,39 +4673,39 @@ static void emit_prologue(AsmBuffer *b, const char *fn_name, int local_size,
      * caller already spends r0-r3 on named arguments and nothing is pushed. */
     if (va_pad > 0) {
         int r;
-        asmbuf_puts(b, "    PUSH {");
+        xh_arm_rule(b, "text.0057");
         for (r = va_lo; r < 4; r++) {
-            if (r != va_lo) asmbuf_puts(b, ", ");
-            asmbuf_puts(b, "r");
+            if (r != va_lo) xh_arm_rule(b, "text.0056");
+            xh_arm_rule(b, "text.0068");
             asmbuf_int(b, r);
         }
-        asmbuf_puts(b, "}\n");
+        xh_arm_rule(b, "text.0058");
     }
     if (is_irq) {
         /* __irq: Cortex-M hardware auto-saves r0-r3, r12, lr, pc, xpsr on
          * exception entry. We only need to save r5, r6, r7 (arkcc's
          * callee-saved registers used as frame pointer etc.) and lr
          * (EXC_RETURN) so that POP {pc} triggers exception return. */
-        emit_line(b, "PUSH {r5, r6, r7, lr}");
+        xh_arm_rule(b, "frame.save");
     } else {
-        emit_line(b, "PUSH {r5, r6, r7, lr}");
+        xh_arm_rule(b, "frame.save");
     }
     if (local_size > 0) emit_sp_adjust(b, local_size, 1);
-    emit_line(b, "MOV r6, sp");
+    xh_arm_rule(b, "frame.anchor");
 }
 
 static void emit_epilogue_return(AsmBuffer *b, int local_size,
                                  int is_irq, int is_naked, int value_in_r0) {
     if (is_naked) {
         /* __naked: just return, do not restore stack/registers */
-        emit_line(b, "BX lr");
+        xh_arm_rule(b, "frame.return");
         return;
     }
     /* --reg-top: the return value is already in r0 (the IR stack top lives in
      * r0), so popping it back into r0 would be a no-op pair.  Off, or when the
      * caller did not model it, this is the original emit_pop_r0(). */
     if (!value_in_r0) emit_pop_r0(b);
-    emit_line(b, "MOV sp, r6");
+    xh_arm_rule(b, "frame.restore.sp");
     if (local_size > 0) emit_sp_adjust(b, local_size, 0);
     if (g_va_epilogue_pad) {
         /* Variadic: the prologue pushed r_va_lo..r3 *below* the saved registers
@@ -4827,13 +4718,13 @@ static void emit_epilogue_return(AsmBuffer *b, int local_size,
          * this shape is correct there too.  When nothing was pushed (all four
          * register words are named arguments) this branch is not taken and the
          * plain POP {.., pc} below is used. */
-        emit_line(b, "POP {r5, r6, r7, lr}");
+        xh_arm_rule(b, "frame.restore.lr");
         emit_add_sp(b, g_va_epilogue_pad);
-        emit_line(b, "BX lr");
+        xh_arm_rule(b, "frame.return");
     } else if (is_irq) {
-        emit_line(b, "POP {r5, r6, r7, pc}");
+        xh_arm_rule(b, "frame.restore.pc");
     } else {
-        emit_line(b, "POP {r5, r6, r7, pc}");
+        xh_arm_rule(b, "frame.restore.pc");
     }
 }
 
@@ -4941,14 +4832,14 @@ static void emit_mov_addr32(AsmBuffer *b, int rd, unsigned addr, int marked) {
         int i;
         for (i = 0; i < g_gvar_count; i++) {
             if (addr >= g_gvar_addrs[i] && addr < g_gvar_addrs[i] + (unsigned)g_gvar_sizes[i]) {
-                asmbuf_puts(b, "    LDR r"); asmbuf_int(b, rd);
-                asmbuf_puts(b, ", ="); asmbuf_puts(b, g_gvar_names[i]);
+                xh_arm_rule(b, "text.0075"); asmbuf_int(b, rd);
+                xh_arm_rule(b, "text.0076"); asmbuf_puts(b, g_gvar_names[i]);
                 asmbuf_putc(b, '\n');
                 if (addr != g_gvar_addrs[i]) {
                     emit_mov_imm(b, 12, (int)(addr - g_gvar_addrs[i]));
-                    asmbuf_puts(b, "    ADD r"); asmbuf_int(b, rd);
-                    asmbuf_puts(b, ", r"); asmbuf_int(b, rd);
-                    asmbuf_puts(b, ", r12\n");
+                    xh_arm_rule(b, "text.0077"); asmbuf_int(b, rd);
+                    xh_arm_rule(b, "text.0053"); asmbuf_int(b, rd);
+                    xh_arm_rule(b, "text.0078");
                 }
                 return;
             }
@@ -4959,15 +4850,15 @@ static void emit_mov_addr32(AsmBuffer *b, int rd, unsigned addr, int marked) {
 #endif
 #if ARKCC_FEATURE_ARM_RELOC_DATA
     if (g_config.enable_reloc_data && marked) {
-        asmbuf_puts(b, "    .arkdata\n");
-        asmbuf_puts(b, "    MOVW r");
+        xh_arm_rule(b, "text.0079");
+        xh_arm_rule(b, "text.0004");
         asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #");
+        xh_arm_rule(b, "text.0003");
         asmbuf_int(b, (int)(addr & 0xFFFFu));
         asmbuf_putc(b, '\n');
-        asmbuf_puts(b, "    MOVT r");
+        xh_arm_rule(b, "text.0005");
         asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #");
+        xh_arm_rule(b, "text.0003");
         asmbuf_int(b, (int)((addr >> 16) & 0xFFFFu));
         asmbuf_putc(b, '\n');
         return;
@@ -5022,28 +4913,28 @@ static void arm_cvt_f2d(AsmBuffer *buf) {
     /* in: r0 = float bits;  out: r0 = low word, r1 = high word */
 #if ARKCC_FEATURE_FPU_HW
     if (g_config.enable_fpu_hw && g_arm_fpu_dp) {
-        emit_line(buf, "VMOV s0, r0");
-        emit_line(buf, "VCVT.F64.F32 d0, s0");
-        emit_line(buf, "VMOV r0, s0");
-        emit_line(buf, "VMOV r1, s1");
+        xh_arm_rule(buf, "text.0032");
+        xh_arm_rule(buf, "text.0080");
+        xh_arm_rule(buf, "text.0035");
+        xh_arm_rule(buf, "text.0041");
         return;
     }
 #endif
-    emit_line(buf, "BL __aeabi_f2d");
+    xh_arm_rule(buf, "text.0081");
 }
 
 static void arm_cvt_d2f(AsmBuffer *buf) {
     /* in: r0 = low word, r1 = high word;  out: r0 = float bits */
 #if ARKCC_FEATURE_FPU_HW
     if (g_config.enable_fpu_hw && g_arm_fpu_dp) {
-        emit_line(buf, "VMOV s0, r0");
-        emit_line(buf, "VMOV s1, r1");
-        emit_line(buf, "VCVT.F32.F64 s0, d0");
-        emit_line(buf, "VMOV r0, s0");
+        xh_arm_rule(buf, "text.0032");
+        xh_arm_rule(buf, "text.0033");
+        xh_arm_rule(buf, "text.0082");
+        xh_arm_rule(buf, "text.0035");
         return;
     }
 #endif
-    emit_line(buf, "BL __aeabi_d2f");
+    xh_arm_rule(buf, "text.0083");
 }
 
 
@@ -5234,8 +5125,8 @@ static void emit_gvar_addr32(AsmBuffer *b, int rd, const char *name) {
     (void)size;
 #ifdef XHCC
     if (g_xhcc_elf_mode && kind == 2) {
-        asmbuf_puts(b, "    LDR r"); asmbuf_int(b, rd);
-        asmbuf_puts(b, ", ="); asmbuf_puts(b, name); asmbuf_putc(b, '\n');
+        xh_arm_rule(b, "text.0075"); asmbuf_int(b, rd);
+        xh_arm_rule(b, "text.0076"); asmbuf_puts(b, name); asmbuf_putc(b, '\n');
         return;
     }
 #endif
@@ -5245,14 +5136,14 @@ static void emit_gvar_addr32(AsmBuffer *b, int rd, const char *name) {
     }
 #if ARKCC_FEATURE_ARM_RELOC_DATA
     if (g_config.enable_reloc_data) {
-        asmbuf_puts(b, "    .arkdatasym ");
+        xh_arm_rule(b, "text.0084");
         asmbuf_puts(b, name);
         asmbuf_putc(b, '\n');
-        asmbuf_puts(b, "    MOVW r");
+        xh_arm_rule(b, "text.0004");
         asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #0\n    MOVT r");
+        xh_arm_rule(b, "text.0085");
         asmbuf_int(b, rd);
-        asmbuf_puts(b, ", #0\n");
+        xh_arm_rule(b, "text.0086");
         return;
     }
 #endif
@@ -5377,21 +5268,21 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
         if (I->aux & IR_AUX_VOLATILE) { ark_top_drain(b, top); return 0; }
         ark_top_drain(b, top);
         if (width == 1)
-            asmbuf_puts(b, (I->aux & 0x100) ? "    LDRB r0, [r6, #"
-                                            : "    LDRSB r0, [r6, #");
+            xh_arm_rule(b,(I->aux & 0x100) ? "extra.008"
+                                            : "extra.009");
         else if (width == 2)
-            asmbuf_puts(b, (I->aux & 0x100) ? "    LDRH r0, [r6, #"
-                                            : "    LDRSH r0, [r6, #");
+            xh_arm_rule(b,(I->aux & 0x100) ? "extra.010"
+                                            : "extra.011");
         else
-            asmbuf_puts(b, "    LDR r0, [r6, #");
+            xh_arm_rule(b, "text.0087");
         asmbuf_int(b, I->val);
-        asmbuf_puts(b, "]\n");
+        xh_arm_rule(b, "text.0088");
         *top = 1;
         return 1;
     }
     case IR_PUSH_ADDR:
         ark_top_drain(b, top);
-        asmbuf_puts(b, "    ADD r0, r6, #");
+        xh_arm_rule(b, "text.0089");
         asmbuf_int(b, I->val);
         asmbuf_putc(b, '\n');
         *top = 1;
@@ -5411,7 +5302,7 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
         }
         ark_top_drain(b, top);
         emit_gvar_addr32(b, 0, I->name);
-        emit_line(b, "LDR r0, [r0]");
+        xh_arm_rule(b, "text.0090");
         *top = 1;
         return 1;
     }
@@ -5424,7 +5315,7 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
     case IR_BINARY:
         if (*top) {
             /* right operand is in r0, left one is on the stack under it */
-            asmbuf_puts(b, "    MOV r1, r0\n");
+            xh_arm_rule(b, "text.0091");
             emit_pop_r0(b);
         } else {
             emit_pop_r1(b);
@@ -5452,9 +5343,9 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
             op8[3] = (I->val == 8) ? 'B' : 'H';
             op8[4] = 0;
             if (!*top) emit_pop_r0(b);
-            asmbuf_puts(b, "    ");
+            xh_arm_rule(b, "text.0000");
             asmbuf_puts(b, op8);
-            asmbuf_puts(b, " r0, r0\n");
+            xh_arm_rule(b, "text.0092");
             *top = 1;
         }
         /* 32-bit widths need no work either way. */
@@ -5467,7 +5358,7 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
         }
         if (!*top) emit_pop_r0(b);
         emit_gvar_addr32(b, 1, I->name);
-        emit_line(b, "STR r0, [r1]");
+        xh_arm_rule(b, "text.0093");
         *top = 0;                        /* the store consumes the value */
         return 1;
     }
@@ -5485,17 +5376,17 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
         }
         if (!*top) emit_pop_r0(b);
         if (sw == 1) {
-            asmbuf_puts(b, "    STRB r0, [r6, #");
+            xh_arm_rule(b, "text.0094");
             asmbuf_int(b, I->val);
-            asmbuf_puts(b, "]\n");
+            xh_arm_rule(b, "text.0088");
         } else if (sw == 2) {
-            asmbuf_puts(b, "    STRH r0, [r6, #");
+            xh_arm_rule(b, "text.0095");
             asmbuf_int(b, I->val);
-            asmbuf_puts(b, "]\n");
+            xh_arm_rule(b, "text.0088");
         } else {
-            asmbuf_puts(b, "    STR r0, [r6, #");
+            xh_arm_rule(b, "text.0096");
             asmbuf_int(b, I->val);
-            asmbuf_puts(b, "]\n");
+            xh_arm_rule(b, "text.0088");
         }
         *top = 0;                        /* the store consumes the value */
         return 1;
@@ -5513,7 +5404,7 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
             return 0;
         }
         if (*top) {
-            asmbuf_puts(b, "    PUSH {r0}\n");   /* one copy on the stack, one in r0 */
+            xh_arm_rule(b, "text.0006");   /* one copy on the stack, one in r0 */
             return 1;
         }
         return 0;
@@ -5960,13 +5851,13 @@ static int g_va_ptr_off;     /* r6 + this = first variadic word        */
  * cannot be an ADD immediate; MOVW+ADD is two instructions and needs no
  * literal pool. Used for _ark_va_ptr, which stdarg.h reads as a variable. */
 static void emit_va_ptr(AsmBuffer *b, int reg) {
-    asmbuf_puts(b, "    MOVW r");
+    xh_arm_rule(b, "text.0004");
     asmbuf_int(b, reg);
-    asmbuf_puts(b, ", #");
+    xh_arm_rule(b, "text.0003");
     asmbuf_int(b, g_va_ptr_off);
-    asmbuf_puts(b, "\n    ADD r");
+    xh_arm_rule(b, "text.0097");
     asmbuf_int(b, reg);
-    asmbuf_puts(b, ", r6, r");
+    xh_arm_rule(b, "text.0098");
     asmbuf_int(b, reg);
     asmbuf_putc(b, '\n');
 }
@@ -6083,11 +5974,11 @@ static void arm_put_escaped_str(AsmBuffer *b, const char *s) {
     int k;
     for (k = 0; s[k]; k++) {
         unsigned char c = (unsigned char)s[k];
-        if (c == '\n') asmbuf_puts(b, "\\n");
-        else if (c == '\t') asmbuf_puts(b, "\\t");
-        else if (c == '\r') asmbuf_puts(b, "\\r");
-        else if (c == '\\') asmbuf_puts(b, "\\\\");
-        else if (c == '"')  asmbuf_puts(b, "\\\"");
+        if (c == '\n') xh_arm_rule(b, "text.0099");
+        else if (c == '\t') xh_arm_rule(b, "text.0100");
+        else if (c == '\r') xh_arm_rule(b, "text.0101");
+        else if (c == '\\') xh_arm_rule(b, "text.0102");
+        else if (c == '"')  xh_arm_rule(b, "text.0103");
         else if (c < 0x20 || c >= 0x7F) {
             char hb[8];
             const char *hh = "0123456789abcdef";
@@ -6124,49 +6015,49 @@ static char *codegen_arm(IrProgram *prog) {
     xh_elf_prog = prog;
 #endif
 
-    asmbuf_puts(&buf, "@ Generated Thumb-2 assembly\n");
+    xh_arm_rule(&buf, "text.0104");
 #ifdef XHCC
     if (g_xhcc_listing_mode) {
-        asmbuf_puts(&buf,".syntax unified\n.thumb\n");
-        if(g_config.enable_fpu_hw){asmbuf_puts(&buf,".arch armv7e-m\n.fpu ");asmbuf_puts(&buf,g_config.fpu_type?g_config.fpu_type:"fpv4-sp-d16");asmbuf_putc(&buf,'\n');}
-        else asmbuf_puts(&buf,".arch armv7-m\n");
+        xh_arm_rule(&buf, "text.0105");
+        if(g_config.enable_fpu_hw){xh_arm_rule(&buf, "text.0106");asmbuf_puts(&buf,g_config.fpu_type?g_config.fpu_type:"fpv4-sp-d16");asmbuf_putc(&buf,'\n');}
+        else xh_arm_rule(&buf, "text.0107");
     }
 #endif
-    asmbuf_puts(&buf, ".thumb\n");
-    asmbuf_puts(&buf, ".text\n\n");
+    xh_arm_rule(&buf, "text.0108");
+    xh_arm_rule(&buf, "text.0109");
 
 #if ARKCC_FEATURE_DWARF
     /* DWARF: declare the source file for later .loc 1 <line> references */
     if (dbg && prog->source_file) {
-        asmbuf_puts(&buf, ".file 1 \"");
+        xh_arm_rule(&buf, "text.0110");
         asmbuf_puts(&buf, prog->source_file);
-        asmbuf_puts(&buf, "\"\n");
+        xh_arm_rule(&buf, "text.0111");
     }
 #endif
 
     /* String literal section */
     if (prog->string_count > 0) {
         int i;
-        asmbuf_puts(&buf, ".section .rodata\n");
+        xh_arm_rule(&buf, "text.0112");
         for (i = 0; i < prog->string_count; i++) {
             IrString *s = prog->strings[i];
-            asmbuf_puts(&buf, ".L_str_");
+            xh_arm_rule(&buf, "text.0113");
             asmbuf_int(&buf, s->id);
-            asmbuf_puts(&buf, ":\n    .asciz \"");
+            xh_arm_rule(&buf, "text.0114");
             {
                 int k;
                 for (k = 0; k < s->len; k++) {
                     char c = s->data[k];
-                    if (c == '\n') asmbuf_puts(&buf, "\\n");
-                    else if (c == '\t') asmbuf_puts(&buf, "\\t");
-                    else if (c == '\r') asmbuf_puts(&buf, "\\r");
-                    else if (c == '\\') asmbuf_puts(&buf, "\\\\");
-                    else if (c == '"')  asmbuf_puts(&buf, "\\\"");
-                    else if (c == '\b') asmbuf_puts(&buf, "\\b");
-                    else if (c == '\f') asmbuf_puts(&buf, "\\f");
-                    else if (c == '\v') asmbuf_puts(&buf, "\\v");
-                    else if (c == '\a') asmbuf_puts(&buf, "\\a");
-                    else if (c == '\0') asmbuf_puts(&buf, "\\0");
+                    if (c == '\n') xh_arm_rule(&buf, "text.0099");
+                    else if (c == '\t') xh_arm_rule(&buf, "text.0100");
+                    else if (c == '\r') xh_arm_rule(&buf, "text.0101");
+                    else if (c == '\\') xh_arm_rule(&buf, "text.0102");
+                    else if (c == '"')  xh_arm_rule(&buf, "text.0103");
+                    else if (c == '\b') xh_arm_rule(&buf, "text.0115");
+                    else if (c == '\f') xh_arm_rule(&buf, "text.0116");
+                    else if (c == '\v') xh_arm_rule(&buf, "text.0117");
+                    else if (c == '\a') xh_arm_rule(&buf, "text.0118");
+                    else if (c == '\0') xh_arm_rule(&buf, "text.0119");
                     else if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
                         char hb[8]; int hn = 0;
                         const char *hh = "0123456789abcdef";
@@ -6179,9 +6070,9 @@ static char *codegen_arm(IrProgram *prog) {
                     else asmbuf_putc(&buf, c);
                 }
             }
-            asmbuf_puts(&buf, "\"\n");
+            xh_arm_rule(&buf, "text.0111");
         }
-        asmbuf_puts(&buf, ".text\n\n");
+        xh_arm_rule(&buf, "text.0109");
     }
 
     /* A pointer global can be initialised from a string literal
@@ -6197,12 +6088,12 @@ static char *codegen_arm(IrProgram *prog) {
             IrGlobal *g = prog->globals[gi];
             if (g->is_extern || !g->has_init || !g->init_str) continue;
             if (!g->type || g->type->kind != TYPE_PTR) continue;
-            if (!any) { asmbuf_puts(&buf, ".section .rodata\n"); any = 1; }
-            asmbuf_puts(&buf, ".L_gstr_");
+            if (!any) { xh_arm_rule(&buf, "text.0112"); any = 1; }
+            xh_arm_rule(&buf, "text.0120");
             asmbuf_int(&buf, gi);
-            asmbuf_puts(&buf, ":\n    .asciz \"");
+            xh_arm_rule(&buf, "text.0114");
             arm_put_escaped_str(&buf, g->init_str);
-            asmbuf_puts(&buf, "\"\n");
+            xh_arm_rule(&buf, "text.0111");
         }
         /* Aggregate initialisers may also carry string literal elements
          * (`char *cs[2] = {"a", "b"};`).  Each needs its own flash label
@@ -6215,18 +6106,18 @@ static char *codegen_arm(IrProgram *prog) {
             for (ri = 0; ri < g2->init_ref_count; ri++) {
                 IrSymRef *r = &g2->init_refs[ri];
                 if (!r->str) continue;
-                if (!any) { asmbuf_puts(&buf, ".section .rodata\n"); any = 1; }
-                asmbuf_puts(&buf, ".L_gstr_");
+                if (!any) { xh_arm_rule(&buf, "text.0112"); any = 1; }
+                xh_arm_rule(&buf, "text.0120");
                 asmbuf_int(&buf, gi);
                 asmbuf_putc(&buf, '_');
                 asmbuf_int(&buf, r->offset);
-                asmbuf_puts(&buf, ":\n    .asciz \"");
+                xh_arm_rule(&buf, "text.0114");
                 arm_put_escaped_str(&buf, r->str);
-                asmbuf_puts(&buf, "\"\n");
+                xh_arm_rule(&buf, "text.0111");
             }
         }
 
-        if (any) asmbuf_puts(&buf, ".text\n\n");
+        if (any) xh_arm_rule(&buf, "text.0109");
     }
 
     /* Floating-point constant section: emit both single-precision (.L_flt_<i>) and double-precision (.L_dbl_<i>) bit patterns.
@@ -6236,7 +6127,7 @@ static char *codegen_arm(IrProgram *prog) {
      * Stored uniformly as double; the single-precision version is truncated via (float). */
     if (prog->float_count > 0) {
         int i;
-        asmbuf_puts(&buf, ".section .rodata\n");
+        xh_arm_rule(&buf, "text.0112");
         for (i = 0; i < prog->float_count; i++) {
             union { float f; unsigned int u; } u;
             union { double d; unsigned int u[2]; } du;
@@ -6249,16 +6140,16 @@ static char *codegen_arm(IrProgram *prog) {
             bits = u.u;
             for (k = 7; k >= 0; k--) { hex[k] = hd[bits & 0xF]; bits >>= 4; }
             hex[8] = 0;
-            asmbuf_puts(&buf, ".L_flt_");
+            xh_arm_rule(&buf, "text.0121");
             asmbuf_int(&buf, i);
-            asmbuf_puts(&buf, ":\n    .word 0x");
+            xh_arm_rule(&buf, "text.0122");
             asmbuf_puts(&buf, hex);
             asmbuf_putc(&buf, '\n');
             /* Double-precision: double bit pattern (8 bytes, little-endian: low word first) */
             du.d = prog->floats[i];
-            asmbuf_puts(&buf, ".L_dbl_");
+            xh_arm_rule(&buf, "text.0123");
             asmbuf_int(&buf, i);
-            asmbuf_puts(&buf, ":\n    .word 0x");
+            xh_arm_rule(&buf, "text.0122");
             {
                 unsigned int lo = du.u[0];
                 char hex2[9]; int k2;
@@ -6266,7 +6157,7 @@ static char *codegen_arm(IrProgram *prog) {
                 hex2[8] = 0;
                 asmbuf_puts(&buf, hex2);
             }
-            asmbuf_puts(&buf, "\n    .word 0x");
+            xh_arm_rule(&buf, "text.0124");
             {
                 unsigned int hi = du.u[1];
                 char hex2[9]; int k2;
@@ -6276,27 +6167,27 @@ static char *codegen_arm(IrProgram *prog) {
             }
             asmbuf_putc(&buf, '\n');
         }
-        asmbuf_puts(&buf, ".text\n\n");
+        xh_arm_rule(&buf, "text.0109");
     }
 
     /* Complex constant pool: real low, real high, imag low, imag high --
      * the same 16-byte layout IR_STORE writes to a frame slot. */
     if (prog->complex_count > 0) {
         int i;
-        asmbuf_puts(&buf, ".section .rodata\n");
+        xh_arm_rule(&buf, "text.0112");
         for (i = 0; i < prog->complex_count; i++) {
             union { double d; unsigned int u[2]; } ru, iu;
             ru.d = prog->complexes[i].re;
             iu.d = prog->complexes[i].im;
-            asmbuf_puts(&buf, ".L_cplx_");
+            xh_arm_rule(&buf, "text.0125");
             asmbuf_int(&buf, i);
-            asmbuf_puts(&buf, ":\n");
+            xh_arm_rule(&buf, "text.0043");
             arm_word_hex(&buf, ru.u[0]);
             arm_word_hex(&buf, ru.u[1]);
             arm_word_hex(&buf, iu.u[0]);
             arm_word_hex(&buf, iu.u[1]);
         }
-        asmbuf_puts(&buf, ".text\n\n");
+        xh_arm_rule(&buf, "text.0109");
     }
 
     /* sret (struct/union result > 8 bytes) is no longer discovered by
@@ -6354,63 +6245,63 @@ static char *codegen_arm(IrProgram *prog) {
 
         /* alias function: emit .global / .set directives, do not generate a function body */
         if (f->alias_target) {
-            asmbuf_puts(&buf, ".global ");
+            xh_arm_rule(&buf, "text.0126");
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
-            asmbuf_puts(&buf, ".set ");
+            xh_arm_rule(&buf, "text.0127");
             asmbuf_puts(&buf, f->name);
-            asmbuf_puts(&buf, ", ");
+            xh_arm_rule(&buf, "text.0056");
             asmbuf_puts(&buf, f->alias_target);
-            asmbuf_puts(&buf, "\n\n");
+            xh_arm_rule(&buf, "text.0128");
             continue;
         }
 
         /* --split_sections/-ffunction-sections: each function gets its own section .text.<name>,
          * so the linker can dead-strip unused code (--gc-sections). alias functions do not generate a section (only .set). */
         if (g_config.split_sections && !f->alias_target) {
-            asmbuf_puts(&buf, ".section .text.");
+            xh_arm_rule(&buf, "text.0129");
             asmbuf_puts(&buf, f->name);
-            asmbuf_puts(&buf, ", \"ax\", %progbits\n");
+            xh_arm_rule(&buf, "text.0130");
         }
 #ifdef XHCC
-        asmbuf_puts(&buf, f->is_static ? ".local " : ".global ");
+        xh_arm_rule(&buf,f->is_static ? "extra.012" : "extra.013");
 #else
-        asmbuf_puts(&buf, ".global ");
+        xh_arm_rule(&buf, "text.0126");
 #endif
         asmbuf_puts(&buf, f->name);
         asmbuf_putc(&buf, '\n');
         if (f->is_weak) {
             /* __weak: declare weak symbol before the label, allows override by a same-name strong symbol at link time */
-            asmbuf_puts(&buf, ".weak ");
+            xh_arm_rule(&buf, "text.0131");
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
         }
         if (f->is_used) {
             /* __attribute__((used)): comment marker only; .global already ensures symbol export */
-            asmbuf_puts(&buf, "@ __attribute__((used))\n");
+            xh_arm_rule(&buf, "text.0132");
         }
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
         /* armcc 5 compatibility function modifiers: comment markers only (ARM backend does not change calling convention).
          *   __value_in_regs / __pure / __interwork / __smc(n) / __global_reg(n) */
-        if (f->is_value_in_regs) asmbuf_puts(&buf, "@ __value_in_regs\n");
-        if (f->is_pure)          asmbuf_puts(&buf, "@ __pure\n");
-        if (f->is_const_attr)    asmbuf_puts(&buf, "@ __attribute__((const))\n");
-        if (f->is_interwork)     asmbuf_puts(&buf, "@ __interwork\n");
+        if (f->is_value_in_regs) xh_arm_rule(&buf, "text.0133");
+        if (f->is_pure)          xh_arm_rule(&buf, "text.0134");
+        if (f->is_const_attr)    xh_arm_rule(&buf, "text.0135");
+        if (f->is_interwork)     xh_arm_rule(&buf, "text.0136");
         if (f->smc_num > 0) {
-            asmbuf_puts(&buf, "@ __smc(");
+            xh_arm_rule(&buf, "text.0137");
             asmbuf_int(&buf, f->smc_num);
-            asmbuf_puts(&buf, ")\n");
+            xh_arm_rule(&buf, "text.0138");
         }
         if (f->global_reg >= 0) {
-            asmbuf_puts(&buf, "@ __global_reg(");
+            xh_arm_rule(&buf, "text.0139");
             asmbuf_int(&buf, f->global_reg);
-            asmbuf_puts(&buf, ")\n");
+            xh_arm_rule(&buf, "text.0138");
         }
 #endif
         /* __asm whole-function body: emit label and user's raw assembly, skip prologue/epilogue */
         if (f->is_asm_func) {
             asmbuf_puts(&buf, f->name);
-            asmbuf_puts(&buf, ":\n");
+            xh_arm_rule(&buf, "text.0043");
             if (f->asm_body) {
                 const char *s = f->asm_body;
                 /* Copy text line by line; add leading indent for GAS friendliness */
@@ -6421,7 +6312,7 @@ static char *codegen_arm(IrProgram *prog) {
                         while (*s == ' ' || *s == '\t' || *s == '\r') s++;
                         if (*s == 0) break;
                         if (*s == '\n') { asmbuf_putc(&buf, '\n'); s++; continue; }
-                        asmbuf_puts(&buf, "    ");
+                        xh_arm_rule(&buf, "text.0000");
                         line_start = 0;
                     }
                     if (*s == '\n') { asmbuf_putc(&buf, '\n'); line_start = 1; s++; continue; }
@@ -6435,9 +6326,9 @@ static char *codegen_arm(IrProgram *prog) {
         }
 #if ARKCC_FEATURE_DWARF
         if (dbg) {
-            asmbuf_puts(&buf, ".type ");
+            xh_arm_rule(&buf, "text.0065");
             asmbuf_puts(&buf, f->name);
-            asmbuf_puts(&buf, ", %function\n");
+            xh_arm_rule(&buf, "text.0140");
         }
 #endif
         /* Pre-scan IR for sret calls: reserve a buffer in the frame for each.
@@ -6603,13 +6494,13 @@ static char *codegen_arm(IrProgram *prog) {
         if (!g_xhcc_elf_mode && ark_streq(f->name, "Reset_Handler") &&
             (g_data_sram_start != g_data_sram_end ||
              g_bss_sram_start != g_bss_sram_end)) {
-            asmbuf_puts(&buf, "    BL __arkcc_init_globals\n");
+            xh_arm_rule(&buf, "text.0141");
         }
         /* Save sret pointer (r0) to frame slot for struct-returning functions */
         if (is_sret) {
-            asmbuf_puts(&buf, "    STR r0, [r6, #");
+            xh_arm_rule(&buf, "text.0096");
             asmbuf_int(&buf, sret_off);
-            asmbuf_puts(&buf, "]\n");
+            xh_arm_rule(&buf, "text.0088");
         }
 
         {
@@ -6685,7 +6576,7 @@ static char *codegen_arm(IrProgram *prog) {
             /* DWARF: emit .loc 1 <line> when the line number changes */
             if (dbg && I->line != 0 && I->line != cur_line) {
                 cur_line = I->line;
-                asmbuf_puts(&buf, ".loc 1 ");
+                xh_arm_rule(&buf, "text.0142");
                 asmbuf_int(&buf, cur_line);
                 asmbuf_putc(&buf, '\n');
             }
@@ -6815,24 +6706,24 @@ static char *codegen_arm(IrProgram *prog) {
                         /* Struct-by-value (> 8 bytes): register/stack holds a
                          * *pointer* to the source struct. memcpy into frame[dst_off]. */
                         if (reg >= 0 && reg < 4) {
-                            asmbuf_puts(&buf, "    MOV r3, r");
+                            xh_arm_rule(&buf, "text.0143");
                             asmbuf_int(&buf, reg);
-                            asmbuf_puts(&buf, "\n");
+                            xh_arm_rule(&buf, "text.0144");
                         } else {
                             int stack_off = argbase + aapcs_soff[arg_idx];
-                            asmbuf_puts(&buf, "    LDR r3, [r6, #");
+                            xh_arm_rule(&buf, "text.0145");
                             asmbuf_int(&buf, stack_off);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                         if (st_sz <= 16) {
                             int off;
                             for (off = 0; off < st_sz; off += 4) {
-                                asmbuf_puts(&buf, "    LDR r0, [r3, #");
+                                xh_arm_rule(&buf, "text.0146");
                                 asmbuf_int(&buf, off);
-                                asmbuf_puts(&buf, "]\n");
-                                asmbuf_puts(&buf, "    STR r0, [r6, #");
+                                xh_arm_rule(&buf, "text.0088");
+                                xh_arm_rule(&buf, "text.0096");
                                 asmbuf_int(&buf, dst_off + off);
-                                asmbuf_puts(&buf, "]\n");
+                                xh_arm_rule(&buf, "text.0088");
                             }
                         } else {
                             /* __aeabi_memcpy clobbers r0-r3, but every argument
@@ -6843,12 +6734,11 @@ static char *codegen_arm(IrProgram *prog) {
                              * the same reason, but the epilogue returns through
                              * the stacked lr into pc, so it is popped into r0 and
                              * dropped -- the trick this block always used. */
-                            asmbuf_puts(&buf, "    PUSH {r1, r2, r3}\n    ADD r0, r6, #");
+                            xh_arm_rule(&buf, "text.0147");
                             asmbuf_int(&buf, dst_off);
-                            asmbuf_puts(&buf, "\n    MOV r1, r3\n");
+                            xh_arm_rule(&buf, "text.0148");
                             emit_mov_imm(&buf, 2, st_sz);
-                            asmbuf_puts(&buf, "    PUSH {lr}\n    BL __aeabi_memcpy\n    POP {r0}\n"
-                                             "    POP {r1, r2, r3}\n");
+                            xh_arm_rule(&buf, "text.0149");
                         }
                     } else if (st_sz > 4) {
                         /* Two words: a 64-bit scalar (long long / double) or a
@@ -6866,49 +6756,49 @@ static char *codegen_arm(IrProgram *prog) {
                         int reg_hi = (arg_idx + 1 < 64) ? aapcs_map[arg_idx + 1] : -1;
                         /* Low word */
                         if (reg >= 0 && reg < 4) {
-                            asmbuf_puts(&buf, "    STR r");
+                            xh_arm_rule(&buf, "text.0150");
                             asmbuf_int(&buf, reg);
-                            asmbuf_puts(&buf, ", [r6, #");
+                            xh_arm_rule(&buf, "text.0151");
                             asmbuf_int(&buf, dst_off);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         } else {
                             int soff = argbase + aapcs_soff[arg_idx];
-                            asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0087");
                             asmbuf_int(&buf, soff);
-                            asmbuf_puts(&buf, "]\n    STR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0152");
                             asmbuf_int(&buf, dst_off);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                         /* High word */
                         if (reg_hi >= 0 && reg_hi < 4) {
-                            asmbuf_puts(&buf, "    STR r");
+                            xh_arm_rule(&buf, "text.0150");
                             asmbuf_int(&buf, reg_hi);
-                            asmbuf_puts(&buf, ", [r6, #");
+                            xh_arm_rule(&buf, "text.0151");
                             asmbuf_int(&buf, dst_off + 4);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         } else {
                             int soff = argbase + aapcs_soff[arg_idx + 1];
-                            asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0087");
                             asmbuf_int(&buf, soff);
-                            asmbuf_puts(&buf, "]\n    STR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0152");
                             asmbuf_int(&buf, dst_off + 4);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                     } else {
                         /* 32-bit or smaller: one word */
                         if (reg >= 0 && reg < 4) {
-                            asmbuf_puts(&buf, "    STR r");
+                            xh_arm_rule(&buf, "text.0150");
                             asmbuf_int(&buf, reg);
-                            asmbuf_puts(&buf, ", [r6, #");
+                            xh_arm_rule(&buf, "text.0151");
                             asmbuf_int(&buf, dst_off);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         } else {
                             int soff = argbase + aapcs_soff[arg_idx];
-                            asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0087");
                             asmbuf_int(&buf, soff);
-                            asmbuf_puts(&buf, "]\n    STR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0152");
                             asmbuf_int(&buf, dst_off);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                     }
                     break;
@@ -6918,7 +6808,7 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_push_r0(&buf);
                     break;
                 case IR_PUSH_STR:
-                    asmbuf_puts(&buf, "    LDR r0, =.L_str_");
+                    xh_arm_rule(&buf, "text.0153");
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, '\n');
                     emit_push_r0(&buf);
@@ -6936,73 +6826,73 @@ static char *codegen_arm(IrProgram *prog) {
                     int is_unsigned = (I->aux & 0x100) != 0;
                     int is_volatile = (I->aux & IR_AUX_VOLATILE) != 0;
                     if (is_volatile)
-                        emit_line(&buf, "DMB SY");  /* volatile: order prior memory ops */
+                        xh_arm_rule(&buf, "text.0154");  /* volatile: order prior memory ops */
                     if (width == 8 && (I->aux & IR_AUX_COMPLEX)) {
                         /* _Complex float: widen each float half into a double
                          * pair, imaginary first so the real high word ends on top. */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val + 4);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         arm_cvt_f2d(&buf);
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0024");
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         arm_cvt_f2d(&buf);
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else if (width == 1) {
-                        asmbuf_puts(&buf, is_unsigned
-                            ? "    LDRB r0, [r6, #"
-                            : "    LDRSB r0, [r6, #");
+                        xh_arm_rule(&buf,is_unsigned
+                            ? "extra.014"
+                            : "extra.015");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         emit_push_r0(&buf);
                     } else if (width == 2) {
-                        asmbuf_puts(&buf, is_unsigned
-                            ? "    LDRH r0, [r6, #"
-                            : "    LDRSH r0, [r6, #");
+                        xh_arm_rule(&buf,is_unsigned
+                            ? "extra.016"
+                            : "extra.017");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         emit_push_r0(&buf);
                     } else if (width >= 16) {
                         /* _Complex double: four words, same order IR_STORE's
                          * 16-byte case reads them back. */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val + 8);
-                        asmbuf_puts(&buf, "]\n    PUSH {r0}\n");   /* imag low  */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0155");   /* imag low  */
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val + 12);
-                        asmbuf_puts(&buf, "]\n    PUSH {r0}\n");   /* imag high */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0155");   /* imag high */
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n    PUSH {r0}\n");   /* real low  */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0155");   /* real low  */
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val + 4);
-                        asmbuf_puts(&buf, "]\n    PUSH {r0}\n");   /* real high */
+                        xh_arm_rule(&buf, "text.0155");   /* real high */
                     } else if (width == 8) {
                         /* #5 FIX: 64-bit local variable read - load low and high words.
                          * Stack model: push low word first (bottom), then high word (top). */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n    LDR r1, [r6, #");
+                        xh_arm_rule(&buf, "text.0156");
                         asmbuf_int(&buf, I->val + 4);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         emit_push_r0(&buf);  /* push low word */
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");  /* push high word */
+                        xh_arm_rule(&buf, "text.0024");  /* push high word */
                     } else {
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         emit_push_r0(&buf);
                     }
                     if (is_volatile)
-                        emit_line(&buf, "DMB SY");  /* volatile: order subsequent memory ops */
+                        xh_arm_rule(&buf, "text.0154");  /* volatile: order subsequent memory ops */
                     break;
                 }
                 case IR_PUSH_ADDR:
-                    asmbuf_puts(&buf, "    ADD r0, r6, #");
+                    xh_arm_rule(&buf, "text.0089");
                     asmbuf_int(&buf, I->val);
                     asmbuf_putc(&buf, '\n');
                     emit_push_r0(&buf);
@@ -7020,32 +6910,32 @@ static char *codegen_arm(IrProgram *prog) {
                         /* _Complex float global: widen both halves.  The address is
                          * rebuilt after the call because r0/r1 hold the result. */
                         emit_gvar_addr32(&buf, 1, I->name);
-                        emit_line(&buf, "LDR r0, [r1, #4]");
+                        xh_arm_rule(&buf, "text.0157");
                         arm_cvt_f2d(&buf);
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                         emit_gvar_addr32(&buf, 1, I->name);
-                        emit_line(&buf, "LDR r0, [r1, #0]");
+                        xh_arm_rule(&buf, "text.0158");
                         arm_cvt_f2d(&buf);
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else if (gsz >= 16) {
                         /* _Complex double global: four words, imag first. */
                         emit_gvar_addr32(&buf, 1, I->name);
-                        asmbuf_puts(&buf, "    LDR r0, [r1, #8]\n    PUSH {r0}\n");
-                        asmbuf_puts(&buf, "    LDR r0, [r1, #12]\n    PUSH {r0}\n");
-                        asmbuf_puts(&buf, "    LDR r0, [r1, #0]\n    PUSH {r0}\n");
-                        asmbuf_puts(&buf, "    LDR r0, [r1, #4]\n    PUSH {r0}\n");
+                        xh_arm_rule(&buf, "text.0159");
+                        xh_arm_rule(&buf, "text.0160");
+                        xh_arm_rule(&buf, "text.0161");
+                        xh_arm_rule(&buf, "text.0162");
                     } else if (gsz >= 8) {
                         /* #6 FIX: 64-bit global read - load low and high words */
                         emit_gvar_addr32(&buf, 1, I->name);
-                        asmbuf_puts(&buf, "    LDR r0, [r1, #0]\n");
-                        asmbuf_puts(&buf, "    LDR r2, [r1, #4]\n");
+                        xh_arm_rule(&buf, "text.0158");
+                        xh_arm_rule(&buf, "text.0163");
                         emit_push_r0(&buf);  /* push low word */
-                        asmbuf_puts(&buf, "    PUSH {r2}\n");  /* push high word */
+                        xh_arm_rule(&buf, "text.0164");  /* push high word */
                     } else {
                         emit_gvar_addr32(&buf, 0, I->name);
-                        emit_line(&buf, "LDR r0, [r0]");
+                        xh_arm_rule(&buf, "text.0090");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -7062,16 +6952,16 @@ static char *codegen_arm(IrProgram *prog) {
                         op8[3] = (I->val == 8) ? 'B' : 'H';
                         op8[4] = 0;
                         emit_pop_r0(&buf);
-                        asmbuf_puts(&buf, "    ");
+                        xh_arm_rule(&buf, "text.0000");
                         asmbuf_puts(&buf, op8);
-                        asmbuf_puts(&buf, " r0, r0\n");
+                        xh_arm_rule(&buf, "text.0092");
                         emit_push_r0(&buf);
                     }
                     break;
                 case IR_PUSH_FUNC:
                     /* Address of a function = its label. Use the literal-pool
                      * pseudo-instruction the string/double pools already use. */
-                    asmbuf_puts(&buf, "    LDR r0, =");
+                    xh_arm_rule(&buf, "text.0165");
                     asmbuf_puts(&buf, I->name);
                     asmbuf_putc(&buf, '\n');
                     emit_push_r0(&buf);
@@ -7091,16 +6981,16 @@ static char *codegen_arm(IrProgram *prog) {
                     int gsz = gvar_find_size(I->name);
                     if (gsz == 8 && (I->aux & IR_AUX_COMPLEX)) {
                         /* _Complex float global: narrow each double pair back to a float. */
-                        asmbuf_puts(&buf, "    POP {r1}\n");
+                        xh_arm_rule(&buf, "text.0008");
                         emit_pop_r0(&buf);
                         arm_cvt_d2f(&buf);
                         emit_gvar_addr32(&buf, 2, I->name);
-                        emit_line(&buf, "STR r0, [r2, #0]");
-                        asmbuf_puts(&buf, "    POP {r1}\n");
+                        xh_arm_rule(&buf, "text.0166");
+                        xh_arm_rule(&buf, "text.0008");
                         emit_pop_r0(&buf);
                         arm_cvt_d2f(&buf);
                         emit_gvar_addr32(&buf, 2, I->name);
-                        emit_line(&buf, "STR r0, [r2, #4]");
+                        xh_arm_rule(&buf, "text.0167");
                     } else if (gsz >= 16) {
                         /* _Complex double global: the value is a dup'd copy of
                          * four stack words with the real high word on top; the
@@ -7110,26 +7000,26 @@ static char *codegen_arm(IrProgram *prog) {
                          * 1 and left the imaginary part at whatever the BSS
                          * held (measured: (int)(creal*10+cimag) answered 10,
                          * want 12). */
-                        asmbuf_puts(&buf, "    POP {r1}\n");   /* re_hi */
+                        xh_arm_rule(&buf, "text.0008");   /* re_hi */
                         emit_pop_r0(&buf);                      /* re_lo */
-                        asmbuf_puts(&buf, "    POP {r3}\n");   /* im_hi */
-                        asmbuf_puts(&buf, "    POP {r2}\n");   /* im_lo */
+                        xh_arm_rule(&buf, "text.0036");   /* im_hi */
+                        xh_arm_rule(&buf, "text.0037");   /* im_lo */
                         emit_gvar_addr32(&buf, 12, I->name);
-                        asmbuf_puts(&buf, "    STR r0, [r12, #0]\n");
-                        asmbuf_puts(&buf, "    STR r1, [r12, #4]\n");
-                        asmbuf_puts(&buf, "    STR r2, [r12, #8]\n");
-                        asmbuf_puts(&buf, "    STR r3, [r12, #12]\n");
+                        xh_arm_rule(&buf, "text.0168");
+                        xh_arm_rule(&buf, "text.0169");
+                        xh_arm_rule(&buf, "text.0170");
+                        xh_arm_rule(&buf, "text.0171");
                     } else if (gsz >= 8) {
                         /* #6 FIX: 64-bit global store - pop high then low, store both */
-                        asmbuf_puts(&buf, "    POP {r1}\n");  /* high word */
+                        xh_arm_rule(&buf, "text.0008");  /* high word */
                         emit_pop_r0(&buf);                     /* low word */
                         emit_gvar_addr32(&buf, 2, I->name);
-                        asmbuf_puts(&buf, "    STR r0, [r2, #0]\n");
-                        asmbuf_puts(&buf, "    STR r1, [r2, #4]\n");
+                        xh_arm_rule(&buf, "text.0166");
+                        xh_arm_rule(&buf, "text.0172");
                     } else {
                         emit_pop_r0(&buf);
                         emit_gvar_addr32(&buf, 1, I->name);
-                        emit_line(&buf, "STR r0, [r1]");
+                        xh_arm_rule(&buf, "text.0093");
                     }
                     break;
                 }
@@ -7154,27 +7044,27 @@ static char *codegen_arm(IrProgram *prog) {
                         if (i == 0) {
                             emit_pop_r0(&buf);
                         } else {
-                            asmbuf_puts(&buf, "    POP {r");
+                            xh_arm_rule(&buf, "text.0061");
                             asmbuf_int(&buf, i);
-                            asmbuf_puts(&buf, "}\n");
+                            xh_arm_rule(&buf, "text.0058");
                         }
                     }
                     for (i = nw - 1; i >= 0; i--) {
                         if (i == 0) {
                             emit_push_r0(&buf);
                         } else {
-                            asmbuf_puts(&buf, "    PUSH {r");
+                            xh_arm_rule(&buf, "text.0059");
                             asmbuf_int(&buf, i);
-                            asmbuf_puts(&buf, "}\n");
+                            xh_arm_rule(&buf, "text.0058");
                         }
                     }
                     for (i = nw - 1; i >= 0; i--) {
                         if (i == 0) {
                             emit_push_r0(&buf);
                         } else {
-                            asmbuf_puts(&buf, "    PUSH {r");
+                            xh_arm_rule(&buf, "text.0059");
                             asmbuf_int(&buf, i);
-                            asmbuf_puts(&buf, "}\n");
+                            xh_arm_rule(&buf, "text.0058");
                         }
                     }
                     break;
@@ -7183,9 +7073,9 @@ static char *codegen_arm(IrProgram *prog) {
                     /* Pop top two values and push them back in swapped order.
                      * r0 = top, r1 = next -> push r0, push r1 */
                     emit_pop_r0(&buf);
-                    asmbuf_puts(&buf, "    POP {r1}\n");
+                    xh_arm_rule(&buf, "text.0008");
                     emit_push_r0(&buf);
-                    asmbuf_puts(&buf, "    PUSH {r1}\n");
+                    xh_arm_rule(&buf, "text.0024");
                     break;
                 case IR_SEXT:
                 case IR_ZEXT:
@@ -7214,58 +7104,58 @@ static char *codegen_arm(IrProgram *prog) {
                     int is_volatile = (I->aux & IR_AUX_VOLATILE) != 0;
                     if (sw == 0) sw = 4;
                     if (is_volatile)
-                        emit_line(&buf, "DMB SY");  /* volatile: release barrier */
+                        xh_arm_rule(&buf, "text.0154");  /* volatile: release barrier */
                         if (cplx8) {
-                            asmbuf_puts(&buf, "    POP {r1}\n");
+                            xh_arm_rule(&buf, "text.0008");
                             emit_pop_r0(&buf);
                             arm_cvt_d2f(&buf);
-                            asmbuf_puts(&buf, "    STR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0096");
                             asmbuf_int(&buf, I->val);
-                            asmbuf_puts(&buf, "]\n");
-                            asmbuf_puts(&buf, "    POP {r1}\n");
+                            xh_arm_rule(&buf, "text.0088");
+                            xh_arm_rule(&buf, "text.0008");
                             emit_pop_r0(&buf);
                             arm_cvt_d2f(&buf);
-                            asmbuf_puts(&buf, "    STR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0096");
                             asmbuf_int(&buf, I->val + 4);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         } else if (sw == 1) {
                         emit_pop_r0(&buf);
-                        asmbuf_puts(&buf, "    STRB r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0094");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                     } else if (sw == 2) {
                         emit_pop_r0(&buf);
-                        asmbuf_puts(&buf, "    STRH r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0095");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                     } else if (sw >= 8) {
                         /* 8+ bytes: pop high word then low word, store both */
-                        asmbuf_puts(&buf, "    POP {r1}\n");  /* high word */
+                        xh_arm_rule(&buf, "text.0008");  /* high word */
                         emit_pop_r0(&buf);                     /* low word */
-                        asmbuf_puts(&buf, "    STR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0096");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
-                        asmbuf_puts(&buf, "    STR r1, [r6, #");
+                        xh_arm_rule(&buf, "text.0088");
+                        xh_arm_rule(&buf, "text.0173");
                         asmbuf_int(&buf, I->val + 4);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         if (sw >= 16) {
-                            asmbuf_puts(&buf, "    POP {r1}\n");
+                            xh_arm_rule(&buf, "text.0008");
                             emit_pop_r0(&buf);
-                            asmbuf_puts(&buf, "    STR r0, [r6, #");
+                            xh_arm_rule(&buf, "text.0096");
                             asmbuf_int(&buf, I->val + 8);
-                            asmbuf_puts(&buf, "]\n");
-                            asmbuf_puts(&buf, "    STR r1, [r6, #");
+                            xh_arm_rule(&buf, "text.0088");
+                            xh_arm_rule(&buf, "text.0173");
                             asmbuf_int(&buf, I->val + 12);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                     } else {
                         emit_pop_r0(&buf);
-                        asmbuf_puts(&buf, "    STR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0096");
                         asmbuf_int(&buf, I->val);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                     }
                     if (is_volatile)
-                        emit_line(&buf, "DMB SY");  /* volatile: full barrier */
+                        xh_arm_rule(&buf, "text.0154");  /* volatile: full barrier */
                     break;
                 }
                 case IR_LOAD_IDX: {
@@ -7289,56 +7179,56 @@ static char *codegen_arm(IrProgram *prog) {
                         if (g_config.enable_opt_strength && (es & (es - 1)) == 0) {
                             int sh = 0;
                             while ((1 << sh) < es) sh++;
-                            asmbuf_puts(&buf, "    LSL r1, r1, #");
+                            xh_arm_rule(&buf, "text.0174");
                             asmbuf_int(&buf, sh);
                             asmbuf_putc(&buf, '\n');
                         } else {
                             emit_mov_imm(&buf, 2, es);
-                            emit_line(&buf, "MUL r1, r2");
+                            xh_arm_rule(&buf, "text.0175");
                         }
                     }
-                    emit_line(&buf, "ADD r0, r0, r1");
+                    xh_arm_rule(&buf, "text.0176");
                     if (es == 8 && (I->aux & IR_AUX_COMPLEX)) {
                         /* _Complex float element: r0 is the element address.  Keep it
                          * on the stack across the first conversion and in r2 across the
                          * second one (r2 is caller-saved but nothing else needs it here). */
-                        asmbuf_puts(&buf, "    PUSH {r0}\n");
-                        emit_line(&buf, "LDR r0, [r0, #4]");
+                        xh_arm_rule(&buf, "text.0006");
+                        xh_arm_rule(&buf, "text.0177");
                         arm_cvt_f2d(&buf);
-                        asmbuf_puts(&buf, "    POP {r2}\n");
+                        xh_arm_rule(&buf, "text.0037");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
-                        emit_line(&buf, "LDR r0, [r2, #0]");
+                        xh_arm_rule(&buf, "text.0024");
+                        xh_arm_rule(&buf, "text.0178");
                         arm_cvt_f2d(&buf);
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                         break;
                     }
                     if (es == 1) {
-                        emit_line(&buf, "LDRB r0, [r0, #0]");
+                        xh_arm_rule(&buf, "text.0179");
                     } else if (es == 2 && !packed) {
-                        emit_line(&buf, "LDRSH r0, [r0, #0]");
+                        xh_arm_rule(&buf, "text.0180");
                     } else if (packed) {
                         /* __packed pointer unaligned access: load byte by byte then assemble.
                          * es==2: LDRB x2 + LSL + ORR
                          * es==4: LDRB x4 + LSL + ORR chain
                          * r0=address, r2/r3 are scratch registers */
                         if (es == 2) {
-                            emit_line(&buf, "LDRB r2, [r0, #0]");
-                            emit_line(&buf, "LDRB r3, [r0, #1]");
-                            emit_line(&buf, "LSL r3, r3, #8");
-                            emit_line(&buf, "ORR r0, r2, r3");
+                            xh_arm_rule(&buf, "text.0181");
+                            xh_arm_rule(&buf, "text.0182");
+                            xh_arm_rule(&buf, "text.0183");
+                            xh_arm_rule(&buf, "text.0184");
                         } else if (es == 4) {
-                            emit_line(&buf, "LDRB r2, [r0, #0]");
-                            emit_line(&buf, "LDRB r3, [r0, #1]");
-                            emit_line(&buf, "LSL r3, r3, #8");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "LDRB r3, [r0, #2]");
-                            emit_line(&buf, "LSL r3, r3, #16");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "LDRB r3, [r0, #3]");
-                            emit_line(&buf, "LSL r3, r3, #24");
-                            emit_line(&buf, "ORR r0, r2, r3");
+                            xh_arm_rule(&buf, "text.0181");
+                            xh_arm_rule(&buf, "text.0182");
+                            xh_arm_rule(&buf, "text.0183");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0186");
+                            xh_arm_rule(&buf, "text.0187");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0188");
+                            xh_arm_rule(&buf, "text.0189");
+                            xh_arm_rule(&buf, "text.0184");
                         } else {
                             /* es == 8: assemble the low word, push it, then the
                              * high word and push that -- the same "low first,
@@ -7346,28 +7236,28 @@ static char *codegen_arm(IrProgram *prog) {
                              * consumer cannot tell the two apart.  This used to
                              * fall into the 4-byte branch above and hand back a
                              * silently short long long; it is now real. */
-                            emit_line(&buf, "LDRB r2, [r0, #0]");
-                            emit_line(&buf, "LDRB r3, [r0, #1]");
-                            emit_line(&buf, "LSL r3, r3, #8");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "LDRB r3, [r0, #2]");
-                            emit_line(&buf, "LSL r3, r3, #16");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "LDRB r3, [r0, #3]");
-                            emit_line(&buf, "LSL r3, r3, #24");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "PUSH {r2}");
-                            emit_line(&buf, "LDRB r2, [r0, #4]");
-                            emit_line(&buf, "LDRB r3, [r0, #5]");
-                            emit_line(&buf, "LSL r3, r3, #8");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "LDRB r3, [r0, #6]");
-                            emit_line(&buf, "LSL r3, r3, #16");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "LDRB r3, [r0, #7]");
-                            emit_line(&buf, "LSL r3, r3, #24");
-                            emit_line(&buf, "ORR r2, r2, r3");
-                            emit_line(&buf, "PUSH {r2}");
+                            xh_arm_rule(&buf, "text.0181");
+                            xh_arm_rule(&buf, "text.0182");
+                            xh_arm_rule(&buf, "text.0183");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0186");
+                            xh_arm_rule(&buf, "text.0187");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0188");
+                            xh_arm_rule(&buf, "text.0189");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0164");
+                            xh_arm_rule(&buf, "text.0190");
+                            xh_arm_rule(&buf, "text.0191");
+                            xh_arm_rule(&buf, "text.0183");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0192");
+                            xh_arm_rule(&buf, "text.0187");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0193");
+                            xh_arm_rule(&buf, "text.0189");
+                            xh_arm_rule(&buf, "text.0185");
+                            xh_arm_rule(&buf, "text.0164");
                             break;
                         }
                     } else if (es == 16) {
@@ -7377,26 +7267,26 @@ static char *codegen_arm(IrProgram *prog) {
                          * wants real on top, i.e. sp+0=re_hi sp+4=re_lo
                          * sp+8=im_hi sp+12=im_lo.  Push in the order that
                          * produces that: im_lo, im_hi, re_lo, re_hi. */
-                        emit_line(&buf, "LDR r2, [r0, #8]");
-                        emit_line(&buf, "PUSH {r2}");
-                        emit_line(&buf, "LDR r2, [r0, #12]");
-                        emit_line(&buf, "PUSH {r2}");
-                        emit_line(&buf, "LDR r2, [r0, #0]");
-                        emit_line(&buf, "PUSH {r2}");
-                        emit_line(&buf, "LDR r2, [r0, #4]");
-                        emit_line(&buf, "PUSH {r2}");
+                        xh_arm_rule(&buf, "text.0194");
+                        xh_arm_rule(&buf, "text.0164");
+                        xh_arm_rule(&buf, "text.0195");
+                        xh_arm_rule(&buf, "text.0164");
+                        xh_arm_rule(&buf, "text.0196");
+                        xh_arm_rule(&buf, "text.0164");
+                        xh_arm_rule(&buf, "text.0197");
+                        xh_arm_rule(&buf, "text.0164");
                         break;
                     } else if (es == 8) {
                         /* #A4 FIX: 8-byte element (long long/double): load low and high words.
                          * Stack convention (from IR_STORE): high word on top, low below.
                          * So push low first, then high. */
-                        emit_line(&buf, "LDR r2, [r0, #0]");  /* r2 = low word */
-                        emit_line(&buf, "LDR r3, [r0, #4]");  /* r3 = high word */
-                        emit_line(&buf, "PUSH {r2}");  /* push low word */
-                        emit_line(&buf, "PUSH {r3}");  /* push high word (on top) */
+                        xh_arm_rule(&buf, "text.0196");  /* r2 = low word */
+                        xh_arm_rule(&buf, "text.0198");  /* r3 = high word */
+                        xh_arm_rule(&buf, "text.0164");  /* push low word */
+                        xh_arm_rule(&buf, "text.0199");  /* push high word (on top) */
                         break;
                     } else {
-                        emit_line(&buf, "LDR r0, [r0, #0]");
+                        xh_arm_rule(&buf, "text.0200");
                     }
                     emit_push_r0(&buf);
                     break;
@@ -7414,25 +7304,25 @@ static char *codegen_arm(IrProgram *prog) {
                          * an aligned STR to an odd address faults.  r3 is the
                          * shift scratch; the value is pushed back so the store
                          * expression still has a value. */
-                        emit_line(&buf, "POP {r1}");          /* r1 = high word (top) */
+                        xh_arm_rule(&buf, "text.0008");          /* r1 = high word (top) */
                         emit_pop_r0(&buf);                     /* r0 = low word */
-                        emit_line(&buf, "POP {r2}");          /* r2 = addr */
-                        emit_line(&buf, "STRB r0, [r2, #0]");
-                        emit_line(&buf, "LSR r3, r0, #8");
-                        emit_line(&buf, "STRB r3, [r2, #1]");
-                        emit_line(&buf, "LSR r3, r0, #16");
-                        emit_line(&buf, "STRB r3, [r2, #2]");
-                        emit_line(&buf, "LSR r3, r0, #24");
-                        emit_line(&buf, "STRB r3, [r2, #3]");
-                        emit_line(&buf, "STRB r1, [r2, #4]");
-                        emit_line(&buf, "LSR r3, r1, #8");
-                        emit_line(&buf, "STRB r3, [r2, #5]");
-                        emit_line(&buf, "LSR r3, r1, #16");
-                        emit_line(&buf, "STRB r3, [r2, #6]");
-                        emit_line(&buf, "LSR r3, r1, #24");
-                        emit_line(&buf, "STRB r3, [r2, #7]");
-                        emit_line(&buf, "PUSH {r0}");
-                        emit_line(&buf, "PUSH {r1}");
+                        xh_arm_rule(&buf, "text.0037");          /* r2 = addr */
+                        xh_arm_rule(&buf, "text.0201");
+                        xh_arm_rule(&buf, "text.0202");
+                        xh_arm_rule(&buf, "text.0203");
+                        xh_arm_rule(&buf, "text.0204");
+                        xh_arm_rule(&buf, "text.0205");
+                        xh_arm_rule(&buf, "text.0206");
+                        xh_arm_rule(&buf, "text.0207");
+                        xh_arm_rule(&buf, "text.0208");
+                        xh_arm_rule(&buf, "text.0209");
+                        xh_arm_rule(&buf, "text.0210");
+                        xh_arm_rule(&buf, "text.0211");
+                        xh_arm_rule(&buf, "text.0212");
+                        xh_arm_rule(&buf, "text.0213");
+                        xh_arm_rule(&buf, "text.0214");
+                        xh_arm_rule(&buf, "text.0006");
+                        xh_arm_rule(&buf, "text.0024");
                         break;
                     }
                     if (es == 8 && (I->aux & IR_AUX_COMPLEX)) {
@@ -7444,27 +7334,27 @@ static char *codegen_arm(IrProgram *prog) {
                          * half with PUSH on top of the words it still had to read,
                          * so the imaginary half was served the parked word and
                          * `farr[1] = 2-3i` stored (0, re) instead of (re, im). */
-                        emit_line(&buf, "LDR r1, [sp, #0]");     /* re_hi */
-                        emit_line(&buf, "LDR r0, [sp, #4]");     /* re_lo */
+                        xh_arm_rule(&buf, "text.0215");     /* re_hi */
+                        xh_arm_rule(&buf, "text.0216");     /* re_lo */
                         arm_cvt_d2f(&buf);                       /* r0 = re32 */
-                        emit_line(&buf, "LDR r2, [sp, #16]");    /* addr */
-                        emit_line(&buf, "STR r0, [r2, #0]");
-                        emit_line(&buf, "LDR r1, [sp, #8]");     /* im_hi */
-                        emit_line(&buf, "LDR r0, [sp, #12]");    /* im_lo */
+                        xh_arm_rule(&buf, "text.0217");    /* addr */
+                        xh_arm_rule(&buf, "text.0166");
+                        xh_arm_rule(&buf, "text.0218");     /* im_hi */
+                        xh_arm_rule(&buf, "text.0219");    /* im_lo */
                         arm_cvt_d2f(&buf);                       /* r0 = im32 */
-                        emit_line(&buf, "LDR r2, [sp, #16]");    /* addr (r2 was clobbered) */
-                        emit_line(&buf, "STR r0, [r2, #4]");
-                        emit_line(&buf, "ADD sp, sp, #20");      /* drop value + addr */
-                        asmbuf_puts(&buf, "    PUSH {r2}\n");        /* park addr */
-                        emit_line(&buf, "LDR r0, [r2, #4]");
+                        xh_arm_rule(&buf, "text.0217");    /* addr (r2 was clobbered) */
+                        xh_arm_rule(&buf, "text.0167");
+                        xh_arm_rule(&buf, "text.0220");      /* drop value + addr */
+                        xh_arm_rule(&buf, "text.0164");        /* park addr */
+                        xh_arm_rule(&buf, "text.0221");
                         arm_cvt_f2d(&buf);
-                        asmbuf_puts(&buf, "    POP {r2}\n");
+                        xh_arm_rule(&buf, "text.0037");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
-                        emit_line(&buf, "LDR r0, [r2, #0]");
+                        xh_arm_rule(&buf, "text.0024");
+                        xh_arm_rule(&buf, "text.0178");
                         arm_cvt_f2d(&buf);
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                         break;
                     }
                     if (es == 16) {
@@ -7472,61 +7362,61 @@ static char *codegen_arm(IrProgram *prog) {
                          * [re_hi, re_lo, im_hi, im_lo, addr]; the object is
                          * written in the standard C layout so the generic
                          * LOAD_IDX / IR_STORE / libgcc helpers all agree. */
-                        emit_line(&buf, "POP {r1}");            /* r1 = re_hi */
+                        xh_arm_rule(&buf, "text.0008");            /* r1 = re_hi */
                         emit_pop_r0(&buf);                       /* r0 = re_lo */
-                        emit_line(&buf, "POP {r3}");            /* r3 = im_hi */
-                        emit_line(&buf, "POP {r2}");            /* r2 = im_lo */
-                        emit_line(&buf, "POP {r12}");            /* r12 = addr */
-                        emit_line(&buf, "STR r0, [r12, #0]");
-                        emit_line(&buf, "STR r1, [r12, #4]");
-                        emit_line(&buf, "STR r2, [r12, #8]");
-                        emit_line(&buf, "STR r3, [r12, #12]");
+                        xh_arm_rule(&buf, "text.0036");            /* r3 = im_hi */
+                        xh_arm_rule(&buf, "text.0037");            /* r2 = im_lo */
+                        xh_arm_rule(&buf, "text.0222");            /* r12 = addr */
+                        xh_arm_rule(&buf, "text.0168");
+                        xh_arm_rule(&buf, "text.0169");
+                        xh_arm_rule(&buf, "text.0170");
+                        xh_arm_rule(&buf, "text.0171");
                         /* Push the value back in the same order the expression
                          * stack uses, so the store still yields the value. */
-                        emit_line(&buf, "PUSH {r2}");
-                        emit_line(&buf, "PUSH {r3}");
-                        emit_line(&buf, "PUSH {r0}");
-                        emit_line(&buf, "PUSH {r1}");
+                        xh_arm_rule(&buf, "text.0164");
+                        xh_arm_rule(&buf, "text.0199");
+                        xh_arm_rule(&buf, "text.0006");
+                        xh_arm_rule(&buf, "text.0024");
                         break;
                     }
                     if (es == 8) {
                         /* #A4 FIX: 8-byte element (long long/double): stack has
                          * [addr, value_low, value_high] (high on top, per IR_STORE
                          * convention). Pop high, low, addr; store both; push back. */
-                        emit_line(&buf, "POP {r1}");          /* r1 = high word (top) */
+                        xh_arm_rule(&buf, "text.0008");          /* r1 = high word (top) */
                         emit_pop_r0(&buf);                     /* r0 = low word */
-                        emit_line(&buf, "POP {r2}");          /* r2 = addr */
-                        emit_line(&buf, "STR r0, [r2, #0]");
-                        emit_line(&buf, "STR r1, [r2, #4]");
+                        xh_arm_rule(&buf, "text.0037");          /* r2 = addr */
+                        xh_arm_rule(&buf, "text.0166");
+                        xh_arm_rule(&buf, "text.0172");
                         /* Push value back as expression result: low then high */
-                        emit_line(&buf, "PUSH {r0}");
-                        emit_line(&buf, "PUSH {r1}");
+                        xh_arm_rule(&buf, "text.0006");
+                        xh_arm_rule(&buf, "text.0024");
                         break;
                     }
                     emit_pop_r0(&buf);
                     emit_pop_r1(&buf);
                     if (es == 1) {
-                        emit_line(&buf, "STRB r0, [r1, #0]");
+                        xh_arm_rule(&buf, "text.0223");
                     } else if (es == 2 && !packed) {
-                        emit_line(&buf, "STRH r0, [r1, #0]");
+                        xh_arm_rule(&buf, "text.0224");
                     } else if (packed) {
                         /* __packed pointer unaligned store: write byte by byte.
                          * r0=value, r1=address, r2 is a scratch register */
                         if (es == 2) {
-                            emit_line(&buf, "STRB r0, [r1, #0]");
-                            emit_line(&buf, "LSR r2, r0, #8");
-                            emit_line(&buf, "STRB r2, [r1, #1]");
+                            xh_arm_rule(&buf, "text.0223");
+                            xh_arm_rule(&buf, "text.0225");
+                            xh_arm_rule(&buf, "text.0226");
                         } else {
-                            emit_line(&buf, "STRB r0, [r1, #0]");
-                            emit_line(&buf, "LSR r2, r0, #8");
-                            emit_line(&buf, "STRB r2, [r1, #1]");
-                            emit_line(&buf, "LSR r2, r0, #16");
-                            emit_line(&buf, "STRB r2, [r1, #2]");
-                            emit_line(&buf, "LSR r2, r0, #24");
-                            emit_line(&buf, "STRB r2, [r1, #3]");
+                            xh_arm_rule(&buf, "text.0223");
+                            xh_arm_rule(&buf, "text.0225");
+                            xh_arm_rule(&buf, "text.0226");
+                            xh_arm_rule(&buf, "text.0227");
+                            xh_arm_rule(&buf, "text.0228");
+                            xh_arm_rule(&buf, "text.0229");
+                            xh_arm_rule(&buf, "text.0230");
                         }
                     } else {
-                        emit_line(&buf, "STR r0, [r1, #0]");
+                        xh_arm_rule(&buf, "text.0231");
                     }
                     emit_push_r0(&buf);
                     break;
@@ -7559,12 +7449,12 @@ static char *codegen_arm(IrProgram *prog) {
                                        thumb_imm12_a((unsigned)imm_val, &d_i,
                                                      &d_imm3, &d_imm8));
                                 if (enc) {
-                                    asmbuf_puts(&buf, "    CMP r0, #");
+                                    xh_arm_rule(&buf, "text.0232");
                                     asmbuf_int(&buf, imm_val);
                                     asmbuf_putc(&buf, '\n');
                                 } else {
                                     emit_mov_imm(&buf, 1, imm_val);
-                                    emit_line(&buf, "CMP r0, r1");
+                                    xh_arm_rule(&buf, "text.0233");
                                 }
                                 emit_b_label(&buf, mn, f->name, f->code[i + 1].val);
                                 i++;   /* the IR_JZ/IR_JNZ is emitted */
@@ -7574,7 +7464,7 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
                         emit_pop_r0(&buf);
                         if (!emit_binary_imm(&buf, imm_op, imm_val, imm_left, 1))
-                            emit_line(&buf, "; imm fold inconsistent");
+                            xh_arm_rule(&buf, "text.0234");
                         emit_push_r0(&buf);
                         break;
                     }
@@ -7594,7 +7484,7 @@ static char *codegen_arm(IrProgram *prog) {
                         if (mn) {
                             emit_pop_r1(&buf);
                             emit_pop_r0(&buf);
-                            emit_line(&buf, "CMP r0, r1");
+                            xh_arm_rule(&buf, "text.0233");
                             emit_b_label(&buf, mn, f->name, f->code[i + 1].val);
                             i++;   /* the IR_JZ/IR_JNZ is emitted */
                             break;
@@ -7611,7 +7501,7 @@ static char *codegen_arm(IrProgram *prog) {
                         /* conj: flip the sign bit of the imaginary part, which
                          * is its high word at sp+8. */
                         arm_ldr_sp(&buf, 0, 8);
-                        emit_line(&buf, "EOR r0, r0, #0x80000000");
+                        xh_arm_rule(&buf, "text.0235");
                         arm_str_sp(&buf, 0, 8);
                         break;
                     }
@@ -7628,8 +7518,8 @@ static char *codegen_arm(IrProgram *prog) {
                          * The 16-bit ADD sets the flags the ADC needs. */
                         emit_pop_r1(&buf);
                         emit_pop_r0(&buf);
-                        emit_line(&buf, "MVN r0, r0");
-                        emit_line(&buf, "MVN r1, r1");
+                        xh_arm_rule(&buf, "text.0236");
+                        xh_arm_rule(&buf, "text.0023");
                         if (I->aux == (int)TOK_MINUS) {
                             /* Two-operand ADDS, not three-operand ADD: in
                              * unified syntax the three-operand form assembles to the
@@ -7639,7 +7529,7 @@ static char *codegen_arm(IrProgram *prog) {
                              * an extra 1 and -7LL came out as -8).  The 16-bit form
                              * sets the flags correctly on both hardware and the harness
                              * and is one instruction shorter. */
-                            emit_line(&buf, "ADDS r0, #1");   /* ADDS, not ADD: GNU as encodes
+                            xh_arm_rule(&buf, "text.0237");   /* ADDS, not ADD: GNU as encodes
                              * "add r0, r0, #imm"/"add r0, #imm" without
                              * the S as the 32-bit ADD.W, which leaves the
                              * flags alone (verified with objdump: `adds
@@ -7647,11 +7537,11 @@ static char *codegen_arm(IrProgram *prog) {
                              * and the carry into the ADC below depends on
                              * them.  The built-in assembler accepts
                              * ADDS/SUBS unconditionally for this reason. */
-                            emit_line(&buf, "MOV r2, #0");
-                            emit_line(&buf, "ADC r1, r2");
+                            xh_arm_rule(&buf, "text.0238");
+                            xh_arm_rule(&buf, "text.0239");
                         }
-                        asmbuf_puts(&buf, "    PUSH {r0}\n");
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0006");
+                        xh_arm_rule(&buf, "text.0024");
                         break;
                     }
                     if (I->val == 1) {
@@ -7666,7 +7556,7 @@ static char *codegen_arm(IrProgram *prog) {
                          * know which precision it is. */
                         emit_pop_r0(&buf);
                         if (I->aux == (int)TOK_MINUS) {
-                            emit_line(&buf, "EOR r0, r0, #0x80000000");
+                            xh_arm_rule(&buf, "text.0235");
                         } else {
                             char b1[12];
                             diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -7686,17 +7576,17 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_label(&buf, f->name, I->val);
                     break;
                 case IR_LABEL_NAMED:
-                    asmbuf_puts(&buf, ".L_");
+                    xh_arm_rule(&buf, "text.0042");
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, ":\n");
+                    xh_arm_rule(&buf, "text.0043");
                     break;
                 case IR_JMP:
                     emit_b_label(&buf, "B", f->name, I->val);
                     break;
                 case IR_JMP_NAMED:
-                    asmbuf_puts(&buf, "    B .L_");
+                    xh_arm_rule(&buf, "text.0240");
                     asmbuf_puts(&buf, f->name);
                     asmbuf_putc(&buf, '_');
                     asmbuf_puts(&buf, I->name);
@@ -7704,18 +7594,18 @@ static char *codegen_arm(IrProgram *prog) {
                     break;
                 case IR_JZ:
                     emit_pop_r0(&buf);
-                    emit_line(&buf, "CMP r0, #0");
+                    xh_arm_rule(&buf, "text.0241");
                     emit_b_label(&buf, "BEQ", f->name, I->val);
                     break;
                 case IR_JNZ:
                     emit_pop_r0(&buf);
-                    emit_line(&buf, "CMP r0, #0");
+                    xh_arm_rule(&buf, "text.0241");
                     emit_b_label(&buf, "BNE", f->name, I->val);
                     break;
                 case IR_CMP_JMP_EQ:
                     emit_pop_r0(&buf);
                     emit_mov_imm(&buf, 1, I->val);
-                    emit_line(&buf, "CMP r0, r1");
+                    xh_arm_rule(&buf, "text.0233");
                     emit_b_label(&buf, "BEQ", f->name, I->aux);
                     break;
                 /* === Floating-point ops: ARM soft-float ABI ===
@@ -7729,34 +7619,34 @@ static char *codegen_arm(IrProgram *prog) {
                         /* 16-byte complex constant. val indexes the complex
                          * pool, not the float pool -- the two used to share
                          * aux 0x200, which loaded a double as a complex. */
-                        asmbuf_puts(&buf, "    LDR r0, =.L_cplx_");
+                        xh_arm_rule(&buf, "text.0242");
                         asmbuf_int(&buf, I->val);
                         asmbuf_putc(&buf, '\n');
-                        asmbuf_puts(&buf, "    LDR r1, [r0, #8]\n");
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");   /* imag low  */
-                        asmbuf_puts(&buf, "    LDR r1, [r0, #12]\n");
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");   /* imag high */
-                        asmbuf_puts(&buf, "    LDR r1, [r0, #0]\n");
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");   /* real low  */
-                        asmbuf_puts(&buf, "    LDR r1, [r0, #4]\n");
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");   /* real high */
+                        xh_arm_rule(&buf, "text.0243");
+                        xh_arm_rule(&buf, "text.0024");   /* imag low  */
+                        xh_arm_rule(&buf, "text.0244");
+                        xh_arm_rule(&buf, "text.0024");   /* imag high */
+                        xh_arm_rule(&buf, "text.0245");
+                        xh_arm_rule(&buf, "text.0024");   /* real low  */
+                        xh_arm_rule(&buf, "text.0246");
+                        xh_arm_rule(&buf, "text.0024");   /* real high */
                         break;
                     }
                     if (is_dbl) {
                         /* Double-precision: load 8 bytes, push 2 slots (low word pushed first) */
-                        asmbuf_puts(&buf, "    LDR r0, =.L_dbl_");
+                        xh_arm_rule(&buf, "text.0247");
                         asmbuf_int(&buf, I->val);
                         asmbuf_putc(&buf, '\n');
-                        emit_line(&buf, "LDR r1, [r0]");       /* low word */
-                        emit_line(&buf, "LDR r2, [r0, #4]");   /* high word */
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");  /* low word pushed first */
-                        asmbuf_puts(&buf, "    PUSH {r2}\n");  /* high word pushed last (on top) */
+                        xh_arm_rule(&buf, "text.0248");       /* low word */
+                        xh_arm_rule(&buf, "text.0197");   /* high word */
+                        xh_arm_rule(&buf, "text.0024");  /* low word pushed first */
+                        xh_arm_rule(&buf, "text.0164");  /* high word pushed last (on top) */
                     } else {
                         /* Single-precision: load 32-bit float bit pattern from the float constant pool into r0 */
-                        asmbuf_puts(&buf, "    LDR r0, =.L_flt_");
+                        xh_arm_rule(&buf, "text.0249");
                         asmbuf_int(&buf, I->val);
                         asmbuf_putc(&buf, '\n');
-                        emit_line(&buf, "LDR r0, [r0]");
+                        xh_arm_rule(&buf, "text.0090");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -7767,7 +7657,7 @@ static char *codegen_arm(IrProgram *prog) {
                         /* cexp: aux = TOK_PLUS | 0x900 (complex bit plus the
                          * 0x100 sub-op selector). exp(x)*(cos y + i sin y);
                          * the three libm calls are linked in, not inlined. */
-                        emit_line(&buf, "SUB sp, sp, #24");   /* operands at sp+24 */
+                        xh_arm_rule(&buf, "text.0250");   /* operands at sp+24 */
                         arm_ldr_sp(&buf, 0, 28);              /* z.re low  */
                         arm_ldr_sp(&buf, 1, 24);              /* z.re high */
                         arm_call1(&buf, "exp");
@@ -7784,13 +7674,13 @@ static char *codegen_arm(IrProgram *prog) {
                         arm_ldr_sp(&buf, 0, 36);
                         arm_ldr_sp(&buf, 1, 32);
                         arm_call1(&buf, "sin");
-                        emit_line(&buf, "MOV r2, r0");
-                        emit_line(&buf, "MOV r3, r1");
+                        xh_arm_rule(&buf, "text.0027");
+                        xh_arm_rule(&buf, "text.0028");
                         arm_ldr_sp(&buf, 0, 0);
                         arm_ldr_sp(&buf, 1, 4);
                         arm_call1(&buf, "__aeabi_dmul");
-                        emit_line(&buf, "MOV r2, r0");
-                        emit_line(&buf, "MOV r3, r1");
+                        xh_arm_rule(&buf, "text.0027");
+                        xh_arm_rule(&buf, "text.0028");
                         arm_ldr_sp(&buf, 0, 16);
                         arm_ldr_sp(&buf, 1, 20);
                         emit_add_sp(&buf, 24);
@@ -7810,16 +7700,16 @@ static char *codegen_arm(IrProgram *prog) {
                     }
 #endif
                     if (is_dbl) {
-                        emit_line(&buf, "POP {r3}");
-                        emit_line(&buf, "POP {r2}");
-                        emit_line(&buf, "POP {r1}");
-                        emit_line(&buf, "POP {r0}");
-                        emit_line(&buf, "BL __aeabi_dadd");
+                        xh_arm_rule(&buf, "text.0036");
+                        xh_arm_rule(&buf, "text.0037");
+                        xh_arm_rule(&buf, "text.0008");
+                        xh_arm_rule(&buf, "text.0007");
+                        xh_arm_rule(&buf, "text.0251");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else {
                         emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        emit_line(&buf, "BL __aeabi_fadd");
+                        xh_arm_rule(&buf, "text.0252");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -7838,16 +7728,16 @@ static char *codegen_arm(IrProgram *prog) {
                     }
 #endif
                     if (is_dbl) {
-                        emit_line(&buf, "POP {r3}");
-                        emit_line(&buf, "POP {r2}");
-                        emit_line(&buf, "POP {r1}");
-                        emit_line(&buf, "POP {r0}");
-                        emit_line(&buf, "BL __aeabi_dsub");
+                        xh_arm_rule(&buf, "text.0036");
+                        xh_arm_rule(&buf, "text.0037");
+                        xh_arm_rule(&buf, "text.0008");
+                        xh_arm_rule(&buf, "text.0007");
+                        xh_arm_rule(&buf, "text.0253");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else {
                         emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        emit_line(&buf, "BL __aeabi_fsub");
+                        xh_arm_rule(&buf, "text.0254");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -7866,16 +7756,16 @@ static char *codegen_arm(IrProgram *prog) {
                     }
 #endif
                     if (is_dbl) {
-                        emit_line(&buf, "POP {r3}");
-                        emit_line(&buf, "POP {r2}");
-                        emit_line(&buf, "POP {r1}");
-                        emit_line(&buf, "POP {r0}");
-                        emit_line(&buf, "BL __aeabi_dmul");
+                        xh_arm_rule(&buf, "text.0036");
+                        xh_arm_rule(&buf, "text.0037");
+                        xh_arm_rule(&buf, "text.0008");
+                        xh_arm_rule(&buf, "text.0007");
+                        xh_arm_rule(&buf, "text.0255");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else {
                         emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        emit_line(&buf, "BL __aeabi_fmul");
+                        xh_arm_rule(&buf, "text.0256");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -7894,16 +7784,16 @@ static char *codegen_arm(IrProgram *prog) {
                     }
 #endif
                     if (is_dbl) {
-                        emit_line(&buf, "POP {r3}");
-                        emit_line(&buf, "POP {r2}");
-                        emit_line(&buf, "POP {r1}");
-                        emit_line(&buf, "POP {r0}");
-                        emit_line(&buf, "BL __aeabi_ddiv");
+                        xh_arm_rule(&buf, "text.0036");
+                        xh_arm_rule(&buf, "text.0037");
+                        xh_arm_rule(&buf, "text.0008");
+                        xh_arm_rule(&buf, "text.0007");
+                        xh_arm_rule(&buf, "text.0257");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else {
                         emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        emit_line(&buf, "BL __aeabi_fdiv");
+                        xh_arm_rule(&buf, "text.0258");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -7919,12 +7809,12 @@ static char *codegen_arm(IrProgram *prog) {
                         int k = I->aux & 0x300;
                         if (k == 0x200) {
                             arm_dcall(&buf, "__aeabi_dmul", 4, 0, 4, 0);
-                            emit_line(&buf, "SUB sp, sp, #8");
+                            xh_arm_rule(&buf, "text.0025");
                             arm_str_sp(&buf, 0, 0);
                             arm_str_sp(&buf, 1, 4);
                             arm_dcall(&buf, "__aeabi_dmul", 20, 16, 20, 16);
-                            emit_line(&buf, "MOV r2, r0");
-                            emit_line(&buf, "MOV r3, r1");
+                            xh_arm_rule(&buf, "text.0027");
+                            xh_arm_rule(&buf, "text.0028");
                             arm_ldr_sp(&buf, 0, 0);
                             arm_ldr_sp(&buf, 1, 4);
                             arm_call1(&buf, "__aeabi_dadd");
@@ -7966,41 +7856,41 @@ static char *codegen_arm(IrProgram *prog) {
                     if (g_config.enable_fpu_hw) {
                         if (is_dbl) {
                             /* double: pop d0, VCVT.S32.F64 s0,d0, move back to r0 */
-                            emit_line(&buf, "POP {r1}");  /* high */
-                            emit_line(&buf, "POP {r0}");  /* low */
-                            emit_line(&buf, "VMOV s0, r0");
-                            emit_line(&buf, "VMOV s1, r1");
+                            xh_arm_rule(&buf, "text.0008");  /* high */
+                            xh_arm_rule(&buf, "text.0007");  /* low */
+                            xh_arm_rule(&buf, "text.0032");
+                            xh_arm_rule(&buf, "text.0033");
                             if (is_unsigned)
-                                emit_line(&buf, "VCVT.U32.F64 s0, d0");
+                                xh_arm_rule(&buf, "text.0259");
                             else
-                                emit_line(&buf, "VCVT.S32.F64 s0, d0");
-                            emit_line(&buf, "VMOV r0, s0");
+                                xh_arm_rule(&buf, "text.0260");
+                            xh_arm_rule(&buf, "text.0035");
                         } else {
                             emit_pop_r0(&buf);
-                            emit_line(&buf, "VMOV s0, r0");
+                            xh_arm_rule(&buf, "text.0032");
                             if (is_unsigned)
-                                emit_line(&buf, "VCVT.U32.F32 s0, s0");
+                                xh_arm_rule(&buf, "text.0261");
                             else
-                                emit_line(&buf, "VCVT.S32.F32 s0, s0");
-                            emit_line(&buf, "VMOV r0, s0");
+                                xh_arm_rule(&buf, "text.0262");
+                            xh_arm_rule(&buf, "text.0035");
                         }
                         emit_push_r0(&buf);
                         break;
                     }
 #endif
                     if (is_dbl) {
-                        emit_line(&buf, "POP {r1}");
-                        emit_line(&buf, "POP {r0}");
+                        xh_arm_rule(&buf, "text.0008");
+                        xh_arm_rule(&buf, "text.0007");
                         if (is_unsigned)
-                            emit_line(&buf, "BL __aeabi_d2uiz");
+                            xh_arm_rule(&buf, "text.0263");
                         else
-                            emit_line(&buf, "BL __aeabi_d2iz");
+                            xh_arm_rule(&buf, "text.0264");
                     } else {
                         emit_pop_r0(&buf);
                         if (is_unsigned)
-                            emit_line(&buf, "BL __aeabi_f2uiz");
+                            xh_arm_rule(&buf, "text.0265");
                         else
-                            emit_line(&buf, "BL __aeabi_f2iz");
+                            xh_arm_rule(&buf, "text.0266");
                     }
                     emit_push_r0(&buf);
                     break;
@@ -8015,15 +7905,15 @@ static char *codegen_arm(IrProgram *prog) {
                             emit_pop_r0(&buf);
                             arm_call1(&buf, k == 0x500 ? "__aeabi_ui2d" : "__aeabi_i2d");
                         } else if (k == 0x200) {
-                            emit_line(&buf, "POP {r1}");
+                            xh_arm_rule(&buf, "text.0008");
                             emit_pop_r0(&buf);
                         } else {
                             emit_pop_r0(&buf);
                             arm_call1(&buf, "__aeabi_f2d");
                         }
-                        emit_line(&buf, "MOV r2, r0");
-                        emit_line(&buf, "MOV r3, r1");
-                        emit_line(&buf, "MOV r0, #0");
+                        xh_arm_rule(&buf, "text.0027");
+                        xh_arm_rule(&buf, "text.0028");
+                        xh_arm_rule(&buf, "text.0267");
                         arm_push_reg(&buf, 0);
                         arm_push_reg(&buf, 0);
                         arm_push_reg(&buf, 2);
@@ -8040,22 +7930,22 @@ static char *codegen_arm(IrProgram *prog) {
 #if ARKCC_FEATURE_FPU_HW
                     if (g_config.enable_fpu_hw) {
                         emit_pop_r0(&buf);
-                        emit_line(&buf, "VMOV s0, r0");
+                        xh_arm_rule(&buf, "text.0032");
                         if (is_dbl) {
                             if (is_unsigned)
-                                emit_line(&buf, "VCVT.F64.U32 d0, s0");
+                                xh_arm_rule(&buf, "text.0268");
                             else
-                                emit_line(&buf, "VCVT.F64.S32 d0, s0");
-                            emit_line(&buf, "VMOV r0, s0");
-                            emit_line(&buf, "VMOV r1, s1");
+                                xh_arm_rule(&buf, "text.0269");
+                            xh_arm_rule(&buf, "text.0035");
+                            xh_arm_rule(&buf, "text.0041");
                             emit_push_r0(&buf);
-                            asmbuf_puts(&buf, "    PUSH {r1}\n");
+                            xh_arm_rule(&buf, "text.0024");
                         } else {
                             if (is_unsigned)
-                                emit_line(&buf, "VCVT.F32.U32 s0, s0");
+                                xh_arm_rule(&buf, "text.0270");
                             else
-                                emit_line(&buf, "VCVT.F32.S32 s0, s0");
-                            emit_line(&buf, "VMOV r0, s0");
+                                xh_arm_rule(&buf, "text.0271");
+                            xh_arm_rule(&buf, "text.0035");
                             emit_push_r0(&buf);
                         }
                         break;
@@ -8063,11 +7953,11 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
                     emit_pop_r0(&buf);
                     if (is_dbl) {
-                        emit_line(&buf, is_unsigned ? "BL __aeabi_ui2d" : "BL __aeabi_i2d");
+                        xh_arm_rule(&buf,is_unsigned ? "extra.018" : "extra.019");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else {
-                        emit_line(&buf, is_unsigned ? "BL __aeabi_ui2f" : "BL __aeabi_i2f");
+                        xh_arm_rule(&buf,is_unsigned ? "extra.020" : "extra.021");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -8082,12 +7972,12 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_pop_r1(&buf);  /* high */
                     emit_pop_r0(&buf);  /* low */
                     if (is_dbl) {
-                        emit_line(&buf, is_unsigned ? "BL __aeabi_ul2d" : "BL __aeabi_l2d");
+                        xh_arm_rule(&buf,is_unsigned ? "extra.022" : "extra.023");
                         /* double result: r0=low, r1=high */
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     } else {
-                        emit_line(&buf, is_unsigned ? "BL __aeabi_ul2f" : "BL __aeabi_l2f");
+                        xh_arm_rule(&buf,is_unsigned ? "extra.024" : "extra.025");
                         emit_push_r0(&buf);
                     }
                     break;
@@ -8103,14 +7993,14 @@ static char *codegen_arm(IrProgram *prog) {
                     if (is_dbl) {
                         emit_pop_r1(&buf);  /* high */
                         emit_pop_r0(&buf);  /* low */
-                        emit_line(&buf, is_unsigned ? "BL __aeabi_d2ulz" : "BL __aeabi_d2lz");
+                        xh_arm_rule(&buf,is_unsigned ? "extra.026" : "extra.027");
                     } else {
                         emit_pop_r0(&buf);
-                        emit_line(&buf, is_unsigned ? "BL __aeabi_f2ulz" : "BL __aeabi_f2lz");
+                        xh_arm_rule(&buf,is_unsigned ? "extra.028" : "extra.029");
                     }
                     /* 64-bit result: r0=low, r1=high */
                     emit_push_r0(&buf);
-                    asmbuf_puts(&buf, "    PUSH {r1}\n");
+                    xh_arm_rule(&buf, "text.0024");
                     break;
                 }
                 case IR_F2F: {
@@ -8135,20 +8025,20 @@ static char *codegen_arm(IrProgram *prog) {
                             /* double -> float */
                             emit_pop_r1(&buf);
                             emit_pop_r0(&buf);
-                            emit_line(&buf, "VMOV s0, r0");
-                            emit_line(&buf, "VMOV s1, r1");
-                            emit_line(&buf, "VCVT.F32.F64 s0, d0");
-                            emit_line(&buf, "VMOV r0, s0");
+                            xh_arm_rule(&buf, "text.0032");
+                            xh_arm_rule(&buf, "text.0033");
+                            xh_arm_rule(&buf, "text.0082");
+                            xh_arm_rule(&buf, "text.0035");
                             emit_push_r0(&buf);
                         } else if (!src_dbl && dst_dbl) {
                             /* float -> double */
                             emit_pop_r0(&buf);
-                            emit_line(&buf, "VMOV s0, r0");
-                            emit_line(&buf, "VCVT.F64.F32 d0, s0");
-                            emit_line(&buf, "VMOV r0, s0");
-                            emit_line(&buf, "VMOV r1, s1");
+                            xh_arm_rule(&buf, "text.0032");
+                            xh_arm_rule(&buf, "text.0080");
+                            xh_arm_rule(&buf, "text.0035");
+                            xh_arm_rule(&buf, "text.0041");
                             emit_push_r0(&buf);
-                            asmbuf_puts(&buf, "    PUSH {r1}\n");
+                            xh_arm_rule(&buf, "text.0024");
                         }
                         break;
                     }
@@ -8157,14 +8047,14 @@ static char *codegen_arm(IrProgram *prog) {
                         /* double -> float */
                         emit_pop_r1(&buf);
                         emit_pop_r0(&buf);
-                        emit_line(&buf, "BL __aeabi_d2f");
+                        xh_arm_rule(&buf, "text.0083");
                         emit_push_r0(&buf);
                     } else if (!src_dbl && dst_dbl) {
                         /* float -> double */
                         emit_pop_r0(&buf);
-                        emit_line(&buf, "BL __aeabi_f2d");
+                        xh_arm_rule(&buf, "text.0081");
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    PUSH {r1}\n");
+                        xh_arm_rule(&buf, "text.0024");
                     }
                     /* same-size: no-op */
                     break;
@@ -8197,24 +8087,24 @@ static char *codegen_arm(IrProgram *prog) {
                          * (7.9 >= 2^63 answered -1717986918 = 0x9999999A, and
                          * __aeabi_d2lz read it as "too large" and saturated). */
                         if (is_dbl) {
-                            emit_line(&buf, "POP {r3}");
-                            emit_line(&buf, "POP {r2}");
-                            emit_line(&buf, "POP {r1}");
-                            emit_line(&buf, "POP {r0}");
-                            emit_line(&buf, "VMOV s0, r0");
-                            emit_line(&buf, "VMOV s1, r1");
-                            emit_line(&buf, "VMOV s2, r2");
-                            emit_line(&buf, "VMOV s3, r3");
+                            xh_arm_rule(&buf, "text.0036");
+                            xh_arm_rule(&buf, "text.0037");
+                            xh_arm_rule(&buf, "text.0008");
+                            xh_arm_rule(&buf, "text.0007");
+                            xh_arm_rule(&buf, "text.0032");
+                            xh_arm_rule(&buf, "text.0033");
+                            xh_arm_rule(&buf, "text.0038");
+                            xh_arm_rule(&buf, "text.0039");
                             emit_mov_imm(&buf, 0, 0);
-                            emit_line(&buf, "VCMP.F64 d0, d1");
+                            xh_arm_rule(&buf, "text.0272");
                         } else {
                             emit_pop_r1(&buf); emit_pop_r0(&buf);
-                            emit_line(&buf, "VMOV s0, r0");
-                            emit_line(&buf, "VMOV s1, r1");
+                            xh_arm_rule(&buf, "text.0032");
+                            xh_arm_rule(&buf, "text.0033");
                             emit_mov_imm(&buf, 0, 0);
-                            emit_line(&buf, "VCMP.F32 s0, s1");
+                            xh_arm_rule(&buf, "text.0273");
                         }
-                        emit_line(&buf, "VMRS APSR_nzcv, FPSCR");
+                        xh_arm_rule(&buf, "text.0274");
                         switch (op) {
                             case (int)TOK_EQ: cond = "EQ"; break;
                             case (int)TOK_NE: cond = "NE"; break;
@@ -8224,12 +8114,12 @@ static char *codegen_arm(IrProgram *prog) {
                             case (int)TOK_GE: cond = "GE"; break;
                             default: cond = "EQ"; break;
                         }
-                        asmbuf_puts(&buf, "    IT ");
+                        xh_arm_rule(&buf, "text.0275");
                         asmbuf_puts(&buf, cond);
                         asmbuf_putc(&buf, '\n');
-                        asmbuf_puts(&buf, "    MOV");
+                        xh_arm_rule(&buf, "text.0276");
                         asmbuf_puts(&buf, cond);
-                        asmbuf_puts(&buf, " r0, #1\n");
+                        xh_arm_rule(&buf, "text.0277");
                         emit_push_r0(&buf);
                         break;
                     }
@@ -8246,24 +8136,24 @@ static char *codegen_arm(IrProgram *prog) {
                         default: break;
                     }
                     if (is_dbl) {
-                        emit_line(&buf, "POP {r3}");
-                        emit_line(&buf, "POP {r2}");
-                        emit_line(&buf, "POP {r1}");
-                        emit_line(&buf, "POP {r0}");
+                        xh_arm_rule(&buf, "text.0036");
+                        xh_arm_rule(&buf, "text.0037");
+                        xh_arm_rule(&buf, "text.0008");
+                        xh_arm_rule(&buf, "text.0007");
                     } else {
                         emit_pop_r1(&buf); emit_pop_r0(&buf);
                     }
-                    asmbuf_puts(&buf, "    BL ");
+                    xh_arm_rule(&buf, "text.0278");
                     asmbuf_puts(&buf, helper);
                     asmbuf_putc(&buf, '\n');
                     /* NE: use fcmpeq/dcmpeq then flip the low bit */
-                    if (op == (int)TOK_NE) emit_line(&buf, "EOR r0, r0, #1");
+                    if (op == (int)TOK_NE) xh_arm_rule(&buf, "text.0279");
                     emit_push_r0(&buf);
                     break;
                     }
                 }
                 case IR_ASM:
-                    if(I->aux&0x40000000){int k,outs=I->aux&1;const char*s=I->name?I->name:"";for(k=(int)I->val-1;k>=0;k--){asmbuf_puts(&buf,"    POP {r");asmbuf_int(&buf,outs+k);asmbuf_puts(&buf,"}\n");}asmbuf_puts(&buf,"    ");while(*s){if(*s=='%'&&s[1]=='%'){asmbuf_putc(&buf,'%');s+=2;}else if(*s=='%'&&s[1]>='0'&&s[1]<='2'){asmbuf_putc(&buf,'r');asmbuf_putc(&buf,s[1]);s+=2;}else asmbuf_putc(&buf,*s++);}asmbuf_putc(&buf,'\n');if(outs)emit_push_r0(&buf);break;}
+                    if(I->aux&0x40000000){int k,outs=I->aux&1;const char*s=I->name?I->name:"";for(k=(int)I->val-1;k>=0;k--){xh_arm_rule(&buf, "text.0061");asmbuf_int(&buf,outs+k);xh_arm_rule(&buf, "text.0058");}xh_arm_rule(&buf, "text.0000");while(*s){if(*s=='%'&&s[1]=='%'){asmbuf_putc(&buf,'%');s+=2;}else if(*s=='%'&&s[1]>='0'&&s[1]<='2'){asmbuf_putc(&buf,'r');asmbuf_putc(&buf,s[1]);s+=2;}else asmbuf_putc(&buf,*s++);}asmbuf_putc(&buf,'\n');if(outs)emit_push_r0(&buf);break;}
                     /* Inline assembly written out as-is.
                      * Extended form with '@' prefix (assembled by irgen): skip past the quote and write the template,
                      * ignoring outputs/inputs/clobbers; also replace %0/%1/... with
@@ -8274,11 +8164,11 @@ static char *codegen_arm(IrProgram *prog) {
                         while (*s == ' ' || *s == '\t') s++;
                         if (*s == '"') {
                             s++;
-                            asmbuf_puts(&buf, "    ");
+                            xh_arm_rule(&buf, "text.0000");
                             /* Copy template content (handle \n / \t escapes), stop at an unescaped '"' */
                             while (*s && *s != '"') {
                                 if (*s == '\\' && s[1]) {
-                                    if (s[1] == 'n') { asmbuf_putc(&buf, '\n'); asmbuf_puts(&buf, "    "); }
+                                    if (s[1] == 'n') { asmbuf_putc(&buf, '\n'); xh_arm_rule(&buf, "text.0000"); }
                                     else if (s[1] == 't') asmbuf_putc(&buf, '\t');
                                     else if (s[1] == '\\') asmbuf_putc(&buf, '\\');
                                     else if (s[1] == '"') asmbuf_putc(&buf, '"');
@@ -8297,7 +8187,7 @@ static char *codegen_arm(IrProgram *prog) {
                             asmbuf_putc(&buf, '\n');
                         }
                     } else if (I->name) {
-                        asmbuf_puts(&buf, "    ");
+                        xh_arm_rule(&buf, "text.0000");
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, '\n');
                     }
@@ -8409,19 +8299,19 @@ static char *codegen_arm(IrProgram *prog) {
                         int reg_args = (real_args > 4) ? 4 : real_args;
                         int stack_args = (real_args > 4) ? (real_args - 4) : 0;
                         for (k = 0; k < reg_args; k++) {
-                            asmbuf_puts(&buf, "    POP {r");
+                            xh_arm_rule(&buf, "text.0061");
                             asmbuf_int(&buf, k);
-                            asmbuf_puts(&buf, "}\n");
+                            xh_arm_rule(&buf, "text.0058");
                         }
                         if (stack_args > 0) {
-                            asmbuf_puts(&buf, "    ADD sp, sp, #");
+                            xh_arm_rule(&buf, "text.0001");
                             asmbuf_int(&buf, stack_args * 4);
                             asmbuf_putc(&buf, '\n');
                         }
-                        if (ark_streq(I->name, "__nop"))         asmbuf_puts(&buf, "    NOP\n");
-                        else if (ark_streq(I->name, "__isb"))    asmbuf_puts(&buf, "    ISB SY\n");
-                        else if (ark_streq(I->name, "__dsb"))    asmbuf_puts(&buf, "    DSB SY\n");
-                        else if (ark_streq(I->name, "__dmb"))    asmbuf_puts(&buf, "    DMB SY\n");
+                        if (ark_streq(I->name, "__nop"))         xh_arm_rule(&buf, "text.0280");
+                        else if (ark_streq(I->name, "__isb"))    xh_arm_rule(&buf, "text.0281");
+                        else if (ark_streq(I->name, "__dsb"))    xh_arm_rule(&buf, "text.0282");
+                        else if (ark_streq(I->name, "__dmb"))    xh_arm_rule(&buf, "text.0154");
                         else if (ark_streq(I->name, "__memory_changed")) ; /* compiler barrier: no-op */
                         else if (ark_streq(I->name, "__schedule_barrier")) ; /* CMSIS barrier fence: no instruction */
                         /* armcc __force_stores: flush the compiler's pending
@@ -8430,16 +8320,16 @@ static char *codegen_arm(IrProgram *prog) {
                          * instruction is required (it is not a hardware
                          * barrier; that is __dsb). */
                         else if (ark_streq(I->name, "__force_stores")) ;
-                        else if (ark_streq(I->name, "__disable_irq")) asmbuf_puts(&buf, "    CPSID i\n");
-                        else if (ark_streq(I->name, "__enable_irq"))  asmbuf_puts(&buf, "    CPSIE i\n");
-                        else if (ark_streq(I->name, "__wfi"))    asmbuf_puts(&buf, "    WFI\n");
-                        else if (ark_streq(I->name, "__wfe"))   asmbuf_puts(&buf, "    WFE\n");
-                        else if (ark_streq(I->name, "__sev"))   asmbuf_puts(&buf, "    SEV\n");
-                        else if (ark_streq(I->name, "__clz"))   asmbuf_puts(&buf, "    CLZ r0, r0\n");
+                        else if (ark_streq(I->name, "__disable_irq")) xh_arm_rule(&buf, "text.0283");
+                        else if (ark_streq(I->name, "__enable_irq"))  xh_arm_rule(&buf, "text.0284");
+                        else if (ark_streq(I->name, "__wfi"))    xh_arm_rule(&buf, "text.0285");
+                        else if (ark_streq(I->name, "__wfe"))   xh_arm_rule(&buf, "text.0286");
+                        else if (ark_streq(I->name, "__sev"))   xh_arm_rule(&buf, "text.0287");
+                        else if (ark_streq(I->name, "__clz"))   xh_arm_rule(&buf, "text.0288");
                         /* armcc __rbit: CMSIS __RBIT maps onto it in the
                          * __CC_ARM branch, so vendor code (HAL_CRYP) calls it
                          * with one argument; the result is uint32_t. */
-                        else if (ark_streq(I->name, "__rbit"))  asmbuf_puts(&buf, "    RBIT r0, r0\n");
+                        else if (ark_streq(I->name, "__rbit"))  xh_arm_rule(&buf, "text.0289");
                         /* C11 <stdatomic.h> critical section.  The target is a
                          * single core, so interrupt masking is a real mutual
                          * exclusion; reading PRIMASK first is what makes the
@@ -8449,11 +8339,11 @@ static char *codegen_arm(IrProgram *prog) {
                          * as a runtime helper, so nothing has to be linked and
                          * no call clobbers r1-r3 (the caller's live values). */
                         else if (ark_streq(I->name, "__arkcc_crit_save")) {
-                            asmbuf_puts(&buf, "    MRS r0, PRIMASK\n");
-                            asmbuf_puts(&buf, "    CPSID i\n");
+                            xh_arm_rule(&buf, "text.0290");
+                            xh_arm_rule(&buf, "text.0283");
                         }
                         else if (ark_streq(I->name, "__arkcc_crit_restore")) {
-                            asmbuf_puts(&buf, "    MSR PRIMASK, r0\n");
+                            xh_arm_rule(&buf, "text.0291");
                         }
                         emit_push_r0(&buf);
                         break;
@@ -8500,8 +8390,8 @@ static char *codegen_arm(IrProgram *prog) {
 
                     /* Indirect call: pop function pointer into ip (r12) first */
                     if (is_indirect) {
-                        asmbuf_puts(&buf, "    POP {ip}\n");
-                        asmbuf_puts(&buf, "    ORR ip, ip, #1\n");
+                        xh_arm_rule(&buf, "text.0292");
+                        xh_arm_rule(&buf, "text.0293");
                     }
                     /* Argument placement: one rule, shared with the callee
                      * (aapcs_assign).  The IR pushes arguments in reverse order
@@ -8594,28 +8484,28 @@ static char *codegen_arm(IrProgram *prog) {
                                      * argument still needs on the stack, in
                                      * the same relative place. */
                                     asplit[kk] = 1;
-                                    asmbuf_puts(&buf, "    POP {r7}\n");
-                                    asmbuf_puts(&buf, "    POP {r");
+                                    xh_arm_rule(&buf, "text.0294");
+                                    xh_arm_rule(&buf, "text.0061");
                                     asmbuf_int(&buf, aslot_reg[base]);  /* low word */
-                                    asmbuf_puts(&buf, "}\n");
-                                    asmbuf_puts(&buf, "    PUSH {r7}\n");
+                                    xh_arm_rule(&buf, "text.0058");
+                                    xh_arm_rule(&buf, "text.0295");
                                     reg_slots += 1;
                                     break;
                                 }
-                                asmbuf_puts(&buf, "    POP {r");
+                                xh_arm_rule(&buf, "text.0061");
                                 asmbuf_int(&buf, aslot_reg[base] + 1);  /* high word */
-                                asmbuf_puts(&buf, "}\n");
-                                asmbuf_puts(&buf, "    POP {r");
+                                xh_arm_rule(&buf, "text.0058");
+                                xh_arm_rule(&buf, "text.0061");
                                 asmbuf_int(&buf, aslot_reg[base]);      /* low word */
-                                asmbuf_puts(&buf, "}\n");
+                                xh_arm_rule(&buf, "text.0058");
                                 reg_slots += 2;
                             } else {
                                 int stacked = 0;
                                 for (j = 0; j < w; j++) {
                                     if (aslot_reg[base + j] < 0) { stacked = 1; break; }
-                                    asmbuf_puts(&buf, "    POP {r");
+                                    xh_arm_rule(&buf, "text.0061");
                                     asmbuf_int(&buf, aslot_reg[base + j]);
-                                    asmbuf_puts(&buf, "}\n");
+                                    xh_arm_rule(&buf, "text.0058");
                                     reg_slots += 1;
                                 }
                                 if (stacked) break;
@@ -8635,10 +8525,10 @@ static char *codegen_arm(IrProgram *prog) {
                          * The IR_RETURN that follows must emit nothing; the
                          * branch above *is* the return. */
                         if (tail_call_ok && stack_args == 0) {
-                            emit_line(&buf, "MOV sp, r6");
+                            xh_arm_rule(&buf, "frame.restore.sp");
                             if (local_size > 0) emit_sp_adjust(&buf, local_size, 0);
-                            emit_line(&buf, "POP {r5, r6, r7, lr}");
-                            asmbuf_puts(&buf, "    B ");
+                            xh_arm_rule(&buf, "frame.restore.lr");
+                            xh_arm_rule(&buf, "text.0296");
                             asmbuf_puts(&buf, I->name);
                             asmbuf_putc(&buf, '\n');
                             tail_return_pending = tail_call_skip + 1;
@@ -8662,24 +8552,24 @@ static char *codegen_arm(IrProgram *prog) {
                              * it inside the call sequence instead of in the
                              * prologue means a function pays the 8 bytes only
                              * if it really passes more than 16 bytes. */
-                            asmbuf_puts(&buf, "    PUSH {r4}\n");
-                            asmbuf_puts(&buf, "    MOV r5, sp\n");
+                            xh_arm_rule(&buf, "text.0297");
+                            xh_arm_rule(&buf, "text.0298");
                             /* r5 must still point at the word image that
                              * the pops left behind; the saved r4 is the
                              * word just below it. */
-                            asmbuf_puts(&buf, "    ADD r5, r5, #4\n");
-                            asmbuf_puts(&buf, "    SUB r4, sp, #");
+                            xh_arm_rule(&buf, "text.0299");
+                            xh_arm_rule(&buf, "text.0300");
                             asmbuf_int(&buf, (nsaa > 0) ? nsaa : 4);
-                            asmbuf_puts(&buf, "\n");
+                            xh_arm_rule(&buf, "text.0144");
                             /* Round the new sp down to an 8-byte boundary.  The
                              * IR stack depth at the call is not tracked, so the
                              * AAPCS alignment is enforced instead of assumed;
                              * the extra word (if any) lands at the top of the
                              * block where nothing reads it. */
-                            asmbuf_puts(&buf, "    MOV r7, #7\n");
-                            asmbuf_puts(&buf, "    MVN r7, r7\n");
-                            asmbuf_puts(&buf, "    AND r4, r7\n");
-                            asmbuf_puts(&buf, "    MOV sp, r4\n");
+                            xh_arm_rule(&buf, "text.0301");
+                            xh_arm_rule(&buf, "text.0302");
+                            xh_arm_rule(&buf, "text.0303");
+                            xh_arm_rule(&buf, "text.0304");
                             for (kk = 0; kk < real_args && kk < 64; kk++) {
                                 int base = abase[kk], w = awords[kk], j;
                                 if (w == 2) {
@@ -8689,30 +8579,30 @@ static char *codegen_arm(IrProgram *prog) {
                                          * for this argument (see the pop loop). */
                                         s_off = 4 * si;
                                         d_off = aslot_soff[base + 1];
-                                        asmbuf_puts(&buf, "    LDR r7, [r5, #");
+                                        xh_arm_rule(&buf, "text.0305");
                                         asmbuf_int(&buf, s_off);
-                                        asmbuf_puts(&buf, "]\n");
-                                        asmbuf_puts(&buf, "    STR r7, [r4, #");
+                                        xh_arm_rule(&buf, "text.0088");
+                                        xh_arm_rule(&buf, "text.0306");
                                         asmbuf_int(&buf, d_off);
-                                        asmbuf_puts(&buf, "]\n");
+                                        xh_arm_rule(&buf, "text.0088");
                                         si += 1;
                                         continue;
                                     }
                                     if (aslot_reg[base] >= 0) continue;
                                     s_off = 4 * si;
                                     d_off = aslot_soff[base];
-                                    asmbuf_puts(&buf, "    LDR r7, [r5, #");
+                                    xh_arm_rule(&buf, "text.0305");
                                     asmbuf_int(&buf, s_off + 4);  /* low word (pushed second) */
-                                    asmbuf_puts(&buf, "]\n");
-                                    asmbuf_puts(&buf, "    STR r7, [r4, #");
+                                    xh_arm_rule(&buf, "text.0088");
+                                    xh_arm_rule(&buf, "text.0306");
                                     asmbuf_int(&buf, d_off);
-                                    asmbuf_puts(&buf, "]\n");
-                                    asmbuf_puts(&buf, "    LDR r7, [r5, #");
+                                    xh_arm_rule(&buf, "text.0088");
+                                    xh_arm_rule(&buf, "text.0305");
                                     asmbuf_int(&buf, s_off);      /* high word */
-                                    asmbuf_puts(&buf, "]\n");
-                                    asmbuf_puts(&buf, "    STR r7, [r4, #");
+                                    xh_arm_rule(&buf, "text.0088");
+                                    xh_arm_rule(&buf, "text.0306");
                                     asmbuf_int(&buf, d_off + 4);
-                                    asmbuf_puts(&buf, "]\n");
+                                    xh_arm_rule(&buf, "text.0088");
                                     si += 2;
                                 } else {
                                     /* Word arguments and inline composites: the
@@ -8723,12 +8613,12 @@ static char *codegen_arm(IrProgram *prog) {
                                     for (j = 0; j < w; j++) {
                                         int d_off = aslot_soff[base + j];
                                         if (aslot_reg[base + j] >= 0) continue;
-                                        asmbuf_puts(&buf, "    LDR r7, [r5, #");
+                                        xh_arm_rule(&buf, "text.0305");
                                         asmbuf_int(&buf, 4 * si);
-                                        asmbuf_puts(&buf, "]\n");
-                                        asmbuf_puts(&buf, "    STR r7, [r4, #");
+                                        xh_arm_rule(&buf, "text.0088");
+                                        xh_arm_rule(&buf, "text.0306");
                                         asmbuf_int(&buf, d_off);
-                                        asmbuf_puts(&buf, "]\n");
+                                        xh_arm_rule(&buf, "text.0088");
                                         si += 1;
                                     }
                                 }
@@ -8739,14 +8629,14 @@ static char *codegen_arm(IrProgram *prog) {
                         /* r0 is free: the argument pops above only touched
                          * r1..r3 (ncrn_start == 1) and the stack block is
                          * addressed through r6. */
-                        asmbuf_puts(&buf, "    ADD r0, r6, #");
+                        xh_arm_rule(&buf, "text.0089");
                         asmbuf_int(&buf, sret_buf_off);
                         asmbuf_putc(&buf, '\n');
                     }
                     if (is_indirect) {
-                        asmbuf_puts(&buf, "    BLX ip\n");
+                        xh_arm_rule(&buf, "text.0307");
                     } else {
-                        asmbuf_puts(&buf, "    BL ");
+                        xh_arm_rule(&buf, "text.0278");
                         asmbuf_puts(&buf, I->name);
                         asmbuf_putc(&buf, '\n');
                     }
@@ -8760,16 +8650,16 @@ static char *codegen_arm(IrProgram *prog) {
                          * under the result and the next IR_STORE_IDX read it as
                          * a destination address (measured: a store to 0x63). */
                         int drop = stack_args * 4;
-                        asmbuf_puts(&buf, "    MOV sp, r5\n");
-                        asmbuf_puts(&buf, "    SUB sp, sp, #4\n");
-                        asmbuf_puts(&buf, "    POP {r4}\n");
+                        xh_arm_rule(&buf, "text.0308");
+                        xh_arm_rule(&buf, "text.0309");
+                        xh_arm_rule(&buf, "text.0310");
                         if (drop <= 252) {
-                            asmbuf_puts(&buf, "    ADD sp, sp, #");
+                            xh_arm_rule(&buf, "text.0001");
                             asmbuf_int(&buf, drop);
-                            asmbuf_puts(&buf, "\n");
+                            xh_arm_rule(&buf, "text.0144");
                         } else {
                             emit_mov_imm(&buf, 7, drop);
-                            asmbuf_puts(&buf, "    ADD sp, sp, r7\n");
+                            xh_arm_rule(&buf, "text.0311");
                         }
                     }
                     /* #9 FIX: Check if called function returns 64-bit (long long/double).
@@ -8798,17 +8688,13 @@ static char *codegen_arm(IrProgram *prog) {
                              * to sp can only walk past the *lowest* words, so
                              * the parked word stayed in the value and the real
                              * half came out as 0 (measured, cplx_ret_f). */
-                            asmbuf_puts(&buf, "    SUB sp, sp, #16\n"
-                                              "    STR r0, [sp, #0]\n"    /* re32 */
-                                              "    STR r1, [sp, #8]\n");  /* im32 */
-                            asmbuf_puts(&buf, "    LDR r0, [sp, #0]\n");
-                            emit_line(&buf, "BL __aeabi_f2d");   /* r0=re_lo */
-                            asmbuf_puts(&buf, "    STR r1, [sp, #0]\n"
-                                              "    STR r0, [sp, #4]\n");
-                            asmbuf_puts(&buf, "    LDR r0, [sp, #8]\n");
-                            emit_line(&buf, "BL __aeabi_f2d");   /* r0=im_lo */
-                            asmbuf_puts(&buf, "    STR r1, [sp, #8]\n"
-                                              "    STR r0, [sp, #12]\n");
+                            xh_arm_rule(&buf,"extra.030");  /* im32 */
+                            xh_arm_rule(&buf, "text.0312");
+                            xh_arm_rule(&buf, "text.0081");   /* r0=re_lo */
+                            xh_arm_rule(&buf, "text.0313");
+                            xh_arm_rule(&buf, "text.0314");
+                            xh_arm_rule(&buf, "text.0081");   /* r0=im_lo */
+                            xh_arm_rule(&buf, "text.0315");
                         } else if (!is_indirect) {
                             int fi2;
                             int found = 0;
@@ -8855,7 +8741,7 @@ static char *codegen_arm(IrProgram *prog) {
                             /* the four words went on above */
                         } else if (ret64) {
                             emit_push_r0(&buf);              /* push low word */
-                            asmbuf_puts(&buf, "    PUSH {r1}\n");  /* push high word */
+                            xh_arm_rule(&buf, "text.0024");  /* push high word */
                         } else if (!is_void_ret) {
                             emit_push_r0(&buf);              /* push r0 only if non-void */
                         }
@@ -8867,7 +8753,7 @@ static char *codegen_arm(IrProgram *prog) {
                     /* __svc(n) - args are on top of stack, pop to r0 then execute SVC */
                     int n = I->val;
                     emit_pop_r0(&buf);
-                    asmbuf_puts(&buf, "    SVC #");
+                    xh_arm_rule(&buf, "text.0316");
                     asmbuf_int(&buf, n);
                     asmbuf_putc(&buf, '\n');
                     emit_push_r0(&buf);
@@ -8878,7 +8764,7 @@ static char *codegen_arm(IrProgram *prog) {
                     /* __smc(n) - secure monitor call; args are on top of stack, pop to r0 then execute SMC */
                     int n = I->val;
                     emit_pop_r0(&buf);
-                    asmbuf_puts(&buf, "    SMC #");
+                    xh_arm_rule(&buf, "text.0317");
                     asmbuf_int(&buf, n);
                     asmbuf_putc(&buf, '\n');
                     emit_push_r0(&buf);
@@ -8899,7 +8785,7 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    asmbuf_puts(&buf, I->aux ? "    UDIV r0, r0, r1\n" : "    SDIV r0, r0, r1\n");
+                    xh_arm_rule(&buf,I->aux ? "extra.031" : "extra.032");
                     emit_push_r0(&buf);
                     break;
                 case IR_MOD:
@@ -8912,9 +8798,9 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    asmbuf_puts(&buf, I->aux ? "    UDIV r2, r0, r1\n" : "    SDIV r2, r0, r1\n");
-                    emit_line(&buf, "MUL r2, r2, r1");
-                    emit_line(&buf, "SUB r0, r0, r2");
+                    xh_arm_rule(&buf,I->aux ? "extra.033" : "extra.034");
+                    xh_arm_rule(&buf, "text.0318");
+                    xh_arm_rule(&buf, "text.0319");
                     emit_push_r0(&buf);
                     break;
                 /* === 64-bit ops: value occupies two stack slots, low word pushed first, high word pushed last (high word on top) ===
@@ -8956,19 +8842,19 @@ static char *codegen_arm(IrProgram *prog) {
                                                                   : "__aeabi_lasr"; break;
                         default: break;
                     }
-                    emit_line(&buf, "POP {r3}");
-                    emit_line(&buf, "POP {r2}");
-                    emit_line(&buf, "POP {r1}");
-                    emit_line(&buf, "POP {r0}");
+                    xh_arm_rule(&buf, "text.0036");
+                    xh_arm_rule(&buf, "text.0037");
+                    xh_arm_rule(&buf, "text.0008");
+                    xh_arm_rule(&buf, "text.0007");
                     /* Bitwise AND/OR/XOR need no helper: both words are
                      * independent.  They used to fall through with no helper at
                      * all, i.e. the result was whatever happened to be in
                      * r0:r1 -- measured: `(-100LL & 1)` did not behave like 0,
                      * which quietly broke the standard "clear the low bit"
                      * idiom used by the reference code in the shift tests. */
-                    if (op == (int)TOK_BAND) { emit_line(&buf, "AND r0, r2"); emit_line(&buf, "AND r1, r3"); }
-                    else if (op == (int)TOK_BOR)  { emit_line(&buf, "ORR r0, r2"); emit_line(&buf, "ORR r1, r3"); }
-                    else if (op == (int)TOK_BXOR) { emit_line(&buf, "EOR r0, r2"); emit_line(&buf, "EOR r1, r3"); }
+                    if (op == (int)TOK_BAND) { xh_arm_rule(&buf, "text.0320"); xh_arm_rule(&buf, "text.0321"); }
+                    else if (op == (int)TOK_BOR)  { xh_arm_rule(&buf, "text.0322"); xh_arm_rule(&buf, "text.0323"); }
+                    else if (op == (int)TOK_BXOR) { xh_arm_rule(&buf, "text.0324"); xh_arm_rule(&buf, "text.0325"); }
                     /* ADDS/ADC and SUBS/SBC are emitted in their 16-bit
                      * two/three-operand forms on purpose: a Thumb-2 wide
                      * `ADD.W r0, r0, #imm` does not update APSR under
@@ -8980,26 +8866,26 @@ static char *codegen_arm(IrProgram *prog) {
                      * alone and breaks the carry chain.  The built-in assembler
                      * therefore accepts ADDS/SUBS without --asm-extra. */
                     if (is_add) {
-                        emit_line(&buf, "ADDS r0, r0, r2");
-                        emit_line(&buf, "ADC r1, r1, r3");
+                        xh_arm_rule(&buf, "text.0326");
+                        xh_arm_rule(&buf, "text.0327");
                     } else if (is_sub) {
-                        emit_line(&buf, "SUBS r0, r0, r2");
-                        emit_line(&buf, "SBC r1, r1, r3");
+                        xh_arm_rule(&buf, "text.0328");
+                        xh_arm_rule(&buf, "text.0329");
                     }
                     if (helper) {
-                        asmbuf_puts(&buf, "    BL ");
+                        xh_arm_rule(&buf, "text.0278");
                         asmbuf_puts(&buf, helper);
                         asmbuf_putc(&buf, '\n');
                     }
                     if (is_mod) {
                         /* __aeabi_ldivmod/uldivmod: quotient in r0/r1, remainder in r2/r3;
                          * take remainder to r0/r1 for MOD result. */
-                        emit_line(&buf, "MOV r0, r2");
-                        emit_line(&buf, "MOV r1, r3");
+                        xh_arm_rule(&buf, "text.0330");
+                        xh_arm_rule(&buf, "text.0331");
                     }
                     /* For DIV, quotient is already in r0/r1. */
                     emit_push_r0(&buf);                 /* result low 32 bits */
-                    asmbuf_puts(&buf, "    PUSH {r1}\n"); /* result high 32 bits */
+                    xh_arm_rule(&buf, "text.0024"); /* result high 32 bits */
                     break;
                 }
                 case IR_64CMP: {
@@ -9010,21 +8896,21 @@ static char *codegen_arm(IrProgram *prog) {
                     const char *cmp_helper = is_unsigned ? "__aeabi_ulcmp" : "__aeabi_lcmp";
                     /* __aeabi_lcmp/ulcmp returns -1/0/1 (a<b / a==b / a>b) in r0;
                      * use conditional MOV to produce a 0/1 comparison result. */
-                    emit_line(&buf, "POP {r3}");
-                    emit_line(&buf, "POP {r2}");
-                    emit_line(&buf, "POP {r1}");
-                    emit_line(&buf, "POP {r0}");
-                    asmbuf_puts(&buf, "    BL ");
+                    xh_arm_rule(&buf, "text.0036");
+                    xh_arm_rule(&buf, "text.0037");
+                    xh_arm_rule(&buf, "text.0008");
+                    xh_arm_rule(&buf, "text.0007");
+                    xh_arm_rule(&buf, "text.0278");
                     asmbuf_puts(&buf, cmp_helper);
                     asmbuf_putc(&buf, '\n');
-                    emit_line(&buf, "CMP r0, #0");
+                    xh_arm_rule(&buf, "text.0241");
                     switch (op) {
-                        case (int)TOK_EQ: emit_line(&buf, "ITE EQ"); emit_line(&buf, "MOVEQ r0, #1"); emit_line(&buf, "MOVNE r0, #0"); break;
-                        case (int)TOK_NE: emit_line(&buf, "ITE NE"); emit_line(&buf, "MOVNE r0, #1"); emit_line(&buf, "MOVEQ r0, #0"); break;
-                        case (int)TOK_LT: emit_line(&buf, "ITE LT"); emit_line(&buf, "MOVLT r0, #1"); emit_line(&buf, "MOVGE r0, #0"); break;
-                        case (int)TOK_GT: emit_line(&buf, "ITE GT"); emit_line(&buf, "MOVGT r0, #1"); emit_line(&buf, "MOVLE r0, #0"); break;
-                        case (int)TOK_LE: emit_line(&buf, "ITE LE"); emit_line(&buf, "MOVLE r0, #1"); emit_line(&buf, "MOVGT r0, #0"); break;
-                        case (int)TOK_GE: emit_line(&buf, "ITE GE"); emit_line(&buf, "MOVGE r0, #1"); emit_line(&buf, "MOVLT r0, #0"); break;
+                        case (int)TOK_EQ: xh_arm_rule(&buf, "text.0332"); xh_arm_rule(&buf, "text.0333"); xh_arm_rule(&buf, "text.0334"); break;
+                        case (int)TOK_NE: xh_arm_rule(&buf, "text.0335"); xh_arm_rule(&buf, "text.0336"); xh_arm_rule(&buf, "text.0337"); break;
+                        case (int)TOK_LT: xh_arm_rule(&buf, "text.0338"); xh_arm_rule(&buf, "text.0339"); xh_arm_rule(&buf, "text.0340"); break;
+                        case (int)TOK_GT: xh_arm_rule(&buf, "text.0341"); xh_arm_rule(&buf, "text.0342"); xh_arm_rule(&buf, "text.0343"); break;
+                        case (int)TOK_LE: xh_arm_rule(&buf, "text.0344"); xh_arm_rule(&buf, "text.0345"); xh_arm_rule(&buf, "text.0346"); break;
+                        case (int)TOK_GE: xh_arm_rule(&buf, "text.0347"); xh_arm_rule(&buf, "text.0348"); xh_arm_rule(&buf, "text.0349"); break;
                         default: break;
                     }
                     emit_push_r0(&buf);
@@ -9035,7 +8921,7 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_pop_r0(&buf);                 /* dst */
                     emit_pop_r1(&buf);                 /* src */
                     emit_mov_imm(&buf, 2, I->val);     /* n bytes */
-                    emit_line(&buf, "BL __aeabi_memcpy");
+                    xh_arm_rule(&buf, "text.0350");
                     break;
                 /* === Bitfield store/load ===
                  * val=bit offset, aux=bit width. mask = (1<<bw)-1. */
@@ -9046,19 +8932,19 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_pop_r0(&buf);                 /* value */
                     emit_pop_r1(&buf);                 /* addr */
                     emit_mov_imm(&buf, 2, (int)mask);  /* r2 = mask */
-                    emit_line(&buf, "AND r0, r2");      /* truncate value to bw bits */
+                    xh_arm_rule(&buf, "text.0320");      /* truncate value to bw bits */
                     if (bit_off > 0) {
-                        asmbuf_puts(&buf, "    LSL r0, r0, #");
+                        xh_arm_rule(&buf, "text.0351");
                         asmbuf_int(&buf, bit_off);
                         asmbuf_putc(&buf, '\n');
-                        asmbuf_puts(&buf, "    LSL r2, r2, #");
+                        xh_arm_rule(&buf, "text.0352");
                         asmbuf_int(&buf, bit_off);
                         asmbuf_putc(&buf, '\n');
                     }
-                    emit_line(&buf, "LDR r3, [r1]");
-                    emit_line(&buf, "BIC r3, r2");      /* clear old bits */
-                    emit_line(&buf, "ORR r3, r0");      /* set new bits */
-                    emit_line(&buf, "STR r3, [r1]");
+                    xh_arm_rule(&buf, "text.0353");
+                    xh_arm_rule(&buf, "text.0354");      /* clear old bits */
+                    xh_arm_rule(&buf, "text.0355");      /* set new bits */
+                    xh_arm_rule(&buf, "text.0356");
                     break;
                 }
                 case IR_LOAD_FLD: {
@@ -9067,9 +8953,9 @@ static char *codegen_arm(IrProgram *prog) {
                     int is_signed = (I->aux & 0x100) != 0;
                     unsigned mask = (bw >= 32) ? 0xFFFFFFFFu : ((1u << bw) - 1u);
                     emit_pop_r0(&buf);                 /* addr */
-                    emit_line(&buf, "LDR r0, [r0]");
+                    xh_arm_rule(&buf, "text.0090");
                     if (bit_off > 0) {
-                        asmbuf_puts(&buf, "    LSR r0, r0, #");
+                        xh_arm_rule(&buf, "text.0009");
                         asmbuf_int(&buf, bit_off);
                         asmbuf_putc(&buf, '\n');
                     }
@@ -9078,15 +8964,15 @@ static char *codegen_arm(IrProgram *prog) {
                          * A 3-bit signed field with value 0x7 should become
                          * 0xFFFFFFFF (-1), not 0x00000007 (7). */
                         int shift = 32 - bw;
-                        asmbuf_puts(&buf, "    LSL r0, r0, #");
+                        xh_arm_rule(&buf, "text.0351");
                         asmbuf_int(&buf, shift);
                         asmbuf_putc(&buf, '\n');
-                        asmbuf_puts(&buf, "    ASR r0, r0, #");
+                        xh_arm_rule(&buf, "text.0357");
                         asmbuf_int(&buf, shift);
                         asmbuf_putc(&buf, '\n');
                     } else {
                         emit_mov_imm(&buf, 2, (int)mask);
-                        emit_line(&buf, "AND r0, r2");      /* truncate to bw bits */
+                        xh_arm_rule(&buf, "text.0320");      /* truncate to bw bits */
                     }
                     emit_push_r0(&buf);
                     break;
@@ -9102,14 +8988,12 @@ static char *codegen_arm(IrProgram *prog) {
                          * is parked on the stack across the real conversion
                          * because BL clobbers r0-r3. */
                         if (rtop_ret) { emit_push_r0(&buf); rtop_ret = 0; }
-                        asmbuf_puts(&buf, "    LDR r1, [sp, #8]\n"
-                                          "    LDR r0, [sp, #12]\n");
-                        emit_line(&buf, "BL __aeabi_d2f");   /* r0 = im32 */
+                        xh_arm_rule(&buf, "text.0358");
+                        xh_arm_rule(&buf, "text.0083");   /* r0 = im32 */
                         emit_push_r0(&buf);
-                        asmbuf_puts(&buf, "    LDR r1, [sp, #4]\n"
-                                          "    LDR r0, [sp, #8]\n");
-                        emit_line(&buf, "BL __aeabi_d2f");   /* r0 = re32 */
-                        asmbuf_puts(&buf, "    POP {r1}\n");      /* r1 = im32 */
+                        xh_arm_rule(&buf, "text.0359");
+                        xh_arm_rule(&buf, "text.0083");   /* r0 = re32 */
+                        xh_arm_rule(&buf, "text.0008");      /* r1 = im32 */
                         emit_epilogue_return(&buf, local_size, f->is_irq,
                                              f->is_naked, 1);
                         break;
@@ -9125,10 +9009,7 @@ static char *codegen_arm(IrProgram *prog) {
                          * The epilogue only restores r5-r7/pc, so r0-r3
                          * survive it. */
                         if (rtop_ret) { emit_push_r0(&buf); rtop_ret = 0; }
-                        asmbuf_puts(&buf, "    LDR r1, [sp, #0]\n"
-                                          "    LDR r0, [sp, #4]\n"
-                                          "    LDR r3, [sp, #8]\n"
-                                          "    LDR r2, [sp, #12]\n");
+                        xh_arm_rule(&buf, "text.0360");
                         emit_epilogue_return(&buf, local_size, f->is_irq,
                                              f->is_naked, 1);
                         break;
@@ -9149,20 +9030,20 @@ static char *codegen_arm(IrProgram *prog) {
                         int w;
                         emit_pop_r1(&buf);  /* r1 = source struct address */
                         /* Load sret pointer into r0 */
-                        asmbuf_puts(&buf, "    LDR r0, [r6, #");
+                        xh_arm_rule(&buf, "text.0087");
                         asmbuf_int(&buf, sret_off);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         /* Copy struct word by word */
                         for (w = 0; w < words; w++) {
-                            asmbuf_puts(&buf, "    LDR r2, [r1, #");
+                            xh_arm_rule(&buf, "text.0361");
                             asmbuf_int(&buf, w * 4);
-                            asmbuf_puts(&buf, "]\n");
-                            asmbuf_puts(&buf, "    STR r2, [r0, #");
+                            xh_arm_rule(&buf, "text.0088");
+                            xh_arm_rule(&buf, "text.0362");
                             asmbuf_int(&buf, w * 4);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                         /* Manual epilogue: skip POP {r0} (r0 already holds sret ptr) */
-                        emit_line(&buf, "MOV sp, r6");
+                        xh_arm_rule(&buf, "frame.restore.sp");
                         /* Same split as the shared epilogue: this manual one
                          * was missed when emit_sp_adjust() was introduced, and
                          * src/lexer.c (frame 4256) then failed to assemble with
@@ -9172,13 +9053,13 @@ static char *codegen_arm(IrProgram *prog) {
                             /* Variadic: drop the pushed argument words after
                              * the saved registers (same shape as the shared
                              * epilogue, same count). */
-                            emit_line(&buf, "POP {r5, r6, r7, lr}");
+                            xh_arm_rule(&buf, "frame.restore.lr");
                             emit_add_sp(&buf, g_va_epilogue_pad);
-                            emit_line(&buf, "BX lr");
+                            xh_arm_rule(&buf, "frame.return");
                         } else if (f->is_irq) {
-                            emit_line(&buf, "POP {r5, r6, r7, pc}");
+                            xh_arm_rule(&buf, "frame.restore.pc");
                         } else {
-                            emit_line(&buf, "POP {r5, r6, r7, pc}");
+                            xh_arm_rule(&buf, "frame.restore.pc");
                         }
                     } else {
                         /* 64-bit integer return value: AAPCS delivers it in
@@ -9209,10 +9090,10 @@ static char *codegen_arm(IrProgram *prog) {
                      * The previously-reported extra PUSH {r0} + ADD sp,#4 does
                      * not exist in the current code; the bug was already fixed. */
                     emit_pop_r0(&buf);                  /* r0 = byte count */
-                    emit_line(&buf, "ADD r0, r0, #7");
-                    emit_line(&buf, "BIC r0, r0, #7");  /* align up to 8 (clear low 3 bits) */
-                    emit_line(&buf, "SUB sp, sp, r0");  /* allocate on stack */
-                    emit_line(&buf, "MOV r0, sp");      /* r0 = start address */
+                    xh_arm_rule(&buf, "text.0363");
+                    xh_arm_rule(&buf, "text.0364");  /* align up to 8 (clear low 3 bits) */
+                    xh_arm_rule(&buf, "text.0365");  /* allocate on stack */
+                    xh_arm_rule(&buf, "text.0366");      /* r0 = start address */
                     emit_push_r0(&buf);                 /* push start address */
                     break;
                 }
@@ -9224,29 +9105,29 @@ static char *codegen_arm(IrProgram *prog) {
                 case IR_SIMD_ADD16:
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    emit_line(&buf, "SADD16 r0, r0, r1");
+                    xh_arm_rule(&buf, "text.0367");
                     emit_push_r0(&buf);
                     break;
                 case IR_SIMD_SUB16:
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    emit_line(&buf, "SSUB16 r0, r0, r1");
+                    xh_arm_rule(&buf, "text.0368");
                     emit_push_r0(&buf);
                     break;
                 case IR_SIMD_ADD8:
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    emit_line(&buf, "SADD8 r0, r0, r1");
+                    xh_arm_rule(&buf, "text.0369");
                     emit_push_r0(&buf);
                     break;
                 case IR_SIMD_SUB8:
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    emit_line(&buf, "SSUB8 r0, r0, r1");
+                    xh_arm_rule(&buf, "text.0370");
                     emit_push_r0(&buf);
                     break;
                 default:
-                    asmbuf_puts(&buf, "    ; unknown ir op ");
+                    xh_arm_rule(&buf, "text.0371");
                     asmbuf_int(&buf, (int)I->op);
                     asmbuf_putc(&buf, '\n');
                     break;
@@ -9254,10 +9135,10 @@ static char *codegen_arm(IrProgram *prog) {
         }
 #if ARKCC_FEATURE_DWARF
         if (dbg) {
-            emit_line(&buf, ".cfi_endproc");
-            asmbuf_puts(&buf, ".size ");
+            xh_arm_rule(&buf, "text.0372");
+            xh_arm_rule(&buf, "text.0373");
             asmbuf_puts(&buf, f->name);
-            asmbuf_puts(&buf, ", .-");
+            xh_arm_rule(&buf, "text.0374");
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
         }
@@ -9314,20 +9195,20 @@ static char *codegen_arm(IrProgram *prog) {
          * the C runtime startup code iterates and calls them before/after main.
          * armcc/MDK uses .init_array (not .ctors), consistent with ARMCC5. */
         if (f->is_constructor && !f->alias_target && (!g_xhcc_elf_mode || g_xhcc_listing_mode)) {
-            asmbuf_puts(&buf, ".section .init_array, \"aw\"\n");
-            asmbuf_puts(&buf, ".align 2\n");
-            asmbuf_puts(&buf, ".word ");
+            xh_arm_rule(&buf, "text.0375");
+            xh_arm_rule(&buf, "text.0376");
+            xh_arm_rule(&buf, "text.0377");
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
-            asmbuf_puts(&buf, ".text\n");
+            xh_arm_rule(&buf, "text.0378");
         }
         if (f->is_destructor && !f->alias_target && (!g_xhcc_elf_mode || g_xhcc_listing_mode)) {
-            asmbuf_puts(&buf, ".section .fini_array, \"aw\"\n");
-            asmbuf_puts(&buf, ".align 2\n");
-            asmbuf_puts(&buf, ".word ");
+            xh_arm_rule(&buf, "text.0379");
+            xh_arm_rule(&buf, "text.0376");
+            xh_arm_rule(&buf, "text.0377");
             asmbuf_puts(&buf, f->name);
             asmbuf_putc(&buf, '\n');
-            asmbuf_puts(&buf, ".text\n");
+            xh_arm_rule(&buf, "text.0378");
         }
     }
 
@@ -9336,10 +9217,10 @@ static char *codegen_arm(IrProgram *prog) {
      * This replaces the need for a separate .data section in Flash and a linker. */
     if (!g_xhcc_elf_mode && (g_data_sram_start != g_data_sram_end || g_bss_sram_start != g_bss_sram_end)) {
         int gi;
-        asmbuf_puts(&buf, ".global __arkcc_init_globals\n");
-        asmbuf_puts(&buf, ".thumb_func\n");
-        asmbuf_puts(&buf, "__arkcc_init_globals:\n");
-        asmbuf_puts(&buf, "    PUSH {lr}\n");
+        xh_arm_rule(&buf, "text.0380");
+        xh_arm_rule(&buf, "text.0381");
+        xh_arm_rule(&buf, "text.0382");
+        xh_arm_rule(&buf, "text.0383");
 
         /* Initialize .data globals with their initial values */
         for (gi = 0; gi < prog->global_count; gi++) {
@@ -9377,25 +9258,25 @@ static char *codegen_arm(IrProgram *prog) {
                     du.d = g->init_float;
                     emit_mov_imm(&buf, 0, (int)du.u[0]);
                     emit_mov_addr32(&buf, 1, addr, addr_in_own_data(addr));
-                    asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0093");
                     emit_mov_imm(&buf, 0, (int)du.u[1]);
-                    asmbuf_puts(&buf, "    STR r0, [r1, #4]\n");
+                    xh_arm_rule(&buf, "text.0384");
                     if (cplx) {
                         du.d = imv;
                         emit_mov_imm(&buf, 0, (int)du.u[0]);
-                        asmbuf_puts(&buf, "    STR r0, [r1, #8]\n");
+                        xh_arm_rule(&buf, "text.0385");
                         emit_mov_imm(&buf, 0, (int)du.u[1]);
-                        asmbuf_puts(&buf, "    STR r0, [r1, #12]\n");
+                        xh_arm_rule(&buf, "text.0386");
                     }
                 } else {
                     fu.f = (float)g->init_float;
                     emit_mov_imm(&buf, 0, (int)fu.u);
                     emit_mov_addr32(&buf, 1, addr, addr_in_own_data(addr));
-                    asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0093");
                     if (cplx) {
                         fu.f = (float)imv;
                         emit_mov_imm(&buf, 0, (int)fu.u);
-                        asmbuf_puts(&buf, "    STR r0, [r1, #4]\n");
+                        xh_arm_rule(&buf, "text.0384");
                     }
                 }
             } else if (g->init_sym) {
@@ -9421,11 +9302,11 @@ static char *codegen_arm(IrProgram *prog) {
                                   g->name, 0,0,0,0,0);
                         continue;
                     }
-                    asmbuf_puts(&buf, "    LDR r0, =");
+                    xh_arm_rule(&buf, "text.0165");
                     asmbuf_puts(&buf, g->init_sym);
                     asmbuf_putc(&buf, '\n');
                     emit_mov_addr32(&buf, 1, addr, addr_in_own_data(addr));
-                    asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0093");
                 } else {
                     unsigned oaddr = gvar_find(g->init_sym);
                     unsigned taddr;
@@ -9446,7 +9327,7 @@ static char *codegen_arm(IrProgram *prog) {
                     taddr = oaddr + (unsigned)g->init_sym_off;
                     emit_mov_addr32(&buf, 0, taddr, addr_in_own_data(taddr));
                     emit_mov_addr32(&buf, 1, addr, addr_in_own_data(addr));
-                    asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0093");
                 }
             } else if (g->init_aggregate) {
                 /* Aggregate initialiser: turn the text into bytes with the
@@ -9485,18 +9366,18 @@ static char *codegen_arm(IrProgram *prog) {
                                     | ((unsigned)bytes[k + 2] << 16)
                                     | ((unsigned)bytes[k + 3] << 24));
                         emit_mov_imm(&buf, 0, w);
-                        asmbuf_puts(&buf, "    STR r0, [r1");
+                        xh_arm_rule(&buf, "text.0387");
                         if (k != 0) {
-                            asmbuf_puts(&buf, ", #");
+                            xh_arm_rule(&buf, "text.0003");
                             asmbuf_int(&buf, k);
                         }
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         k += 4;
                     } else {
                         emit_mov_imm(&buf, 0, (int)bytes[k]);
-                        asmbuf_puts(&buf, "    STRB r0, [r1, #");
+                        xh_arm_rule(&buf, "text.0388");
                         asmbuf_int(&buf, k);
-                        asmbuf_puts(&buf, "]\n");
+                        xh_arm_rule(&buf, "text.0088");
                         k += 1;
                     }
                 }
@@ -9513,7 +9394,7 @@ static char *codegen_arm(IrProgram *prog) {
                         if (r->str) {
                             /* A string literal element: the bytes live in the
                              * pooled .rodata block emitted above. */
-                            asmbuf_puts(&buf, "    LDR r0, =.L_gstr_");
+                            xh_arm_rule(&buf, "text.0389");
                             asmbuf_int(&buf, gi);
                             asmbuf_putc(&buf, '_');
                             asmbuf_int(&buf, r->offset);
@@ -9528,7 +9409,7 @@ static char *codegen_arm(IrProgram *prog) {
                                           g->name, r->sym, 0,0,0,0);
                                 continue;
                             }
-                            asmbuf_puts(&buf, "    LDR r0, =");
+                            xh_arm_rule(&buf, "text.0165");
                             asmbuf_puts(&buf, r->sym);
                             asmbuf_putc(&buf, '\n');
                         } else {
@@ -9551,7 +9432,7 @@ static char *codegen_arm(IrProgram *prog) {
                             unsigned a2 = addr + (unsigned)r->offset;
                             emit_mov_addr32(&buf, 1, a2, addr_in_own_data(a2));
                         }
-                        asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                        xh_arm_rule(&buf, "text.0093");
                     }
                 }
             } else if (g->init_str && g->type && g->type->kind == TYPE_PTR) {
@@ -9559,11 +9440,11 @@ static char *codegen_arm(IrProgram *prog) {
                  * in flash (see the .L_gstr_ block above), the object holds
                  * their address.  Writing the characters into the pointer
                  * was a silent wild pointer. */
-                asmbuf_puts(&buf, "    LDR r0, =.L_gstr_");
+                xh_arm_rule(&buf, "text.0389");
                 asmbuf_int(&buf, gi);
                 asmbuf_putc(&buf, '\n');
                 emit_mov_addr32(&buf, 1, addr, addr_in_own_data(addr));
-                asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                xh_arm_rule(&buf, "text.0093");
             } else if (g->init_str) {
                 /* String initializer for char array.  Every byte of the object
                  * is written, the terminating NUL included.  This used to stop
@@ -9584,11 +9465,11 @@ static char *codegen_arm(IrProgram *prog) {
                                ? (int)(unsigned char)g->init_str[si] : 0;
                         emit_mov_imm(&buf, 0, ch);
                         if (si == 0) {
-                            asmbuf_puts(&buf, "    STRB r0, [r1]\n");
+                            xh_arm_rule(&buf, "text.0390");
                         } else {
-                            asmbuf_puts(&buf, "    STRB r0, [r1, #");
+                            xh_arm_rule(&buf, "text.0388");
                             asmbuf_int(&buf, si);
-                            asmbuf_puts(&buf, "]\n");
+                            xh_arm_rule(&buf, "text.0088");
                         }
                     }
                 } else {
@@ -9600,7 +9481,7 @@ static char *codegen_arm(IrProgram *prog) {
                         emit_mov_imm(&buf, 0, ch);
                         emit_mov_addr32(&buf, 1, addr + (unsigned)si,
                                         addr_in_own_data(addr));
-                        asmbuf_puts(&buf, "    STRB r0, [r1]\n");
+                        xh_arm_rule(&buf, "text.0390");
                     }
                 }
             } else {
@@ -9608,16 +9489,16 @@ static char *codegen_arm(IrProgram *prog) {
                 emit_mov_imm(&buf, 0, (int)g->init_int);
                 emit_mov_addr32(&buf, 1, addr, addr_in_own_data(addr));
                 if (sz == 1) {
-                    asmbuf_puts(&buf, "    STRB r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0390");
                 } else if (sz == 2) {
-                    asmbuf_puts(&buf, "    STRH r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0391");
                 } else if (sz >= 8) {
                     /* 64-bit: store low and high words (high=0 for now) */
-                    asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0093");
                     emit_mov_imm(&buf, 0, (int)(g->init_int >> 32));
-                    asmbuf_puts(&buf, "    STR r0, [r1, #4]\n");
+                    xh_arm_rule(&buf, "text.0384");
                 } else {
-                    asmbuf_puts(&buf, "    STR r0, [r1]\n");
+                    xh_arm_rule(&buf, "text.0093");
                 }
             }
         }
@@ -9626,22 +9507,22 @@ static char *codegen_arm(IrProgram *prog) {
         if (g_bss_sram_start != g_bss_sram_end) {
             emit_mov_addr32(&buf, 0, g_bss_sram_start, 1);
             emit_mov_addr32(&buf, 1, g_bss_sram_end, 1);
-            asmbuf_puts(&buf, "    CMP r0, r1\n");
-            asmbuf_puts(&buf, "    BEQ .L_bss_done\n");
-            asmbuf_puts(&buf, "    MOV r2, #0\n");
-            asmbuf_puts(&buf, ".L_bss_loop:\n");
-            asmbuf_puts(&buf, "    STR r2, [r0]\n");
-            asmbuf_puts(&buf, "    ADD r0, r0, #4\n");
-            asmbuf_puts(&buf, "    CMP r0, r1\n");
-            asmbuf_puts(&buf, "    BNE .L_bss_loop\n");
-            asmbuf_puts(&buf, ".L_bss_done:\n");
+            xh_arm_rule(&buf, "text.0233");
+            xh_arm_rule(&buf, "text.0392");
+            xh_arm_rule(&buf, "text.0238");
+            xh_arm_rule(&buf, "text.0393");
+            xh_arm_rule(&buf, "text.0394");
+            xh_arm_rule(&buf, "text.0395");
+            xh_arm_rule(&buf, "text.0233");
+            xh_arm_rule(&buf, "text.0396");
+            xh_arm_rule(&buf, "text.0397");
         }
 
         /* Bug ROUND4-P3 FIX: Use POP {pc} for return instead of POP {r0}; BX r0.
          * In ARM Thumb mode, POP {pc} automatically sets the Thumb bit from
          * bit 0 of the stored LR (which is always 1 for Thumb code), so this
          * is the standard, more efficient epilogue pattern. */
-        asmbuf_puts(&buf, "    POP {pc}\n\n");
+        xh_arm_rule(&buf, "text.0398");
     }
 
     /* AEABI run-time helpers.
@@ -9686,27 +9567,27 @@ static char *codegen_arm(IrProgram *prog) {
          * the assembler only has to encode 16-bit forms.  Structs in this
          * language are small; a word loop would be faster but would need the
          * unaligned-tail path proven first. */
-        asmbuf_puts(&buf, g_xhcc_elf_mode ? ".weak __aeabi_memcpy\n.thumb_func\n__aeabi_memcpy:\n" : ".global __aeabi_memcpy\n.thumb_func\n__aeabi_memcpy:\n");
-        asmbuf_puts(&buf, "    PUSH {r4}\n");
-        asmbuf_puts(&buf, "    MOV r4, r0\n");
-        asmbuf_puts(&buf, "    CMP r2, #0\n");
-        asmbuf_puts(&buf, "    BEQ .L_arkcc_mcpy_done\n");
-        asmbuf_puts(&buf, ".L_arkcc_mcpy_loop:\n");
-        asmbuf_puts(&buf, "    LDRB r3, [r1]\n");
-        asmbuf_puts(&buf, "    STRB r3, [r4]\n");
-        asmbuf_puts(&buf, "    ADD r4, r4, #1\n");
-        asmbuf_puts(&buf, "    ADD r1, r1, #1\n");
+        xh_arm_rule(&buf,g_xhcc_elf_mode ? "extra.035" : "extra.036");
+        xh_arm_rule(&buf, "text.0297");
+        xh_arm_rule(&buf, "text.0399");
+        xh_arm_rule(&buf, "text.0400");
+        xh_arm_rule(&buf, "text.0401");
+        xh_arm_rule(&buf, "text.0402");
+        xh_arm_rule(&buf, "text.0403");
+        xh_arm_rule(&buf, "text.0404");
+        xh_arm_rule(&buf, "text.0405");
+        xh_arm_rule(&buf, "text.0406");
         /* SUB + CMP, not `SUBS`: the internal assembler takes SUBS only with
          * --asm-extra, and this routine is emitted for every target build.
          * Measured on the board: `cc --pack` refused the whole unit with
          * "unknown mnemonic \"SUBS\"" -- the host gate assembles with GNU as,
          * which takes it, so this only showed up on the target. */
-        asmbuf_puts(&buf, "    SUB r2, r2, #1\n");
-        asmbuf_puts(&buf, "    CMP r2, #0\n");
-        asmbuf_puts(&buf, "    BNE .L_arkcc_mcpy_loop\n");
-        asmbuf_puts(&buf, ".L_arkcc_mcpy_done:\n");
-        asmbuf_puts(&buf, "    POP {r4}\n");
-        asmbuf_puts(&buf, "    BX lr\n\n");
+        xh_arm_rule(&buf, "text.0407");
+        xh_arm_rule(&buf, "text.0400");
+        xh_arm_rule(&buf, "text.0408");
+        xh_arm_rule(&buf, "text.0409");
+        xh_arm_rule(&buf, "text.0310");
+        xh_arm_rule(&buf, "text.0410");
 
 
     }
@@ -9733,13 +9614,13 @@ static char *codegen_arm(IrProgram *prog) {
              * and subsequent LDR/STR [rN] accesses the peripheral register. */
             if (g->has_at) {
                 if (!g->is_static) {
-                    asmbuf_puts(&buf, ".global ");
+                    xh_arm_rule(&buf, "text.0126");
                     asmbuf_puts(&buf, g->name);
                     asmbuf_putc(&buf, '\n');
                 }
-                asmbuf_puts(&buf, ".set ");
+                xh_arm_rule(&buf, "text.0127");
                 asmbuf_puts(&buf, g->name);
-                asmbuf_puts(&buf, ", 0x");
+                xh_arm_rule(&buf, "text.0411");
                 {
                     unsigned a = g->at_addr;
                     char hex[9]; int k;
@@ -9776,9 +9657,9 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
             /* Switch section (only emit section directive if different from current) */
             if (want_custom) {
-                asmbuf_puts(&buf, ".section \"");
+                xh_arm_rule(&buf, "text.0412");
                 asmbuf_puts(&buf, want_custom);
-                asmbuf_puts(&buf, "\"");
+                xh_arm_rule(&buf, "text.0413");
 #if ARKCC_FEATURE_SCATTER
                 /* SCT-1: annotate the section's scatter exec region base so
                  * the resolved layout is visible in the emitted assembly. */
@@ -9788,7 +9669,7 @@ static char *codegen_arm(IrProgram *prog) {
                     if (sect_base) {
                         char hex[9]; int k;
                         const char *hd = "0123456789ABCDEF";
-                        asmbuf_puts(&buf, "  @ base 0x");
+                        xh_arm_rule(&buf, "text.0414");
                         for (k = 7; k >= 0; k--) { hex[k] = hd[sect_base & 0xF]; sect_base >>= 4; }
                         hex[8] = 0;
                         asmbuf_puts(&buf, hex);
@@ -9798,35 +9679,35 @@ static char *codegen_arm(IrProgram *prog) {
                 asmbuf_putc(&buf, '\n');
                 cur_sec = 4;
             } else if (cur_sec != want_sec) {
-                if (want_sec == 1) asmbuf_puts(&buf, ".data\n");
-                else if (want_sec == 2) asmbuf_puts(&buf, ".bss\n");
-                else if (want_sec == 3) asmbuf_puts(&buf, ".section .rodata\n");
+                if (want_sec == 1) xh_arm_rule(&buf, "text.0415");
+                else if (want_sec == 2) xh_arm_rule(&buf, "text.0416");
+                else if (want_sec == 3) xh_arm_rule(&buf, "text.0112");
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
-                else if (want_sec == 5) asmbuf_puts(&buf, ".section .tbss,\"aw\",%nobits\n");
-                else if (want_sec == 6) asmbuf_puts(&buf, ".section .tdata,\"aw\",%progbits\n");
+                else if (want_sec == 5) xh_arm_rule(&buf, "text.0417");
+                else if (want_sec == 6) xh_arm_rule(&buf, "text.0418");
 #endif
                 cur_sec = want_sec;
             }
             /* Symbol attributes + label */
             if (!g->is_static) {
-                asmbuf_puts(&buf, ".global ");
+                xh_arm_rule(&buf, "text.0126");
                 asmbuf_puts(&buf, g->name);
                 asmbuf_putc(&buf, '\n');
             }
             /* Alignment: __align(n) / aligned(n) takes priority; otherwise default 4 bytes */
             if (g->align_bytes > 4) {
-                asmbuf_puts(&buf, ".balign ");
+                xh_arm_rule(&buf, "text.0419");
                 asmbuf_int(&buf, g->align_bytes);
                 asmbuf_putc(&buf, '\n');
             } else {
-                asmbuf_puts(&buf, ".align 4\n");
+                xh_arm_rule(&buf, "text.0420");
             }
             asmbuf_puts(&buf, g->name);
-            asmbuf_puts(&buf, ":\n");
+            xh_arm_rule(&buf, "text.0043");
             /* Data */
             if (!g->has_init || g->init_aggregate) {
                 /* Zero-init or aggregate (initialized at runtime): reserve space */
-                asmbuf_puts(&buf, "    .zero ");
+                xh_arm_rule(&buf, "text.0421");
                 asmbuf_int(&buf, sz);
                 asmbuf_putc(&buf, '\n');
             } else if (g->is_float) {
@@ -9840,7 +9721,7 @@ static char *codegen_arm(IrProgram *prog) {
                 bits = u.u;
                 for (k = 7; k >= 0; k--) { hex[k] = hd[bits & 0xF]; bits >>= 4; }
                 hex[8] = 0;
-                asmbuf_puts(&buf, "    .word 0x");
+                xh_arm_rule(&buf, "text.0422");
                 asmbuf_puts(&buf, hex);
                 asmbuf_putc(&buf, '\n');
             } else if (g->init_str) {
@@ -9851,13 +9732,13 @@ static char *codegen_arm(IrProgram *prog) {
                  * over whatever the next symbol was. */
                 int slen = ark_strlen(g->init_str);
                 int k;
-                asmbuf_puts(&buf, (slen >= sz) ? "    .ascii \"" : "    .asciz \"");
+                xh_arm_rule(&buf,(slen >= sz) ? "extra.037" : "extra.038");
                 for (k = 0; k < slen; k++) {
                     char c = g->init_str[k];
-                    if (c == '\n') asmbuf_puts(&buf, "\\n");
-                    else if (c == '\t') asmbuf_puts(&buf, "\\t");
-                    else if (c == '\\') asmbuf_puts(&buf, "\\\\");
-                    else if (c == '"')  asmbuf_puts(&buf, "\\\"");
+                    if (c == '\n') xh_arm_rule(&buf, "text.0099");
+                    else if (c == '\t') xh_arm_rule(&buf, "text.0100");
+                    else if (c == '\\') xh_arm_rule(&buf, "text.0102");
+                    else if (c == '"')  xh_arm_rule(&buf, "text.0103");
                     else if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7F) {
                         char hb[8]; int hn = 0;
                         const char *hh = "0123456789abcdef";
@@ -9870,27 +9751,27 @@ static char *codegen_arm(IrProgram *prog) {
                         asmbuf_putc(&buf, c);
                     }
                 }
-                asmbuf_puts(&buf, "\"\n");
+                xh_arm_rule(&buf, "text.0111");
                 /* Pad remaining space with zeros (e.g. char[10] = "hi") */
                 if (slen + 1 < sz) {
-                    asmbuf_puts(&buf, "    .zero ");
+                    xh_arm_rule(&buf, "text.0421");
                     asmbuf_int(&buf, sz - (slen + 1));
                     asmbuf_putc(&buf, '\n');
                 }
             } else {
                 /* Scalar initialization */
-                asmbuf_puts(&buf, "    .word ");
+                xh_arm_rule(&buf, "text.0423");
                 asmbuf_int(&buf, g->init_int);
                 asmbuf_putc(&buf, '\n');
                 if (sz > 4) {
-                    asmbuf_puts(&buf, "    .zero ");
+                    xh_arm_rule(&buf, "text.0421");
                     asmbuf_int(&buf, sz - 4);
                     asmbuf_putc(&buf, '\n');
                 }
             }
         }
         /* Restore .text section for later manual appending */
-        asmbuf_puts(&buf, ".text\n\n");
+        xh_arm_rule(&buf, "text.0109");
     }
 #if ARKCC_FEATURE_DWARF_FULL
     /* DWARF debug info (enabled by --dwarf2/--dwarf3):
@@ -9902,72 +9783,72 @@ static char *codegen_arm(IrProgram *prog) {
         int fi2;
         const char *fname = prog->source_file ? prog->source_file : "input.c";
         /* .debug_abbrev: abbreviation table, defines DIE tag/attribute forms */
-        asmbuf_puts(&buf, ".section .debug_abbrev,\"\",%progbits\n");
-        asmbuf_puts(&buf, ".balign 4\n");
-        asmbuf_puts(&buf, "    .byte 1\n");              /* abbrev code 1 */
-        asmbuf_puts(&buf, "    .byte 17\n");             /* DW_TAG_compile_unit */
-        asmbuf_puts(&buf, "    .byte 0\n");              /* DW_CHILDREN_yes */
-        asmbuf_puts(&buf, "    .byte 3\n  .byte 8\n");   /* DW_AT_name, DW_FORM_string */
-        asmbuf_puts(&buf, "    .byte 16\n  .byte 6\n");  /* DW_AT_stmt_list, DW_FORM_data4 */
-        asmbuf_puts(&buf, "    .byte 0\n  .byte 0\n");   /* end attr/end form */
-        asmbuf_puts(&buf, "    .byte 2\n");              /* abbrev code 2 */
-        asmbuf_puts(&buf, "    .byte 46\n");             /* DW_TAG_subprogram */
-        asmbuf_puts(&buf, "    .byte 0\n");              /* DW_CHILDREN_no */
-        asmbuf_puts(&buf, "    .byte 3\n  .byte 8\n");   /* DW_AT_name, DW_FORM_string */
-        asmbuf_puts(&buf, "    .byte 17\n  .byte 1\n");  /* DW_AT_low_pc, DW_FORM_addr */
-        asmbuf_puts(&buf, "    .byte 18\n  .byte 1\n");  /* DW_AT_high_pc, DW_FORM_addr */
-        asmbuf_puts(&buf, "    .byte 0\n  .byte 0\n");   /* end attr/end form */
-        asmbuf_puts(&buf, "    .byte 0\n");              /* end abbrev table */
+        xh_arm_rule(&buf, "text.0424");
+        xh_arm_rule(&buf, "text.0425");
+        xh_arm_rule(&buf, "text.0426");              /* abbrev code 1 */
+        xh_arm_rule(&buf, "text.0427");             /* DW_TAG_compile_unit */
+        xh_arm_rule(&buf, "text.0428");              /* DW_CHILDREN_yes */
+        xh_arm_rule(&buf, "text.0429");   /* DW_AT_name, DW_FORM_string */
+        xh_arm_rule(&buf, "text.0430");  /* DW_AT_stmt_list, DW_FORM_data4 */
+        xh_arm_rule(&buf, "text.0431");   /* end attr/end form */
+        xh_arm_rule(&buf, "text.0432");              /* abbrev code 2 */
+        xh_arm_rule(&buf, "text.0433");             /* DW_TAG_subprogram */
+        xh_arm_rule(&buf, "text.0428");              /* DW_CHILDREN_no */
+        xh_arm_rule(&buf, "text.0429");   /* DW_AT_name, DW_FORM_string */
+        xh_arm_rule(&buf, "text.0434");  /* DW_AT_low_pc, DW_FORM_addr */
+        xh_arm_rule(&buf, "text.0435");  /* DW_AT_high_pc, DW_FORM_addr */
+        xh_arm_rule(&buf, "text.0431");   /* end attr/end form */
+        xh_arm_rule(&buf, "text.0428");              /* end abbrev table */
         /* .debug_info: compilation unit + per-function DIE */
-        asmbuf_puts(&buf, ".section .debug_info,\"\",%progbits\n");
-        asmbuf_puts(&buf, ".balign 4\n");
-        asmbuf_puts(&buf, "    .word 0\n");              /* unit_length (placeholder, simplified) */
-        asmbuf_puts(&buf, "    .half 2\n");              /* DWARF version 2 */
-        asmbuf_puts(&buf, "    .word 0\n");              /* debug_abbrev_offset */
-        asmbuf_puts(&buf, "    .byte 4\n");              /* address_size */
-        asmbuf_puts(&buf, "    .byte 1\n");              /* abbrev 1 = compile_unit */
-        asmbuf_puts(&buf, "    .asciz \"");
+        xh_arm_rule(&buf, "text.0436");
+        xh_arm_rule(&buf, "text.0425");
+        xh_arm_rule(&buf, "text.0437");              /* unit_length (placeholder, simplified) */
+        xh_arm_rule(&buf, "text.0438");              /* DWARF version 2 */
+        xh_arm_rule(&buf, "text.0437");              /* debug_abbrev_offset */
+        xh_arm_rule(&buf, "text.0439");              /* address_size */
+        xh_arm_rule(&buf, "text.0426");              /* abbrev 1 = compile_unit */
+        xh_arm_rule(&buf, "text.0440");
         asmbuf_puts(&buf, fname);
-        asmbuf_puts(&buf, "\"\n");
-        asmbuf_puts(&buf, "    .word 0\n");              /* stmt_list offset */
+        xh_arm_rule(&buf, "text.0111");
+        xh_arm_rule(&buf, "text.0437");              /* stmt_list offset */
         for (fi2 = 0; fi2 < prog->func_count; fi2++) {
             IrFunc *f2 = prog->funcs[fi2];
             if (f2->alias_target) continue;
-            asmbuf_puts(&buf, "    .byte 2\n");          /* abbrev 2 = subprogram */
-            asmbuf_puts(&buf, "    .asciz \"");
+            xh_arm_rule(&buf, "text.0432");          /* abbrev 2 = subprogram */
+            xh_arm_rule(&buf, "text.0440");
             asmbuf_puts(&buf, f2->name);
-            asmbuf_puts(&buf, "\"\n");
-            asmbuf_puts(&buf, "    .word ");
+            xh_arm_rule(&buf, "text.0111");
+            xh_arm_rule(&buf, "text.0423");
             asmbuf_puts(&buf, f2->name);
             asmbuf_putc(&buf, '\n');                     /* low_pc */
-            asmbuf_puts(&buf, "    .word ");
+            xh_arm_rule(&buf, "text.0423");
             asmbuf_puts(&buf, f2->name);
-            asmbuf_puts(&buf, "_end\n");                 /* high_pc */
+            xh_arm_rule(&buf, "text.0441");                 /* high_pc */
         }
-        asmbuf_puts(&buf, "    .byte 0\n");              /* end DIE list */
+        xh_arm_rule(&buf, "text.0428");              /* end DIE list */
         /* .debug_line: line number program (file name table + end entry only) */
-        asmbuf_puts(&buf, ".section .debug_line,\"\",%progbits\n");
-        asmbuf_puts(&buf, ".balign 4\n");
-        asmbuf_puts(&buf, "    .word 0\n");              /* unit_length (placeholder) */
-        asmbuf_puts(&buf, "    .half 2\n");              /* DWARF version 2 */
-        asmbuf_puts(&buf, "    .word 0\n");              /* header_length */
-        asmbuf_puts(&buf, "    .byte 4\n");              /* minimum_instruction_length */
-        asmbuf_puts(&buf, "    .byte 0\n");              /* default_is_stmt */
-        asmbuf_puts(&buf, "    .byte 1\n");              /* line_base */
-        asmbuf_puts(&buf, "    .byte 1\n");              /* line_range */
-        asmbuf_puts(&buf, "    .byte 13\n");             /* opcode_base */
-        asmbuf_puts(&buf, "    .byte 0,1,1,0,1,0,0,1,1,1,1,1\n"); /* standard_opcode_lengths */
-        asmbuf_puts(&buf, "    .asciz \"");
+        xh_arm_rule(&buf, "text.0442");
+        xh_arm_rule(&buf, "text.0425");
+        xh_arm_rule(&buf, "text.0437");              /* unit_length (placeholder) */
+        xh_arm_rule(&buf, "text.0438");              /* DWARF version 2 */
+        xh_arm_rule(&buf, "text.0437");              /* header_length */
+        xh_arm_rule(&buf, "text.0439");              /* minimum_instruction_length */
+        xh_arm_rule(&buf, "text.0428");              /* default_is_stmt */
+        xh_arm_rule(&buf, "text.0426");              /* line_base */
+        xh_arm_rule(&buf, "text.0426");              /* line_range */
+        xh_arm_rule(&buf, "text.0443");             /* opcode_base */
+        xh_arm_rule(&buf, "text.0444"); /* standard_opcode_lengths */
+        xh_arm_rule(&buf, "text.0440");
         asmbuf_puts(&buf, fname);
-        asmbuf_puts(&buf, "\"\n");                       /* include_directories */
-        asmbuf_puts(&buf, "    .byte 0\n");
-        asmbuf_puts(&buf, "    .asciz \"");
+        xh_arm_rule(&buf, "text.0111");                       /* include_directories */
+        xh_arm_rule(&buf, "text.0428");
+        xh_arm_rule(&buf, "text.0440");
         asmbuf_puts(&buf, fname);
-        asmbuf_puts(&buf, "\"\n");                       /* file_names */
-        asmbuf_puts(&buf, "    .byte 0,0,0\n");
-        asmbuf_puts(&buf, "    .byte 0\n");              /* end file table */
-        asmbuf_puts(&buf, "    .byte 0,9,2\n");          /* DW_LNE_end_sequence */
-        asmbuf_puts(&buf, ".text\n");
+        xh_arm_rule(&buf, "text.0111");                       /* file_names */
+        xh_arm_rule(&buf, "text.0445");
+        xh_arm_rule(&buf, "text.0428");              /* end file table */
+        xh_arm_rule(&buf, "text.0446");          /* DW_LNE_end_sequence */
+        xh_arm_rule(&buf, "text.0378");
     }
 #endif
 #if ARKCC_FEATURE_RT_LAZY
@@ -10294,6 +10175,19 @@ static void out16(ArmAsm *a, unsigned v) {
     a->out[a->pc++] = (unsigned char)((v >> 8) & 0xFF);
 }
 
+static unsigned arm_encoding(ArmAsm *a,const char *key,int x,int y,int z,int t,int count){
+    int args[4];unsigned word=0;args[0]=x;args[1]=y;args[2]=z;args[3]=t;
+    if(xh_encoding_encode("arm",key,args,count,&word)){a->hard_errors++;a->error_count++;}
+    return word;
+}
+static void arm_encode16(ArmAsm *a,const char *key,int x,int y,int z,int t,int count){
+    unsigned word=arm_encoding(a,key,x,y,z,t,count);
+    if(word>65535u){a->hard_errors++;a->error_count++;return;}out16(a,word);
+}
+static void arm_encode32(ArmAsm *a,const char *key,int x,int y,int z,int t,int count){
+    unsigned word=arm_encoding(a,key,x,y,z,t,count);out16(a,word>>16);out16(a,word&65535u);
+}
+
 static void add_label_a(ArmAsm *a, const char *name, int addr) {
     if (a->label_count >= a->label_cap) {
         int nc = a->label_cap == 0 ? 32 : a->label_cap * 2;
@@ -10452,7 +10346,7 @@ static void emit_b16_a(ArmAsm *a, int cond, int target) {
                       "internal layout error: shrunk B does not fit its "
                       "16-bit range", 0,0,0,0,0,0);
             a->hard_errors++;
-            out16(a, 0xBF00);
+            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             return;
         }
         out16(a, 0xE000u | (unsigned)((off >> 1) & 0x7FF));
@@ -10462,7 +10356,7 @@ static void emit_b16_a(ArmAsm *a, int cond, int target) {
                       "internal layout error: shrunk Bcc does not fit its "
                       "16-bit range", 0,0,0,0,0,0);
             a->hard_errors++;
-            out16(a, 0xBF00);
+            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             return;
         }
         out16(a, 0xD000u | (unsigned)((cond & 0xF) << 8) |
@@ -10609,19 +10503,12 @@ static int logic_dp_a(ArmAsm *a, const char *op, const char **pp, int emit) {
     int is_orr = strieq_a(op, "ORR");
     int is_eor = strieq_a(op, "EOR");
     int is_mvn = strieq_a(op, "MVN");
-    unsigned base_reg, base_imm;
+    const char *name;char key[32];
     int rd, rn;
 
     /* Encode "Rd = Rn OP imm", the Thumb-2 immediate form. */
     /* (written as a macro-free block below because C89-era style here) */
-    if (is_bic)      { base_reg = 0xEA20u; base_imm = 0xF020u; }
-    else if (is_orr) { base_reg = 0xEA40u; base_imm = 0xF040u; }
-    else if (is_eor) { base_reg = 0xEA80u; base_imm = 0xF080u; }
-    /* MVN Rd, #imm exists as ORN with Rn = 1111 (measured with GAS:
-     * "mvn r0, #1" assembles to f06f 0001), so that form keeps Rn fixed
-     * in the opcode word instead of taking it from the text. */
-    else if (is_mvn) { base_reg = 0xEA6Fu; base_imm = 0xF06Fu; }
-    else             { base_reg = 0xEA00u; base_imm = 0xF000u; }  /* AND */
+    name=is_bic?"BIC":is_orr?"ORR":is_eor?"EOR":is_mvn?"MVN":"AND";
 
     rd = parse_reg_a(&p);
     eat_comma_a(&p);
@@ -10635,16 +10522,15 @@ static int logic_dp_a(ArmAsm *a, const char *op, const char **pp, int emit) {
                           "%sq immediate %s cannot be encoded as a modified "
                           "immediate", op, diag_num(b1, imm), 0,0,0,0);
                 a->hard_errors++;
-                out16(a, 0xBF00);
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
             *pp = p;
             return 4;
         }
         if (emit) {
-            unsigned rnw = is_mvn ? 0xFu : (unsigned)(rd & 0xF);
-            out16(a, base_imm | ((i & 1) << 10) | rnw);
-            out16(a, ((imm3 & 7) << 12) | ((unsigned)(rd & 0xF) << 8) | imm8);
+            snprintf(key,sizeof key,"%s_IMM_W",name);
+            arm_encode32(a,key,rd,is_mvn?15:rd,(int)((i<<11)|(imm3<<8)|imm8),0,3);
         }
         *pp = p;
         return 4;
@@ -10665,24 +10551,22 @@ static int logic_dp_a(ArmAsm *a, const char *op, const char **pp, int emit) {
                               "modified immediate", op, diag_num(b1, imm),
                               0,0,0,0);
                     a->hard_errors++;
-                    out16(a, 0xBF00);
-                    out16(a, 0xBF00);
+                    arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                    arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                 }
                 *pp = p;
                 return 4;
             }
             if (emit) {
-                unsigned rnw = is_mvn ? 0xFu : (unsigned)(rn & 0xF);
-                out16(a, base_imm | ((i & 1) << 10) | rnw);
-                out16(a, ((imm3 & 7) << 12) | ((unsigned)(rd & 0xF) << 8) | imm8);
+            snprintf(key,sizeof key,"%s_IMM_W",name);
+            arm_encode32(a,key,rd,is_mvn?15:rn,(int)((i<<11)|(imm3<<8)|imm8),0,3);
             }
             *pp = p;
             return 4;
         }
         rm = parse_reg_a(&p);
         if (emit && rd >= 0 && rn >= 0 && rm >= 0) {
-            out16(a, is_mvn ? 0xEA6Fu : (base_reg | (unsigned)(rn & 0xF)));
-            out16(a, ((unsigned)(rd & 0xF) << 8) | (unsigned)(rm & 0xF));
+        snprintf(key,sizeof key,"%s_REG_W",name);arm_encode32(a,key,rd,is_mvn?15:rn,rm,0,3);
         }
         *pp = p;
         return 4;
@@ -10690,17 +10574,14 @@ static int logic_dp_a(ArmAsm *a, const char *op, const char **pp, int emit) {
     /* Two operands: the 16-bit form only knows low registers. */
     if (rd >= 0 && rd <= 7 && rn >= 0 && rn <= 7) {
         if (emit) {
-            unsigned short16 = is_bic ? 0x4380u : is_orr ? 0x4300u :
-                               is_eor ? 0x4040u : is_mvn ? 0x43C0u : 0x4000u;
-            out16(a, short16 | ((unsigned)(rn & 7) << 3) | (unsigned)(rd & 7));
+            snprintf(key,sizeof key,"%s_REG_T1",name);arm_encode16(a,key,rd,rn,0,0,2);
         }
         *pp = p;
         return 2;
     }
     /* Two operands with a high register: Thumb-2, Rn = Rd. */
     if (emit && rd >= 0 && rn >= 0) {
-        out16(a, is_mvn ? 0xEA6Fu : (base_reg | (unsigned)(rd & 0xF)));
-        out16(a, ((unsigned)(rd & 0xF) << 8) | (unsigned)(rn & 0xF));
+        snprintf(key,sizeof key,"%s_REG_W",name);arm_encode32(a,key,rd,is_mvn?15:rd,rn,0,3);
     }
     *pp = p;
     return 4;
@@ -10885,30 +10766,8 @@ static int ldr_str_size2_a(int kind, int rt, const ArmMemOp *m) {
 
 static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
                            const ArmMemOp *m) {
-    /* 16-bit T1 bases: [kind][0] = store, [kind][1] = load. */
-    static const unsigned t1_imm[5][2] = {
-        {0x6000u, 0x6800u},   /* STR   / LDR  */
-        {0x7000u, 0x7800u},   /* STRB  / LDRB */
-        {0x8000u, 0x8800u},   /* STRH  / LDRH */
-        {0x0000u, 0x0000u},   /* LDRSB: no 16-bit immediate form */
-        {0x0000u, 0x0000u}    /* LDRSH: same */
-    };
-    static const unsigned t1_reg[5][2] = {
-        {0x5000u, 0x5800u},   /* STR   / LDR  */
-        {0x5400u, 0x5C00u},   /* STRB  / LDRB */
-        {0x5200u, 0x5A00u},   /* STRH  / LDRH */
-        {0x0000u, 0x5600u},   /* LDRSB (load only) */
-        {0x0000u, 0x5E00u}    /* LDRSH (load only) */
-    };
-    static const unsigned t3[5][2] = {          /* 32-bit immediate form */
-        {0xF8C0u, 0xF8D0u},   /* STR.W   / LDR.W  */
-        {0xF880u, 0xF890u},   /* STRB.W  / LDRB.W */
-        {0xF8A0u, 0xF8B0u},   /* STRH.W  / LDRH.W */
-        {0x0000u, 0xF990u},   /* LDRSB.W */
-        {0x0000u, 0xF9B0u}    /* LDRSH.W */
-    };
-    int sz;
-    unsigned base;
+    int sz;char key[32];const char *op;
+    static const char *names[5][2]={{"STR","LDR"},{"STRB","LDRB"},{"STRH","LDRH"},{"invalid","LDRSB"},{"invalid","LDRSH"}};
 
     if (!is_load && (kind == 3 || kind == 4)) {
         diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -10950,32 +10809,27 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
         sz = ldr_str_size2_a(kind, rt, &mm);
         m = &mm;
     }
-    base = t3[kind][is_load ? 1 : 0];
+    op=names[kind][is_load?1:0];
 
     if (sz == 2) {
         if (m->rm < 0 && m->rn == 13) {
             /* SP-relative T1: 1001 L imm8 | Rt | imm8/4 (word only). */
-            out16(a, (is_load ? 0x9800u : 0x9000u) |
-                      ((unsigned)(rt & 7) << 8) | (unsigned)((m->imm >> 2) & 0xFF));
+            arm_encode16(a,is_load?"LDR_SP":"STR_SP",rt,(m->imm>>2)&255,0,0,2);
             return;
         }
         if (m->rm < 0 && m->rn == 15) {
             /* PC-relative literal load, 01001 Rt imm8 (loads only). */
-            out16(a, 0x4800u | ((unsigned)(rt & 7) << 8) |
-                      (unsigned)((m->imm >> 2) & 0xFF));
+            arm_encode16(a,"LDR_PC",rt,(m->imm>>2)&255,0,0,2);
             return;
         }
         if (m->rm >= 0) {
-            out16(a, t1_reg[kind][is_load ? 1 : 0] |
-                      ((unsigned)(m->rm & 7) << 6) |
-                      ((unsigned)(m->rn & 7) << 3) | (unsigned)(rt & 7));
+            snprintf(key,sizeof key,"%s_REG16",op);arm_encode16(a,key,rt,m->rn,m->rm,0,3);
         } else {
             unsigned imm5;
             if (kind == 1)      imm5 = (unsigned)(m->imm & 0x1F);
             else if (kind == 2) imm5 = (unsigned)((m->imm >> 1) & 0x1F);
             else                imm5 = (unsigned)((m->imm >> 2) & 0x1F);
-            out16(a, t1_imm[kind][is_load ? 1 : 0] | (imm5 << 6) |
-                      ((unsigned)(m->rn & 7) << 3) | (unsigned)(rt & 7));
+            snprintf(key,sizeof key,"%s_IMM16",op);arm_encode16(a,key,rt,m->rn,(int)imm5,0,3);
         }
         return;
     }
@@ -10983,9 +10837,7 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
     /* 32-bit forms. */
     if (m->rm >= 0) {
         /* Register offset: same header as the writeback form. */
-        out16(a, (base & ~0x80u) | (unsigned)(m->rn & 0xF));
-        out16(a, ((unsigned)(rt & 0xF) << 12) |
-                 ((unsigned)(m->shift & 3) << 4) | (unsigned)(m->rm & 0xF));
+        snprintf(key,sizeof key,"%s_REG32",op);arm_encode32(a,key,rt,m->rn,m->rm,m->shift&3,4);
         return;
     }
     if (m->wb) {
@@ -10998,10 +10850,7 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
             a->hard_errors++;
             mag = 0;
         }
-        out16(a, (base & ~0x80u) | (unsigned)(m->rn & 0xF));
-        out16(a, ((unsigned)(rt & 0xF) << 12) | 0x800u |
-                 (unsigned)(pre ? 0x400 : 0) | (unsigned)(neg ? 0 : 0x200) |
-                 0x100u | (unsigned)mag);
+        snprintf(key,sizeof key,"%s_WB32",op);arm_encode32(a,key,rt,m->rn,mag,(pre?2:0)|(neg?0:1),4);
         return;
     }
     if (m->imm >= 0) {
@@ -11013,8 +10862,7 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
             a->hard_errors++;
             off = 0;
         }
-        out16(a, base | (unsigned)(m->rn & 0xF));
-        out16(a, ((unsigned)(rt & 0xF) << 12) | (unsigned)(off & 0xFFF));
+        snprintf(key,sizeof key,"%s_IMM32",op);arm_encode32(a,key,rt,m->rn,off,0,3);
         return;
     }
     {
@@ -11025,8 +10873,7 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
             a->hard_errors++;
             mag = 0;
         }
-        out16(a, (base & ~0x80u) | (unsigned)(m->rn & 0xF));
-        out16(a, ((unsigned)(rt & 0xF) << 12) | 0x800u | 0x400u | (unsigned)mag);
+        snprintf(key,sizeof key,"%s_NEG32",op);arm_encode32(a,key,rt,m->rn,mag,0,3);
     }
 }
 
@@ -11716,33 +11563,13 @@ static int thumb_imm12_a(unsigned val, unsigned *out_i, unsigned *out_imm3,
  * take: the T3 form takes a *modified* immediate (an 8-bit value rotated by an
  * even amount), so writing a raw 12-bit value into its i:imm3:imm8 fields
  * encodes a different number -- "SUB sp,#2016" used to come out as 480. */
-static void emit_addw_a(ArmAsm *a, int is_sub, int rd, int rn, int imm) {
-    unsigned i = ((unsigned)imm >> 11) & 1;
-    unsigned imm3 = ((unsigned)imm >> 8) & 7;
-    unsigned imm8 = (unsigned)imm & 0xFF;
-    out16(a, (unsigned)(is_sub ? 0xF2A0 : 0xF200) | (i << 10) | (unsigned)(rn & 0xF));
-    out16(a, (imm3 << 12) | ((unsigned)(rd & 0xF) << 8) | imm8);
+static void emit_addw_a(ArmAsm *a,int is_sub,int rd,int rn,int imm){
+    arm_encode32(a,is_sub?"SUBW":"ADDW",rd,rn,imm,0,3);
 }
-
-/* ADD/SUB (register) T2: the 32-bit form, where every operand may be any of
- * r0-r15 (SP included).  The 16-bit T1 form only names r0-r7 and silently masks
- * the rest: "ADD ip, r6, ip" came out as "adds r4, r6, r4", and a base address
- * became a write into nothing.  Measured with arm-none-eabi-as:
- *   add.w ip, r6, ip = eb06 0c0c    sub.w sp, sp, r7 = ebad 0d07 */
-static void emit_addsub_reg_w_a(ArmAsm *a, int is_sub, int rd, int rn, int rm) {
-    out16(a, (unsigned)(is_sub ? 0xEBA0 : 0xEB00) | (unsigned)(rn & 0xF));
-    out16(a, ((unsigned)(rd & 0xF) << 8) | (unsigned)(rm & 0xF));
+static void emit_addsub_reg_w_a(ArmAsm *a,int is_sub,int rd,int rn,int rm){
+    arm_encode32(a,is_sub?"SUB_W_REG":"ADD_W_REG",rd,rn,rm,0,3);
 }
-
-/* MOVW: a plain 16-bit immediate into any register. */
-static void emit_movw_a(ArmAsm *a, int rd, int imm) {
-    unsigned ii = ((unsigned)imm >> 11) & 1;
-    unsigned imm4 = ((unsigned)imm >> 12) & 0xF;
-    unsigned imm3 = ((unsigned)imm >> 8) & 7;
-    unsigned imm8 = (unsigned)imm & 0xFF;
-    out16(a, 0xF240u | (ii << 10) | imm4);
-    out16(a, (imm3 << 12) | ((unsigned)(rd & 0xF) << 8) | imm8);
-}
+static void emit_movw_a(ArmAsm *a,int rd,int imm){arm_encode32(a,"MOVW",rd,imm & 65535,0,0,2);}
 
 #if ARKCC_FEATURE_ASM_VFP_LDSTM
 /* --------------------- VFP multi-register load/store ---------------------
@@ -11870,7 +11697,7 @@ static void emit_vfp_ldstm_a(ArmAsm *a, int is_load, int is_db, int wb, int rn,
         diag_tool(DIAG_SEV_ERROR, "arkcc",
                   "VLDM/VSTM needs a base register and a register list", 0,0,0,0,0,0);
         a->hard_errors++;
-        out16(a, 0xBF00); out16(a, 0xBF00);
+        arm_encode16(a,"FIXED_BF00",0,0,0,0,0); arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
         return;
     }
     if (l->is_double) {
@@ -12150,15 +11977,14 @@ static void pass2_a(ArmAsm *a) {
                 if ((list & (list - 1)) == 0 && !has_lr) {
                     int rt = 0;
                     while (rt < 16 && !(list & (1 << rt))) rt++;
-                    out16(a, 0xF84D);
-                    out16(a, ((unsigned)(rt & 0xF) << 12) | 0x0D00u | 4u);
+                    arm_encode32(a,"PUSH_HIGH_SINGLE",rt,0,0,0,1);
                 } else {
                     /* T2 STMDB SP!: can encode r0-r12 + lr */
                     unsigned w2 = (unsigned)(has_lr ? 0x4000 : 0) | (unsigned)(list & 0x1FFF);
-                    out16(a, 0xE92D); out16(a, w2);
+                    arm_encode32(a,"PUSH_W",(int)w2,0,0,0,1);
                 }
             } else {
-                out16(a, 0xB400 | (has_lr ? 0x0100 : 0) | (list & 0xFF));
+                arm_encode16(a,"PUSH",list & 255,has_lr,0,0,2);
             }
         }
         else if (strieq_a(first, "POP")) {
@@ -12184,17 +12010,16 @@ static void pass2_a(ArmAsm *a) {
                 if ((list & (list - 1)) == 0 && !has_pc && !has_lr) {
                     int rt = 0;
                     while (rt < 16 && !(list & (1 << rt))) rt++;
-                    out16(a, 0xF85D);
-                    out16(a, ((unsigned)(rt & 0xF) << 12) | 0x0B00u | 4u);
+                    arm_encode32(a,"POP_HIGH_SINGLE",rt,0,0,0,1);
                 } else {
                     /* T2 LDMIA SP!: can encode r0-r12 + lr or pc */
                     unsigned w2 = (unsigned)(has_pc ? 0x8000 : 0) |
                                   (unsigned)(has_lr ? 0x4000 : 0) |
                                   (unsigned)(list & 0x1FFF);
-                    out16(a, 0xE8BD); out16(a, w2);
+                    arm_encode32(a,"POP_W",(int)w2,0,0,0,1);
                 }
             } else {
-                out16(a, 0xBC00 | (has_pc ? 0x0100 : 0) | (list & 0xFF));
+                arm_encode16(a,"POP",list & 255,has_pc,0,0,2);
             }
         }
         else if (strieq_a(first, "MOV")) {
@@ -12203,7 +12028,7 @@ static void pass2_a(ArmAsm *a) {
             if (*p == '#') {
                 int imm = parse_imm_a(&p);
                 if (rd >= 0 && rd <= 7 && imm >= 0 && imm <= 255) {
-                    out16(a, 0x2000 | ((rd & 7) << 8) | imm);  /* MOVS rd, #imm8 */
+                    arm_encode16(a,"MOV_IMM",rd,imm & 255,0,0,2);  /* MOVS rd, #imm8 */
                 } else if (rd >= 0 && imm >= 0 && imm <= 0xFFFF) {
                     /* 16-bit MOVS cannot name r8-r15 and its imm8 would turn
                      * "MOV r0, #300" into 44.  MOVW carries the whole value
@@ -12219,7 +12044,7 @@ static void pass2_a(ArmAsm *a) {
                 }
             } else {
                 int rm = parse_reg_a(&p);
-                out16(a, 0x4600 | (((rd >> 3) & 1) << 7) | ((rm & 0xF) << 3) | (rd & 7));
+                arm_encode16(a,"MOV_REG",rd,rm,0,0,2);
             }
         }
         else if (strieq_a(first, "MOVEQ") || strieq_a(first, "MOVNE") ||
@@ -12238,44 +12063,19 @@ static void pass2_a(ArmAsm *a) {
                 int imm = parse_imm_a(&p);
                 /* 32-bit T2 MOV.W: 1111 0 i 0 0010 0 S 1111 | 0 imm3 Rd imm8
                  * For imm 0-255: i=0, imm3=0, S=0, Rn=1111 (MOV alias) */
-                unsigned hi = 0xF04Fu;
-                unsigned lo = ((unsigned)(rd & 0xF) << 8) | (unsigned)(imm & 0xFF);
-                out16(a, hi);
-                out16(a, lo);
+                arm_encode32(a,"MOV_COND_IMM",rd,imm&255,0,0,2);
             } else {
                 int rm = parse_reg_a(&p);
-                out16(a, 0x4600 | (((rd >> 3) & 1) << 7) | ((rm & 0xF) << 3) | (rd & 7));
+                arm_encode16(a,"MOV_REG",rd,rm,0,0,2);
             }
         }
         else if (strieq_a(first, "MOVW")) {
-            int rd = parse_reg_a(&p);
-            int imm;
-            eat_comma_a(&p);
-            imm = parse_imm_a(&p) & 0xFFFF;
-            {
-                unsigned ii = (imm >> 11) & 1;
-                unsigned imm4 = (imm >> 12) & 0xF;
-                unsigned imm3 = (imm >> 8) & 0x7;
-                unsigned imm8 = imm & 0xFF;
-                unsigned hi = 0xF240u | (ii << 10) | imm4;
-                unsigned lo = (imm3 << 12) | ((rd & 0xF) << 8) | imm8;
-                out16(a, hi); out16(a, lo);
-            }
+            int rd=parse_reg_a(&p),imm;eat_comma_a(&p);imm=parse_imm_a(&p)&65535;
+            arm_encode32(a,"MOVW",rd,imm,0,0,2);
         }
         else if (strieq_a(first, "MOVT")) {
-            int rd = parse_reg_a(&p);
-            int imm;
-            eat_comma_a(&p);
-            imm = parse_imm_a(&p) & 0xFFFF;
-            {
-                unsigned ii = (imm >> 11) & 1;
-                unsigned imm4 = (imm >> 12) & 0xF;
-                unsigned imm3 = (imm >> 8) & 0x7;
-                unsigned imm8 = imm & 0xFF;
-                unsigned hi = 0xF2C0u | (ii << 10) | imm4;
-                unsigned lo = (imm3 << 12) | ((rd & 0xF) << 8) | imm8;
-                out16(a, hi); out16(a, lo);
-            }
+            int rd=parse_reg_a(&p),imm;eat_comma_a(&p);imm=parse_imm_a(&p)&65535;
+            arm_encode32(a,"MOVT",rd,imm,0,0,2);
         }
         else if (strieq_a(first, "VLDMIA") || strieq_a(first, "VLDM") ||
                  strieq_a(first, "VLDMDB") || strieq_a(first, "VSTMIA") ||
@@ -12289,7 +12089,7 @@ static void pass2_a(ArmAsm *a) {
                       "VFP multi-register load/store is not compiled into this "
                       "build (ARKCC_FEATURE_ASM_VFP_LDSTM=0)", 0,0,0,0,0,0);
             a->hard_errors++;
-            out16(a, 0xBF00); out16(a, 0xBF00);
+            arm_encode16(a,"FIXED_BF00",0,0,0,0,0); arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
 #else
             int is_load, is_db = 0, wb = 0, rn;
             ArmVfpList vl;
@@ -12343,11 +12143,11 @@ static void pass2_a(ArmAsm *a) {
                 int imm = parse_imm_a(&p);
                 if (rn < 0) rn = rd;      /* "ADD r0, #5" == "ADD r0, r0, #5" */
                 if (rd == 13 && rn == 13 && imm >= 0 && imm <= 508 && (imm & 3) == 0)
-                    out16(a, 0xB000 | (imm >> 2));            /* ADD sp, #imm7*4 */
+                    arm_encode16(a,"ADD_SP",imm >> 2,0,0,0,1);            /* ADD sp, #imm7*4 */
                 else if (rd == rn && rd >= 0 && rd <= 7 && imm >= 0 && imm <= 255)
-                    out16(a, 0x3000 | ((rd & 7) << 8) | imm);  /* ADDS rdn, #imm8 */
+                    arm_encode16(a,"ADD_IMM8",rd,imm & 255,0,0,2);  /* ADDS rdn, #imm8 */
                 else if (imm >= 0 && imm <= 7 && rd >= 0 && rd <= 7 && rn >= 0 && rn <= 7)
-                    out16(a, 0x1C00 | ((imm & 7) << 6) | ((rn & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"ADD_IMM3",rd,rn,imm,0,3);
                 else if (rd >= 0 && rn >= 0 && imm >= 0 && imm <= 4095)
                     emit_addw_a(a, 0, rd, rn, imm);       /* ADDW, plain imm12 */
                 else {
@@ -12374,7 +12174,7 @@ static void pass2_a(ArmAsm *a) {
                         /* T1 -- note it sets the flags, which is exactly what
                          * the 64-bit helpers' "ADD low / ADC high" pair wants,
                          * and what this encoder has always done. */
-                        out16(a, 0x1800 | ((rm & 7) << 6) | ((rn & 7) << 3) | (rd & 7));
+                        arm_encode16(a,"ADD_REG3",rd,rn,rm,0,3);
                     } else {
                         /* T2: any registers, no flags.  The T1 path used to mask
                          * the operands with &7 here and silently add the wrong
@@ -12384,14 +12184,14 @@ static void pass2_a(ArmAsm *a) {
                 } else if (rm < 0 && rd >= 0 && rn >= 0) {
                     /* ADD (register) T2: 0100 0100 D Rm Rdn -- Rd = Rd + Rm,
                      * and unlike T1 it accepts the high registers r8-r15. */
-                    out16(a, 0x4400 | (((rd >> 3) & 1) << 7) | ((rn & 0xF) << 3) | (rd & 7));
+                    arm_encode16(a,"ADD_HIGH",rd,rn,0,0,2);
                 } else {
                     char b1[12];
                     diag_tool(DIAG_SEV_ERROR, "arkcc",
                               "ADD needs a register or immediate operand at code offset %s",
                               diag_num(b1, a->pc), 0, 0, 0, 0, 0);
                     a->hard_errors++;
-                    out16(a, 0xBF00);
+                    arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                 }
             }
         }
@@ -12404,11 +12204,11 @@ static void pass2_a(ArmAsm *a) {
                 int imm = parse_imm_a(&p);
                 if (rn < 0) rn = rd;      /* "SUB sp, #12" == "SUB sp, sp, #12" */
                 if (rd == 13 && rn == 13 && imm >= 0 && imm <= 508 && (imm & 3) == 0)
-                    out16(a, 0xB080 | (imm >> 2));            /* SUB sp, #imm7*4 */
+                    arm_encode16(a,"SUB_SP",imm >> 2,0,0,0,1);            /* SUB sp, #imm7*4 */
                 else if (rd == rn && rd >= 0 && rd <= 7 && imm >= 0 && imm <= 255)
-                    out16(a, 0x3800 | ((rd & 7) << 8) | imm);  /* SUBS rdn, #imm8 */
+                    arm_encode16(a,"SUB_IMM8",rd,imm & 255,0,0,2);  /* SUBS rdn, #imm8 */
                 else if (imm >= 0 && imm <= 7 && rd >= 0 && rd <= 7 && rn >= 0 && rn <= 7)
-                    out16(a, 0x1E00 | ((imm & 7) << 6) | ((rn & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"SUB_IMM3",rd,rn,imm,0,3);
                 else if (rd >= 0 && rn >= 0 && imm >= 0 && imm <= 4095)
                     emit_addw_a(a, 1, rd, rn, imm);       /* SUBW, plain imm12 */
                 else {
@@ -12427,13 +12227,13 @@ static void pass2_a(ArmAsm *a) {
                 int rm = parse_reg_a(&p);
                 if (rd >= 0 && rn >= 0 && rm >= 0) {
                     if (rd <= 7 && rn <= 7 && rm <= 7) {
-                        out16(a, 0x1A00 | ((rm & 7) << 6) | ((rn & 7) << 3) | (rd & 7));
+                        arm_encode16(a,"SUB_REG3",rd,rn,rm,0,3);
                     } else {
                         emit_addsub_reg_w_a(a, 1, rd, rn, rm);
                     }
                 } else if (rm < 0 && rd >= 0 && rd <= 7 && rn >= 0 && rn <= 7) {
                     /* SUB Rdn, Rm is SUB Rdn, Rdn, Rm */
-                    out16(a, 0x1A00 | ((rn & 7) << 6) | ((rd & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"SUB_REG3",rd,rd,rn,0,3);
                 } else if (rm < 0 && rd >= 0 && rn >= 0) {
                     /* high registers: no 16-bit two-operand SUB exists */
                     emit_addsub_reg_w_a(a, 1, rd, rd, rn);
@@ -12443,7 +12243,7 @@ static void pass2_a(ArmAsm *a) {
                               "two-operand SUB needs low registers at code offset %s",
                               diag_num(b1, a->pc), 0, 0, 0, 0, 0);
                     a->hard_errors++;
-                    out16(a, 0xBF00);
+                    arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                 }
             }
         }
@@ -12473,7 +12273,7 @@ static void pass2_a(ArmAsm *a) {
                 }
                 a->hard_errors++;
             }
-            out16(a, 0x4340 | ((rm & 7) << 3) | (rd & 7));
+            arm_encode16(a,"MUL",rd,rm,0,0,2);
         }
         else if (strieq_a(first, "ADC") || strieq_a(first, "SBC")) {
             /* Carry-propagating add/subtract.  16-bit Thumb only has the
@@ -12516,7 +12316,7 @@ static void pass2_a(ArmAsm *a) {
                 rm = rn;                  /* keep the encoding meaningful */
             }
             if (rd >= 0 && rm >= 0) {
-                out16(a, (is_sbc ? 0x4180 : 0x4140) | ((rm & 7) << 3) | (rd & 7));
+                arm_encode16(a,is_sbc?"SBC":"ADC",rd,rm,0,0,2);
             } else {
                 if (a->pass2) {
                     char b1[12];
@@ -12526,7 +12326,7 @@ static void pass2_a(ArmAsm *a) {
                               diag_num(b1, a->pc), 0,0,0,0,0);
                     a->hard_errors++;
                 }
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
         }
         else if (strieq_a(first, "UMULL")) {
@@ -12536,8 +12336,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p); rdhi = parse_reg_a(&p);
             eat_comma_a(&p); rn = parse_reg_a(&p);
             eat_comma_a(&p); rm = parse_reg_a(&p);
-            out16(a, 0xFBA0 | (rn & 0xF));
-            out16(a, ((rdlo & 0xF) << 12) | ((rdhi & 0xF) << 8) | (rm & 0xF));
+            arm_encode32(a,"UMULL",rdlo,rdhi,rn,rm,4);
         }
         else if (strieq_a(first, "SDIV") || strieq_a(first, "UDIV")) {
             int rd = parse_reg_a(&p);
@@ -12547,9 +12346,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
             {
-                unsigned op = strieq_a(first, "SDIV") ? 0xFB90u : 0xFBB0u;
-                out16(a, op | (rn & 0xF));
-                out16(a, 0xF0F0u | ((rd & 0xF) << 8) | (rm & 0xF));
+                arm_encode32(a,strieq_a(first,"SDIV")?"SDIV":"UDIV",rd,rn,rm,0,3);
             }
         }
         else if (strieq_a(first, "AND") || strieq_a(first, "ORR") ||
@@ -12566,14 +12363,14 @@ static void pass2_a(ArmAsm *a) {
                 p++; skip_space_a(&p);
                 if (*p == '#') {
                     int imm = parse_imm_a(&p) & 0x1F;
-                    out16(a, (unsigned)(imm << 6) | ((rm & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"LSL_IMM",rd,rm,imm,0,3);
                 } else {
                     int rm2 = parse_reg_a(&p);
-                    out16(a, 0x4080 | ((rm2 & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"LSL_REG",rd,rm2,0,0,2);
                 }
             } else {
                 /* LSL rd, rm (T1 register shift) */
-                out16(a, 0x4080 | ((rm & 7) << 3) | (rd & 7));
+                arm_encode16(a,"LSL_REG",rd,rm,0,0,2);
             }
         }
         else if (strieq_a(first, "LSR")) {
@@ -12586,14 +12383,14 @@ static void pass2_a(ArmAsm *a) {
                 if (*p == '#') {
                     int imm = parse_imm_a(&p);
                     int imm5 = (imm >= 32) ? 0 : (imm & 0x1F);
-                    out16(a, 0x0800 | (unsigned)(imm5 << 6) | ((rm & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"LSR_IMM",rd,rm,imm5,0,3);
                 } else {
                     int rm2 = parse_reg_a(&p);
-                    out16(a, 0x40C0 | ((rm2 & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"LSR_REG",rd,rm2,0,0,2);
                 }
             } else {
                 /* LSR rd, rm (T1 register shift) */
-                out16(a, 0x40C0 | ((rm & 7) << 3) | (rd & 7));
+                arm_encode16(a,"LSR_REG",rd,rm,0,0,2);
             }
         }
         else if (strieq_a(first, "ASR")) {
@@ -12607,14 +12404,14 @@ static void pass2_a(ArmAsm *a) {
                 if (*p == '#') {
                     int imm = parse_imm_a(&p);
                     int imm5 = (imm >= 32) ? 0 : (imm & 0x1F);
-                    out16(a, 0x1000 | (unsigned)(imm5 << 6) | ((rm & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"ASR_IMM",rd,rm,imm5,0,3);
                 } else {
                     int rm2 = parse_reg_a(&p);
-                    out16(a, 0x4100 | ((rm2 & 7) << 3) | (rd & 7));
+                    arm_encode16(a,"ASR_REG",rd,rm2,0,0,2);
                 }
             } else {
                 /* ASR rd, rm (T1 register shift) */
-                out16(a, 0x4100 | ((rm & 7) << 3) | (rd & 7));
+                arm_encode16(a,"ASR_REG",rd,rm,0,0,2);
             }
         }
         else if (strieq_a(first, "MRS") || strieq_a(first, "MSR")) {
@@ -12660,7 +12457,7 @@ static void pass2_a(ArmAsm *a) {
                 sysm = 16;
             }
             if (is_mrs) {
-                out16(a, 0xF3EFu);
+                arm_encode16(a,"FIXED_F3EF",0,0,0,0,0);
                 out16(a, 0x8000u | (unsigned)((rd & 0xF) << 8) | (unsigned)sysm);
             } else {
                 out16(a, 0xF380u | (unsigned)(rd & 0xF));
@@ -12680,7 +12477,7 @@ static void pass2_a(ArmAsm *a) {
                           first, diag_num(b1, a->pc), 0,0,0,0);
             }
             a->hard_errors++;
-            out16(a, 0xBF00);
+            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             skip_to_eol_a(&p);
         }
         else if (strieq_a(first, "ADDS") || strieq_a(first, "SUBS")) {
@@ -13085,7 +12882,7 @@ static void pass2_a(ArmAsm *a) {
         else if (strieq_a(first, "NEG") || strieq_a(first, "RSB")) {
             int rd = parse_reg_a(&p); int rm;
             eat_comma_a(&p); rm = parse_reg_a(&p);
-            out16(a, 0x4240 | ((rm & 7) << 3) | (rd & 7));
+            arm_encode16(a,"NEG",rd,rm,0,0,2);
             skip_space_a(&p);
             if (*p == ',') { p++; skip_space_a(&p); if (*p == '#') parse_imm_a(&p); }
         }
@@ -13096,7 +12893,7 @@ static void pass2_a(ArmAsm *a) {
                 int imm = parse_imm_a(&p);
                 if (imm >= 0 && imm <= 255) {
                     /* T1 16-bit: CMP Rn, #imm8 */
-                    out16(a, 0x2800 | ((rn & 7) << 8) | (imm & 0xFF));
+                    arm_encode16(a,"CMP_IMM",rn,imm & 255,0,0,2);
                 } else {
                     /* T2 32-bit: CMP.W Rn, #imm12 (ThumbExpandImm).
                      * hi: 0xF1B0 | i<<10 | Rn, lo: imm3<<12 | 0x0F00 | imm8.
@@ -13112,8 +12909,8 @@ static void pass2_a(ArmAsm *a) {
                                       0,0,0,0,0);
                         }
                         a->hard_errors++;
-                        out16(a, 0xBF00);
-                        out16(a, 0xBF00);
+                        arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                        arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                     } else {
                         out16(a, 0xF1B0u | ((i & 1) << 10) | (unsigned)(rn & 0xF));
                         out16(a, ((imm3 & 7) << 12) | 0x0F00u | imm8);
@@ -13121,7 +12918,7 @@ static void pass2_a(ArmAsm *a) {
                 }
             } else {
                 int rm = parse_reg_a(&p);
-                out16(a, 0x4280 | ((rm & 7) << 3) | (rn & 7));
+                arm_encode16(a,"CMP_REG",rn,rm,0,0,2);
             }
         }
         else if (is_ldr_str_a(first)) {
@@ -13217,10 +13014,10 @@ static void pass2_a(ArmAsm *a) {
         }
         else if (strieq_a(first, "BX")) {
             int rm = parse_reg_a(&p);
-            out16(a, 0x4700 | ((rm & 0xF) << 3));
+            arm_encode16(a,"BX",rm,0,0,0,1);
         }
         else if (strieq_a(first, "NOP")) {
-            out16(a, 0xBF00);
+            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
         }
         else if (strieq_a(first, "IT") || strieq_a(first, "ITT") ||
                  strieq_a(first, "ITE") || strieq_a(first, "ITTT")) {
@@ -13273,7 +13070,7 @@ static void pass2_a(ArmAsm *a) {
             else if (strieq_a(first, "ITT"))  mask = (cb << 3) | 0x4;
             else if (strieq_a(first, "ITE"))  mask = ((cb ^ 1) << 3) | 0x4;
             else                              mask = (cb << 3) | (cb << 2) | 0x2; /* ITTT */
-            out16(a, 0xBF00 | (cv << 4) | mask);
+            arm_encode16(a,"IT",cv,mask,0,0,2);
         }
         else if (strieq_a(first, "BLX")) {
             /* BLX <Rm>: 16-bit 0x4780 | Rm<<3 (Thumb-2 T1). The backend emits
@@ -13287,9 +13084,9 @@ static void pass2_a(ArmAsm *a) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "BLX needs a register operand", 0,0,0,0,0,0);
                 a->hard_errors++;
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             } else {
-                out16(a, 0x4780 | ((rm & 0xF) << 3));
+                arm_encode16(a,"BLX",rm,0,0,0,1);
             }
         }
         else if (strieq_a(first, "BL")) {
@@ -13299,8 +13096,8 @@ static void pass2_a(ArmAsm *a) {
                 int addr = find_label_a(a, name);
                 if (addr < 0 || g_xhcc_elf_mode) {
                     add_ref_a(a, a->pc, name, 1);
-                    out16(a, 0xF000);
-                    out16(a, 0xD000);
+                    arm_encode16(a,"FIXED_F000",0,0,0,0,0);
+                    arm_encode16(a,"FIXED_D000",0,0,0,0,0);
                 } else {
                     emit_bl_a(a, addr);
                 }
@@ -13362,14 +13159,14 @@ static void pass2_a(ArmAsm *a) {
                         /* 32-bit B.W (T4) forward ref: type=2, 4-byte placeholder.
                          * resolve_refs_a will call emit_b_w_a to fill in the encoding. */
                         add_ref_a(a, a->pc, name, 2);
-                        out16(a, 0xF000);
-                        out16(a, 0x9000);
+                        arm_encode16(a,"FIXED_F000",0,0,0,0,0);
+                        arm_encode16(a,"FIXED_9000",0,0,0,0,0);
                     } else {
                         /* 32-bit B<cond>.W (T3) forward ref: type=3, 4-byte placeholder.
                          * cond encoded in hi word bits[9:6] for resolve_refs_a. */
                         add_ref_a(a, a->pc, name, 3);
                         out16(a, 0xF000u | (unsigned)(cond << 6));
-                        out16(a, 0x8000);
+                        arm_encode16(a,"FIXED_8000",0,0,0,0,0);
                     }
                 }
 #if ARKCC_FEATURE_OPT_BRANCH
@@ -13415,16 +13212,16 @@ static void pass2_a(ArmAsm *a) {
             if      (strieq_a(first, "DMB")) lo_base = 0x8F50;
             else if (strieq_a(first, "DSB")) lo_base = 0x8F40;
             else                             lo_base = 0x8F60;  /* ISB */
-            out16(a, 0xF3BF);
+            arm_encode16(a,"FIXED_F3BF",0,0,0,0,0);
             out16(a, lo_base | 0xF);
         }
         else if (strieq_a(first, "SEV") || strieq_a(first, "WFE") || strieq_a(first, "WFI")) {
             /* 16-bit hint instructions (no operands).
              *   SEV = 0xBF40, WFE = 0xBF20, WFI = 0xBF30.
              * Used by HAL_PWR_EnterSLEEPMode/STOPMode/STANDBYMode. */
-            if      (strieq_a(first, "SEV")) out16(a, 0xBF40);
-            else if (strieq_a(first, "WFE")) out16(a, 0xBF20);
-            else                             out16(a, 0xBF30);  /* WFI */
+            if      (strieq_a(first, "SEV")) arm_encode16(a,"FIXED_BF40",0,0,0,0,0);
+            else if (strieq_a(first, "WFE")) arm_encode16(a,"FIXED_BF20",0,0,0,0,0);
+            else                             arm_encode16(a,"FIXED_BF30",0,0,0,0,0);  /* WFI */
         }
         else if (strieq_a(first, "REV") || strieq_a(first, "REV16") || strieq_a(first, "REVSH")) {
             /* T1 16-bit: 1011 1010 op Rm Rd, where op=00(REV),01(REV16),11(REVSH).
@@ -13446,7 +13243,7 @@ static void pass2_a(ArmAsm *a) {
             int rm;
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
-            out16(a, 0xEA4F);
+            arm_encode16(a,"FIXED_EA4F",0,0,0,0,0);
             out16(a, (unsigned)((rd & 0xF) << 12) | 0x30 | (rm & 0xF));
         }
         /* ===== #1 FIX: VFP floating-point instruction encoders =====
@@ -13680,8 +13477,8 @@ static void pass2_a(ArmAsm *a) {
                           rn_m, sys_m, 0,0,0,0);
                 a->hard_errors++;
             }
-            out16(a, 0xEEF1);
-            out16(a, 0xFA10);
+            arm_encode16(a,"FIXED_EEF1",0,0,0,0,0);
+            arm_encode16(a,"FIXED_FA10",0,0,0,0,0);
         }
         else if (strieq_a(first, "VNEG") || strieq_a(first, "VABS") ||
                  strieq_a(first, "VSQRT")) {
@@ -13867,7 +13664,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
             if (rn >= 0 && rn <= 7 && rm >= 0 && rm <= 7) {
-                out16(a, 0x4200 | ((rm & 7) << 3) | (rn & 7));
+                arm_encode16(a,"TST_REG",rn,rm,0,0,2);
             } else if (rn >= 0 && rm >= 0) {
                 out16(a, 0xEA10 | (rn & 0xF));
                 out16(a, 0x0F00 | (rm & 0xF));
@@ -13875,7 +13672,7 @@ static void pass2_a(ArmAsm *a) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for TST", 0,0,0,0,0,0);
                 a->hard_errors++;
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
         }
         else if (strieq_a(first, "CLZ")) {
@@ -13892,8 +13689,8 @@ static void pass2_a(ArmAsm *a) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for CLZ", 0,0,0,0,0,0);
                 a->hard_errors++;
-                out16(a, 0xBF00);
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
         }
         else if (strieq_a(first, "RBIT")) {
@@ -13912,8 +13709,8 @@ static void pass2_a(ArmAsm *a) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for RBIT", 0,0,0,0,0,0);
                 a->hard_errors++;
-                out16(a, 0xBF00);
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
         }
         else if (strieq_a(first, "SXTB") || strieq_a(first, "SXTH") ||
@@ -13948,8 +13745,8 @@ static void pass2_a(ArmAsm *a) {
                               "bad register operand for %s", mn, 0,0,0,0,0);
                 }
                 a->hard_errors++;
-                out16(a, 0xBF00);
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
         }
         else if (strieq_a(first, "BKPT")) {
@@ -13976,7 +13773,7 @@ static void pass2_a(ArmAsm *a) {
                 a->hard_errors++;
                 imm = 0;
             }
-            out16(a, 0xBE00 | (imm & 0xFF));
+            arm_encode16(a,"BKPT",imm & 255,0,0,0,1);
         }
         else if (strieq_a(first, "SVC")) {
             /* SVC #imm8: 0xDF00 | imm8. Verified: SVC #18 = 0xDF12.
@@ -14001,7 +13798,7 @@ static void pass2_a(ArmAsm *a) {
                 a->hard_errors++;
                 imm = 0;
             }
-            out16(a, 0xDF00 | (imm & 0xFF));
+            arm_encode16(a,"SVC",imm & 255,0,0,0,1);
         }
         else if (strieq_a(first, "MOVS")) {
             /* MOVS Rd,#imm: 16-bit 0x2000|Rd<<8|imm8, 32-bit MOVS.W
@@ -14015,7 +13812,7 @@ static void pass2_a(ArmAsm *a) {
             if (*p == '#') {
                 int imm = parse_imm_a(&p);
                 if (rd >= 0 && rd <= 7 && imm >= 0 && imm <= 255) {
-                    out16(a, 0x2000 | ((rd & 7) << 8) | (imm & 0xFF));
+                    arm_encode16(a,"MOV_IMM",rd,imm & 255,0,0,2);
                 } else {
                     unsigned i, imm3, imm8;
                     if (rd < 0 || !thumb_imm12_a((unsigned)imm, &i, &imm3, &imm8)) {
@@ -14027,8 +13824,8 @@ static void pass2_a(ArmAsm *a) {
                                       0,0,0,0);
                         }
                         a->hard_errors++;
-                        out16(a, 0xBF00);
-                        out16(a, 0xBF00);
+                        arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                        arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                     } else {
                         out16(a, 0xF05F | ((i & 1) << 10));
                         out16(a, ((imm3 & 7) << 12) | ((rd & 0xF) << 8) | imm8);
@@ -14039,13 +13836,13 @@ static void pass2_a(ArmAsm *a) {
                 if (rd >= 0 && rd <= 7 && rm >= 0 && rm <= 7) {
                     out16(a, 0x0000 | ((rm & 7) << 3) | (rd & 7));
                 } else if (rd >= 0 && rm >= 0) {
-                    out16(a, 0xEA5F);
+                    arm_encode16(a,"FIXED_EA5F",0,0,0,0,0);
                     out16(a, ((rd & 0xF) << 8) | (rm & 0xF));
                 } else {
                     diag_tool(DIAG_SEV_ERROR, "arkcc",
                               "bad register operand for MOVS", 0,0,0,0,0,0);
                     a->hard_errors++;
-                    out16(a, 0xBF00);
+                    arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
                 }
             }
         }
@@ -14066,8 +13863,8 @@ static void pass2_a(ArmAsm *a) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for SADD16", 0,0,0,0,0,0);
                 a->hard_errors++;
-                out16(a, 0xBF00);
-                out16(a, 0xBF00);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
+                arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             }
         }
         else {
@@ -14089,7 +13886,7 @@ static void pass2_a(ArmAsm *a) {
                           0,0,0,0);
             }
             a->hard_errors++;
-            out16(a, 0xBF00);
+            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
         }
         skip_to_eol_a(&p);
         if (*p == '\n') p++;
@@ -14231,7 +14028,10 @@ static void resolve_refs_a(ArmAsm *a) {
 }
 
 static int arm_emit(IrProgram *m, char *out, int cap) {
-    char *text = codegen_arm(m);
+    char *text;
+    xh_arm_rules_reset();
+    text = codegen_arm(m);
+    if(xh_arm_rules_failed()){if(cap>0)out[0]=0;return -1;}
     int n = ark_strlen(text);
     int i;
     if (n + 1 > cap) {

@@ -1,0 +1,2668 @@
+XHTEMPLATE 1
+rule text.a80e516bfb196e1c
+text \\n
+end
+rule text.9e6ce97799490c6a
+text \\t
+end
+rule text.156de42b059b0f09
+text \\r
+end
+rule text.b11b4ca186c00769
+text \\\\
+end
+rule text.1ad070bb285bc0fd
+text \\"
+end
+rule text.a86d6dedf5bd962e
+text \\x
+end
+rule text.1a0f564ddc603945
+text \x20\x20\x20\x20
+end
+rule text.2edd14ef94518f14
+text .Lgstr_
+end
+rule text.46209f696e32b548
+text  +\x20
+end
+rule text.d3150495ce4f5d1a
+text  -\x20
+end
+rule text.df9f53e29ab944ee
+text     .zero\x20
+end
+rule text.1f12afdaf3f980fb
+text     # unsupported: _Complex\x20
+end
+rule text.cc8f05622986ef9c
+text     .section .rodata\n
+end
+rule text.eaaf9f65c87c4410
+text .Lark_str_
+end
+rule text.e9e59ed0a331a459
+text :\n    .asciz\x20
+end
+rule text.7c91bedb5dfc818e
+text     .data\n
+end
+rule text.9bd395d67adffd1c
+text     .globl\x20
+end
+rule text.341e3bc0663e193f
+text     .balign\x20
+end
+rule text.f3743a0a18e53d13
+text :\n
+end
+rule text.7ad86ea132e66f36
+text     .long\x20
+end
+rule text.12e87f2cba994e97
+text     .quad\x20
+end
+rule text.36a9e7f1c95b82ff
+text \x20
+end
+rule text.3373df59b78890b1
+text     mov eax, [esp+
+end
+rule text.0a2ae89f61af0778
+text ]\n    mov edx, [esp+
+end
+rule text.7fe6edd93915d970
+text ]\n    mov [esp+
+end
+rule text.33a42d27bd462c00
+text ], edx\n    mov [esp+
+end
+rule text.44b5e9f85f2e61a3
+text ], eax\n
+end
+rule text.4b6d79fc377f87b4
+text .L
+end
+rule text.661bf837b8ae2516
+text     mov ecx, eax\n    and ecx, 1\n    mov edx, eax\n    shr eax, 1\n    cvtsi2sd\x20
+end
+rule text.b68de343b23b037c
+text , eax\n    addsd\x20
+end
+rule text.0a07f659461970d8
+text ,\x20
+end
+rule text.321df96026d848e1
+text \n    cvtsi2sd xmm3, ecx\n    addsd\x20
+end
+rule text.52eb16d9880540bf
+text , xmm3\n    mov eax, edx\n
+end
+rule text.361c2bed6cf28f5b
+text     pop\x20
+end
+rule text.5662c0e931064efe
+text # Ark C Compiler - generated x86 32-bit (cdecl) assembly\n
+end
+rule text.a8e02e4f5a197f3d
+text     .intel_syntax noprefix\n
+end
+rule text.a6b017eae27bd97f
+text     .text\n
+end
+rule text.04eeefb078138dc3
+text     push ebp\n
+end
+rule text.416ac8dda322036e
+text     mov ebp, esp\n
+end
+rule text.1a4679f5966a2009
+text     push ebx\n    push esi\n    push edi\n
+end
+rule text.35e4b15127f7957f
+text     sub esp,\x20
+end
+rule text.468360761906663c
+text     mov eax, [ebp+8]\n    mov [ebp-
+end
+rule text.60140dc629fa4eea
+text     # unsupported: va_arg frame slot on i386\n
+end
+rule text.e70306ccc1c885dd
+text     mov esi, [ebp+
+end
+rule text.515863caf431bf57
+text ]\n    lea edi, [ebp-
+end
+rule text.bf5c869475327afb
+text ]\n    mov ecx,\x20
+end
+rule text.8d3fc2867d2efe58
+text \n    rep movsb\n
+end
+rule text.f11eba8d7ffdb259
+text     mov eax, [ebp+
+end
+rule text.435527643a0ff4db
+text ]\n    mov [ebp-
+end
+rule text.31a585f1e3640137
+text ], eax\n    mov eax, [ebp+
+end
+rule text.276c8636c367c6c1
+text     push\x20
+end
+rule text.8828c73fbe316b78
+text     lea eax, [.Lark_str_
+end
+rule text.95b030d0ad1483d7
+text ]\n    push eax\n
+end
+rule text.6bd382e4237dd86d
+text     push dword ptr [ebp-
+end
+rule text.19c91e923eb5a4e0
+text ]\n    push dword ptr [ebp-
+end
+rule text.f9416e09f78ba316
+text ]\n
+end
+rule text.137dbb4064852a52
+text     lea eax, [ebp-
+end
+rule text.33cb64287aab8b51
+text     lea eax, [ebp+
+end
+rule text.ef531c7385208fe7
+text     mov eax, [
+end
+rule text.a891f632b224608d
+text ]\n    push eax\n    mov eax, [
+end
+rule text.5f7fcd0f3f66393f
+text +4]\n    push eax\n
+end
+rule text.c037dc4b55d9e75e
+text     pop edx\n    pop eax\n    mov [
+end
+rule text.27fe47257c0ddba9
+text ], eax\n    mov [
+end
+rule text.a8e65c3e4bfced27
+text +4], edx\n
+end
+rule text.0bcc61c6f37c286f
+text     pop eax\n    mov [
+end
+rule text.290450c437d66e16
+text     add esp, 4\n
+end
+rule text.d46e72ff4e3a07dc
+text     mov eax, [esp]\n    push eax\n
+end
+rule text.5982900ff1bbf03d
+text     pop eax\n    pop ecx\n    push eax\n    push ecx\n
+end
+rule text.af0ef5ac0c7ee97d
+text     pop edx\n    pop eax\n    mov [ebp-
+end
+rule text.2954163038f96120
+text ], eax\n    mov [ebp-
+end
+rule text.69b61f412b288a0a
+text ], edx\n
+end
+rule text.75ab89ac001efdf8
+text     pop eax\n    mov [ebp-
+end
+rule text.5c895cb3ddd81f93
+text     pop ecx\n    pop eax\n
+end
+rule text.5fbcbeada57c9106
+text     imul ecx,\x20
+end
+rule text.ebf104924e17f6a3
+text \n    add eax, ecx\n
+end
+rule text.9b1da4486bd2eb60
+text     movzx eax, byte ptr [eax]\n
+end
+rule text.6a8395334660231c
+text     movsx eax, byte ptr [eax]\n
+end
+rule text.060019c7f5acdbda
+text     movzx eax, word ptr [eax]\n
+end
+rule text.2efe1d82233884e4
+text     movsx eax, word ptr [eax]\n
+end
+rule text.b5060857db8145cb
+text     mov edx, dword ptr [eax]\n
+end
+rule text.81deec0800941cf6
+text     push edx\n
+end
+rule text.a5cb6273b64f6e59
+text     mov eax, dword ptr [eax+4]\n
+end
+rule text.2ac65d444c4eb237
+text     push eax\n
+end
+rule text.cb61e4998ba6c4dc
+text     mov eax, dword ptr [eax]\n
+end
+rule text.bca946fd76ebfa8a
+text     pop edx\n    pop ecx\n    pop eax\n
+end
+rule text.6cd919c68ae2a155
+text     mov dword ptr [eax], ecx\n
+end
+rule text.1f46d6d8734ffe60
+text     mov dword ptr [eax+4], edx\n
+end
+rule text.8ad98fe039692ddc
+text     push ecx\n    push edx\n
+end
+rule text.6f9c8b71fa5adc5a
+text     pop edx\n    pop eax\n
+end
+rule text.70749b316408a8d4
+text     mov byte ptr [eax], dl\n
+end
+rule text.f7039d10f7efbef2
+text     mov word ptr [eax], dx\n
+end
+rule text.4ed9f77143aebefe
+text     mov dword ptr [eax], edx\n
+end
+rule text.7270bcbdf9968cd0
+text     pop ecx\n    pop eax\n\x20\x20\x20\x20
+end
+rule text.ef9fcdbaea95eb02
+text  eax, ecx\n    push eax\n
+end
+rule text.51d7521414a1fc53
+text     pop ecx\n    pop eax\n    imul eax, ecx\n    push eax\n
+end
+rule text.6d390476e32361b4
+text     pop ecx\n    pop eax\n    cdq\n    idiv ecx\n    push eax\n
+end
+rule text.94561ed7a6bff056
+text     pop ecx\n    pop eax\n    cdq\n    idiv ecx\n    push edx\n
+end
+rule text.2158571c9d4f73db
+text     pop ecx\n    pop eax\n    shl eax, cl\n    push eax\n
+end
+rule text.d4df05eb07b715cf
+text     pop ecx\n    pop eax\n    cmp eax, ecx\n\x20\x20\x20\x20
+end
+rule text.8d145c1a3edd357d
+text  al\n    movzx eax, al\n    push eax\n
+end
+rule text.b716e4426333894b
+text     pop edx\n    pop eax\n    neg eax\n    adc edx, 0\n    neg edx\n    push eax\n    push edx\n
+end
+rule text.662530fc69420395
+text     pop edx\n    pop eax\n    not eax\n    not edx\n    push eax\n    push edx\n
+end
+rule text.a78df3bfcd4a7ecc
+text     pop edx\n    pop eax\n    or eax, edx\n    test eax, eax\n    sete al\n    movzx eax, al\n    push eax\n
+end
+rule text.ec2340ca8c1a28c7
+text     pop edx\n    pop eax\n    push eax\n    push edx\n
+end
+rule text.4e39c3f7bd9309f5
+text     pop eax\n
+end
+rule text.974cdc0414e43ced
+text     xor eax, 0x80000000\n
+end
+rule text.e29bd740543bbe7f
+text     neg eax\n
+end
+rule text.cd9069b2dc376ed8
+text     not eax\n
+end
+rule text.fecfa68ae8bbca42
+text     test eax, eax\n    sete al\n    movzx eax, al\n
+end
+rule text.be1de5990bdec1cd
+text .LN_
+end
+rule text.02b129850dd58dc5
+text     jmp .L
+end
+rule text.66fe547640031826
+text     jmp .LN_
+end
+rule text.209d29ef9eaf9e34
+text     pop eax\n    test eax, eax\n    jz .L
+end
+rule text.bf8c0396346ecd37
+text     pop eax\n    test eax, eax\n    jnz .L
+end
+rule text.a9fdeff000117537
+text     mov eax, [esp]\n    cmp eax,\x20
+end
+rule text.097c31cac98ba0d2
+text \n    jne\x20
+end
+rule text.6b3942073184b317
+text     add esp, 4\n    jmp .L
+end
+rule text.fe2690f9273802de
+text     pop ecx\n
+end
+rule text.d67539bdfd59d10f
+text ], eax\n    pop eax\n    mov [ebp-
+end
+rule text.fc1d629ae8b91275
+text     mov [ebp-
+end
+rule text.cd62d6384497a495
+text ], esp\n
+end
+rule text.83259b2ffb2f8cc1
+text     mov eax, esp\n
+end
+rule text.4a0fe7f169d9b9fd
+text     sub eax,\x20
+end
+rule text.d0a85d0a7a5f8b57
+text     and eax, 15\n    sub esp, eax\n
+end
+rule text.039b60d9ab552cfd
+text     call ecx\n
+end
+rule text.7e873a94c44eeb9e
+text     call\x20
+end
+rule text.b237eaa684af0e1e
+text     mov esp, [ebp-
+end
+rule text.bfbf7eb10d65f0c1
+text     sub esp, 4\n    movss [esp], xmm0\n
+end
+rule text.7674ef19adb6c5e8
+text     sub esp, 8\n    movq [esp], xmm0\n
+end
+rule text.a7a351cdc205c8ef
+text     push eax\n    push edx\n
+end
+rule text.2e89ab613cfb8cad
+text     pop esi\n    mov edi, [ebp-
+end
+rule text.ce846d3feb14f824
+text \n    rep movsb\n    mov eax, [ebp-
+end
+rule text.cf34b3c5e2d0a761
+text ]\n    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n
+end
+rule text.4afef8bb740fd333
+text     movss xmm0, [esp]\n    add esp, 4\n
+end
+rule text.c0d9bc14821121d4
+text     movq xmm0, [esp]\n    add esp, 8\n
+end
+rule text.1dae71cae98dd498
+text     lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n
+end
+rule text.206a9e43d351ab6f
+text     pop eax\n    cdq\n    push eax\n    push edx\n
+end
+rule text.a001949c6c8f2386
+text     pop eax\n    xor edx, edx\n    push eax\n    push edx\n
+end
+rule text.98f95df9e907f704
+text     lea eax, [
+end
+rule text.e71a0aee15f5fc12
+text     pop edi\n    pop esi\n    mov ecx,\x20
+end
+rule text.8335dbd8a8d11c9e
+text     pop eax\n    add eax, 15\n    and eax, -16\n
+end
+rule text.0d64a5d6db372b81
+text     sub esp, eax\n    mov eax, esp\n    push eax\n
+end
+rule text.c03dab15d958e712
+text     xor edx, edx\n    div ecx\n    push eax\n
+end
+rule text.794267a5f7c573da
+text     cdq\n    idiv ecx\n    push eax\n
+end
+rule text.a303d5ea75714959
+text     xor edx, edx\n    div ecx\n    push edx\n
+end
+rule text.13386fbfacf1a09a
+text     cdq\n    idiv ecx\n    push edx\n
+end
+rule text.92b99704ac6bafbc
+text     mov eax,\x20
+end
+rule text.686bd128725fa74d
+text \n    push eax\n
+end
+rule text.2809e76015d3b65b
+text     push 0\n    push 0\n    push 0\n    push 0\n
+end
+rule text.010d4f88c41190b1
+text     movq xmm1, [esp]\n    add esp, 8\n
+end
+rule text.e709176edbc858bf
+text     movq xmm3, [esp]\n    add esp, 8\n
+end
+rule text.94c200ba0642c541
+text     movq xmm2, [esp]\n    add esp, 8\n
+end
+rule text.bd74230bfaf7212e
+text  xmm0, xmm3\n\x20\x20\x20\x20
+end
+rule text.9668ff9261324f75
+text  xmm2, xmm1\n
+end
+rule text.4a71ed58a4c7ae1d
+text     sub esp, 8\n    movq [esp], xmm2\n
+end
+rule text.e7746556032f1280
+text     movq xmm0, [esp]\n    add esp, 8\n\x20\x20\x20\x20
+end
+rule text.cb3f8202914f1fde
+text  xmm0, xmm1\n    sub esp, 8\n    movq [esp], xmm0\n
+end
+rule text.4c1a9220c6b59e6a
+text     movss xmm1, [esp]\n    add esp, 4\n
+end
+rule text.ffe801bf0d7c4b9c
+text     movss xmm0, [esp]\n    add esp, 4\n\x20\x20\x20\x20
+end
+rule text.8827580b6366c49c
+text  xmm0, xmm1\n    sub esp, 4\n    movss [esp], xmm0\n
+end
+rule text.dffd78210d40c71d
+text     ucomisd xmm0, xmm1\n\x20\x20\x20\x20
+end
+rule text.26f1e54784576a84
+text     ucomiss xmm0, xmm1\n\x20\x20\x20\x20
+end
+rule text.5d9f1cb0416a63f8
+text     cvtss2sd xmm0, xmm0\n
+end
+rule text.92e14fca1a661366
+text     mov ecx, 1073741824\n    cvtsi2sd xmm1, ecx\n    addsd xmm1, xmm1\n    comisd xmm0, xmm1\n    jb\x20
+end
+rule text.4d3b5fd5c4d94c07
+text     subsd xmm0, xmm1\n    cvttsd2si eax, xmm0\n    add eax, 0x80000000\n    jmp\x20
+end
+rule text.8cc0cd8c22cadc72
+text     cvttsd2si eax, xmm0\n
+end
+rule text.397d9424d08c5ab8
+text     cvttss2si eax, xmm0\n
+end
+rule text.59a1a43ff7880417
+text     cvtsi2sd xmm0, eax\n
+end
+rule text.c39b283d66519bbc
+text     cvtsd2ss xmm0, xmm0\n    sub esp, 4\n    movss [esp], xmm0\n
+end
+rule text.8086d640eefab65a
+text     cvtsi2ss xmm0, eax\n    sub esp, 4\n    movss [esp], xmm0\n
+end
+rule text.c896dbafaae43e47
+text     movq xmm0, [esp]\n    add esp, 8\n    cvtsd2ss xmm0, xmm0\n    sub esp, 4\n    movss [esp], xmm0\n
+end
+rule text.b7f0f3dfed7f198f
+text     movss xmm0, [esp]\n    add esp, 4\n    cvtss2sd xmm0, xmm0\n    sub esp, 8\n    movq [esp], xmm0\n
+end
+rule text.c1281983882433d5
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n
+end
+rule text.2ce889bddde8feb8
+text  eax, ecx\n\x20\x20\x20\x20
+end
+rule text.2825f4be58f40442
+text adc ebx, edx\n
+end
+rule text.0e56e366153b6e70
+text sbb ebx, edx\n
+end
+rule text.44f2696d1d3f8e69
+text  ebx, edx\n
+end
+rule text.0dd72d509b10fd37
+text     push eax\n    push ebx\n
+end
+rule text.6406a1641d7fff65
+text     pop ecx\n    pop esi\n    pop ebx\n    pop eax\n
+end
+rule text.679314bd2ff12b22
+text     mov edx, esi\n    mov ecx, esi\n    and ecx, 31\n
+end
+rule text.461f709172b494e2
+text     cmp edx, 32\n    jae\x20
+end
+rule text.820dbde7748ee897
+text     shrd eax, ebx, cl\n\x20\x20\x20\x20
+end
+rule text.821b71e39855d198
+text     shld ebx, eax, cl\n    shl eax, cl\n
+end
+rule text.69256272f003017d
+text     jmp\x20
+end
+rule text.dd90cd92b33d5573
+text     mov eax, ebx\n\x20\x20\x20\x20
+end
+rule text.9f5ead3407b2d8f5
+text     shl eax, cl\n    mov ebx, eax\n    xor eax, eax\n
+end
+rule text.c654558cc5c0ec8b
+text     mov esi, edx\n    mov edi, eax\n
+end
+rule text.ff834093feaebb13
+text     mul ecx\n
+end
+rule text.a60c6b789a6dfebd
+text     imul ebx, ecx\n    add edx, ebx\n
+end
+rule text.6f6d010f0e5ab3c1
+text     imul edi, esi\n    add edx, edi\n
+end
+rule text.fa32d915a294d9b9
+text     mov dword ptr [ebp-
+end
+rule text.84ec6f047c3668dc
+text ], 0\n
+end
+rule text.95fe33ef378a8bb4
+text     mov esi, ebx\n    shr esi, 31\n
+end
+rule text.47d93a4d497c04b5
+text ], esi\n
+end
+rule text.3808d8f36f7d5daa
+text     neg esi\n
+end
+rule text.4b9c82419f56eeb1
+text     xor eax, esi\n    xor ebx, esi\n
+end
+rule text.d5a384c1f1fdbf16
+text     sub eax, esi\n    sbb ebx, esi\n
+end
+rule text.b2214e0a3ab8f00c
+text     mov esi, edx\n    shr esi, 31\n
+end
+rule text.d1ddcffec890c328
+text     add esi, esi\n    mov edi, [ebp-
+end
+rule text.9360e8e3ce846e92
+text ]\n    or edi, esi\n
+end
+rule text.2257aee5f583afe4
+text ], edi\n
+end
+rule text.466239f8ebbb4beb
+text     mov esi, edx\n    sar esi, 31\n
+end
+rule text.da0ba7457b56865b
+text     mov edi, ecx\n
+end
+rule text.e5389721d42955df
+text     xor edi, esi\n    xor edx, esi\n
+end
+rule text.c1c3fdf0eab006ff
+text     sub edi, esi\n    sbb edx, esi\n
+end
+rule text.5b6b86a4905e6f09
+text ], edi\n    mov [ebp-
+end
+rule text.8b3deb472083fd10
+text ], ecx\n    mov [ebp-
+end
+rule text.cb41f02a263e8616
+text     mov esi, [ebp-
+end
+rule text.2fa01da70f59e71a
+text ]\n    or esi, [ebp-
+end
+rule text.9dd9f2a58c42e6d8
+text ]\n    jnz\x20
+end
+rule text.5bd3862d8a7849ba
+text     push 0\n    push 0\n    jmp\x20
+end
+rule text.b627985a9623b001
+text     xor esi, esi\n    xor edi, edi\n
+end
+rule text.8a70b7986310d9ec
+text     xor ecx, ecx\n    xor edx, edx\n
+end
+rule text.b3f3de66f4c956d4
+text ], 64\n
+end
+rule text.3c2ce573bc6f8bda
+text     add eax, eax\n    adc ebx, ebx\n
+end
+rule text.1ac27aeafa036104
+text     adc ecx, ecx\n    adc edx, edx\n
+end
+rule text.617fb65c4da207c8
+text     add edi, edi\n    adc esi, esi\n
+end
+rule text.cd95285901a5a647
+text     cmp edx, [ebp-
+end
+rule text.0a9294436a104c5a
+text ]\n    jb\x20
+end
+rule text.a66f7e10984df850
+text     ja\x20
+end
+rule text.596cabe39f20ca06
+text     cmp ecx, [ebp-
+end
+rule text.667532ad6b467194
+text     sub ecx, [ebp-
+end
+rule text.ca9cbd7b617c471b
+text ]\n    sbb edx, [ebp-
+end
+rule text.115bb8c5c2542394
+text ]\n    or edi, 1\n
+end
+rule text.26fc695c40f28fce
+text     sub dword ptr [ebp-
+end
+rule text.ec8924392ea7f046
+text ], 1\n    jnz\x20
+end
+rule text.6eaf51aaec0d1d8a
+text     mov eax, [ebp-
+end
+rule text.3b12671c027655a7
+text ]\n    mov ebx, eax\n    and ebx, 1\n
+end
+rule text.30dc593803195a56
+text     cmp eax, 0\n    je\x20
+end
+rule text.800b436f470e1d12
+text     cmp eax, 3\n    je\x20
+end
+rule text.fd89fd8a166f247a
+text     not edi\n    not esi\n
+end
+rule text.0d62446613963db2
+text     add edi, 1\n    adc esi, 0\n
+end
+rule text.360586a4672c9c1f
+text     test ebx, ebx\n    jz\x20
+end
+rule text.f71fe4d2f1a5f9c1
+text     not ecx\n    not edx\n
+end
+rule text.1a04608c358721c5
+text     add ecx, 1\n    adc edx, 0\n
+end
+rule text.ea9aa9b6855ae4fa
+text     push edi\n    push esi\n
+end
+rule text.0cf03c3bc7f8e844
+text     cmp ebx, edx\n    jne\x20
+end
+rule text.9e89a698ecb49a06
+text     cmp eax, ecx\n
+end
+rule text.6e94a4c258ef9ff0
+text     mov ecx, 65536\n    cvtsi2sd xmm2, ecx\n    mulsd xmm2, xmm2\n
+end
+rule text.a85fde474c053be0
+text     mov ecx, 1073741824\n    cvtsi2sd xmm3, ecx\n    addsd xmm3, xmm3\n
+end
+rule text.59ac07dd691e82c6
+text     xor edi, edi\n
+end
+rule text.25c3185bc4002855
+text     movapd xmm1, xmm2\n    mulsd xmm1, xmm3\n
+end
+rule text.a3318c44ef5a1b4e
+text     comisd xmm0, xmm1\n    jb\x20
+end
+rule text.4a901af6a9ce5827
+text     subsd xmm0, xmm1\n    mov edi, 1\n
+end
+rule text.f303df9e4dea9593
+text     xorpd xmm7, xmm7\n    comisd xmm0, xmm7\n    jae\x20
+end
+rule text.b323dcde75821ec9
+text     mov edi, 1\n    subsd xmm7, xmm0\n    movapd xmm0, xmm7\n
+end
+rule text.18b4bd5cca1366a6
+text     movapd xmm1, xmm0\n    divsd xmm1, xmm2\n
+end
+rule text.bf57062e79a57deb
+text     cvttsd2si edx, xmm1\n
+end
+rule text.23c4ded4321ef5c6
+text     cvtsi2sd xmm1, edx\n    mulsd xmm1, xmm2\n
+end
+rule text.1571b586265e2bfa
+text     subsd xmm0, xmm1\n
+end
+rule text.4d294fbe16d34d51
+text     comisd xmm0, xmm3\n    jb\x20
+end
+rule text.3d2e1813919f5f02
+text     subsd xmm0, xmm3\n    cvttsd2si eax, xmm0\n    add eax, 0x80000000\n    jmp\x20
+end
+rule text.bf53b61ffa4748cd
+text     test edi, edi\n    jz\x20
+end
+rule text.18456b0dc84465a1
+text     or edx, 0x80000000\n
+end
+rule text.e927fc829b5b2ad2
+text     not eax\n    not edx\n    add eax, 1\n    adc edx, 0\n
+end
+rule text.24620940121cebad
+text     xor eax, esi\n    xor edx, esi\n
+end
+rule text.c1678ecc06d8c119
+text     sub eax, esi\n    sbb edx, esi\n
+end
+rule text.ae4c7e27bb40fc19
+text     xor esi, esi\n
+end
+rule text.0e2163b0183a2bf5
+text     mov ebx, eax\n    mov eax, edx\n
+end
+rule text.42a37330107db660
+text     mov eax, ebx\n
+end
+rule text.c17e0c0d27c3d7ee
+text     mulsd xmm1, xmm2\n    addsd xmm0, xmm1\n
+end
+rule text.f3204e6546e0591b
+text     mov ecx, esi\n    add ecx, ecx\n    add ecx, 1\n
+end
+rule text.12fd0b0927f0e8a7
+text     cvtsi2sd xmm2, ecx\n    mulsd xmm0, xmm2\n
+end
+rule text.57b0860be9389b8b
+text     cvtsd2ss xmm0, xmm0\n
+end
+rule text.eea0363f8ddf278d
+text     pop eax\n    pop ecx\n
+end
+rule text.7ef30c4fffaf7a16
+text     and eax,\x20
+end
+rule text.8b3cc64fba698ba0
+text \n    shl eax,\x20
+end
+rule text.7fdab8b49978ea66
+text \n    mov edx, dword ptr [ecx]\n    and edx,\x20
+end
+rule text.5d13c6795d5acd81
+text \n    or eax, edx\n    mov dword ptr [ecx], eax\n
+end
+rule text.6f8fe5caa080b1fd
+text     pop eax\n    mov eax, dword ptr [eax]\n
+end
+rule text.b28953ccda3e8afd
+text     shr eax,\x20
+end
+rule text.01ba4719c80b6fe9
+text \n
+end
+rule text.ceda75f1be4f9e1a
+text \n    sar eax,\x20
+end
+rule text.ab3f82bd50fcee78
+text     # ARM-specific op (
+end
+rule text.b1e5c265f2e5c87b
+text ) - not applicable on x86\n
+end
+rule text.35815f9c362b56b9
+text     # unknown IR op:\x20
+end
+rule text.bc8bdd6524c78086
+text ]\n    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n\n
+end
+rule text.72d99589caf320eb
+text     xor eax, eax\n    lea esp, [ebp-12]\n    pop edi\n    pop esi\n    pop ebx\n    pop ebp\n    ret\n\n
+end
+rule text.a4b40e685f7daa97
+text     # unsupported:\x20
+end
+rule text.3b0cfa93737d146f
+text [rbp
+end
+rule text.93a01d56bd803c43
+text  ptr\x20
+end
+rule text.475f15810fba1372
+text \n    push rax\n
+end
+rule text.ee500dc20d14c1ab
+text     mov rax,\x20
+end
+rule text.a4cd08031c40ca5f
+text \n    push rax\n    mov eax,\x20
+end
+rule text.b63a6a7c18e71bf8
+text \n    pop\x20
+end
+rule text.b1307cb91a9182dc
+text \n    mov\x20
+end
+rule text.7b7ce7ca5e9f41a2
+text \n    shl\x20
+end
+rule text.fb79a8f3e7817784
+text , 32\n    or\x20
+end
+rule text.ab3493239b7f0447
+text     mov\x20
+end
+rule text.11a4849d86b5042a
+text \n    shr\x20
+end
+rule text.1c229ac77245abe0
+text , 32\n    mov\x20
+end
+rule text.4e8065aca152014c
+text \n    push\x20
+end
+rule text.babe0163fc9bcbdb
+text     mov eax, dword ptr\x20
+end
+rule text.6f40fdb1899ad972
+text sete al\n    setnp cl\n    and al, cl\n
+end
+rule text.dc1ee4fca2c0b953
+text setne al\n    setp cl\n    or al, cl\n
+end
+rule text.37bcbbde02db20af
+text setb al\n    setnp cl\n    and al, cl\n
+end
+rule text.6647cb3551b948a1
+text setbe al\n    setnp cl\n    and al, cl\n
+end
+rule text.c63b3fd74236bee8
+text seta al\n
+end
+rule text.f006002c7d0d6e08
+text setae al\n
+end
+rule text.3e4445ee301b6bc6
+text     movzx eax, al\n    push rax\n
+end
+rule text.71125b5563b4d27f
+text     movq rax, xmm0\n
+end
+rule text.b50044e3a1414928
+text     cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule text.7780d9617252be9e
+text # Ark C Compiler - generated x86-64 (System V AMD64) assembly\n
+end
+rule text.b886aa64e2df5b28
+text     push rbp\n    mov rbp, rsp\n    sub rsp,\x20
+end
+rule text.33d123687cb27a9e
+text     mov qword ptr [rbp-8], rdi\n
+end
+rule text.9c2b4f48512425bd
+text     movups xmmword ptr [rbp-
+end
+rule text.c5a10134862f0f36
+text ], xmm
+end
+rule text.38456c9cf2daa5cd
+text     movq rax, xmm
+end
+rule text.fcc09ed83b78d922
+text     pop rax\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule text.8adea96e84baae87
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    push rax\n
+end
+rule text.e8358e3e66032f77
+text     lea rdi,\x20
+end
+rule text.d392d939b942f07c
+text     mov ecx,\x20
+end
+rule text.e9e669e41d52b9b2
+text     lea rax, [.Lark_str_
+end
+rule text.f4b1b72c766f9a05
+text ]\n    push rax\n
+end
+rule text.de1843ef75a9fb24
+text     push rax\n
+end
+rule text.35bbb883dbc56169
+text     lea rax,\x20
+end
+rule text.dfc15ab0f0df0a24
+text     lea rax, [rbp+
+end
+rule text.6361c380597f7fe7
+text     lea rax, [rbp-
+end
+rule text.7dc7b89e01dd0887
+text     mov rax, qword ptr [
+end
+rule text.2fa68fea27ac0180
+text     mov eax, dword ptr [
+end
+rule text.9167fb0b226f1420
+text     pop rax\n    mov qword ptr [
+end
+rule text.42ade291e14ed386
+text ], rax\n
+end
+rule text.d9fff63b74c3fc83
+text     pop rdx\n    pop rax\n    lea rcx, [
+end
+rule text.93336d78c9066192
+text ]\n    mov dword ptr [rcx], eax\n    mov dword ptr [rcx+4], edx\n
+end
+rule text.8dabc6fad806881f
+text     pop rax\n    mov byte ptr [
+end
+rule text.4e43d6d10f959fcb
+text ], al\n
+end
+rule text.f59599ca3be9e93a
+text     pop rax\n    mov word ptr [
+end
+rule text.2dbd1dc71e0212d3
+text ], ax\n
+end
+rule text.2ac11892bbd77222
+text     pop rax\n    mov dword ptr [
+end
+rule text.757e527cdcff9451
+text     add rsp, 8\n
+end
+rule text.15ff3752709e02fd
+text     mov rax, qword ptr [rsp+
+end
+rule text.b2e9d9f67f0ae551
+text     pop rax\n    pop rcx\n    push rax\n    push rcx\n
+end
+rule text.755680c4ca6d94df
+text     pop rax\n
+end
+rule text.c792e5f5e47b5303
+text     pop rdx\n    pop rax\n
+end
+rule text.10be0a705c528063
+text     pop rcx\n    pop rax\n    movsxd rcx, ecx\n
+end
+rule text.414872d99b4c53b6
+text     shl rcx, 1\n
+end
+rule text.2baa3a2a80560c83
+text     shl rcx, 2\n
+end
+rule text.2f51ac6010cd6939
+text     shl rcx, 3\n
+end
+rule text.4d13042fcef9d73c
+text     add rax, rcx\n
+end
+rule text.34c0511551df6359
+text     mov rdx, qword ptr [rax]\n    push rdx\n
+end
+rule text.4d067f21ecf956da
+text     mov rdx, qword ptr [rax]\n
+end
+rule text.c8b44b422dea869a
+text     mov eax, dword ptr [rax]\n    push rax\n
+end
+rule text.3a90bcf5e794e695
+text     pop rdx\n    pop rax\n    mov qword ptr [rax], rdx\n    push rdx\n
+end
+rule text.96c9447543ed5477
+text     pop rdx\n    pop rcx\n    pop rax\n    mov dword ptr [rax], ecx\n    mov dword ptr [rax+4], edx\n    push rcx\n    push rdx\n
+end
+rule text.ec94bfa1fb7aa1bb
+text     pop rdx\n    pop rax\n    mov byte ptr [rax], dl\n    push rdx\n
+end
+rule text.275a1dac401948e8
+text     pop rdx\n    pop rax\n    mov word ptr [rax], dx\n    push rdx\n
+end
+rule text.7ceb7f570d0878aa
+text     pop rdx\n    pop rax\n    mov dword ptr [rax], edx\n    push rdx\n
+end
+rule text.96f5981a878f5fa4
+text     pop rcx\n    pop rax\n
+end
+rule text.a48ae5619500041a
+text  rax, rcx\n    push rax\n
+end
+rule text.b651e33ebe2ae1fc
+text     imul rax, rcx\n    push rax\n
+end
+rule text.5268719dd3e88af4
+text     shl rax, cl\n    push rax\n
+end
+rule text.5bd62f2b9392f0ab
+text     cmp rax, rcx\n\x20\x20\x20\x20
+end
+rule text.bd3376dd310a01b5
+text  al\n    movzx eax, al\n    push rax\n
+end
+rule text.c9fb02bd9fa54efd
+text  eax, ecx\n    push rax\n
+end
+rule text.cca8df6e52c47608
+text     imul eax, ecx\n    push rax\n
+end
+rule text.d030bef8d2dfffbe
+text     push rdx\n
+end
+rule text.75c36ff37d24fe1c
+text     shl eax, cl\n    push rax\n
+end
+rule text.ec6d23978c1788ca
+text     cmp eax, ecx\n\x20\x20\x20\x20
+end
+rule text.49eecb5894f48969
+text     xor eax, 0x80000000\n    push rax\n
+end
+rule text.b6ac13acdc833d31
+text     mov rdx, rax\n
+end
+rule text.473243e770661c83
+text     pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n
+end
+rule text.e04c6c878bc1cbdf
+text     pop rax\n    test rax, rax\n\x20\x20\x20\x20
+end
+rule text.611f0f285fc162a0
+text     mov rax, qword ptr [rsp]\n    cmp eax,\x20
+end
+rule text.30a89a7de4ba7b85
+text \n    jne .L
+end
+rule text.1ac5c327b8b33635
+text _cje
+end
+rule text.3fb9af8ed22e7a0c
+text \n    add rsp, 8\n    jmp .L
+end
+rule text.c54b801b3c7f4a0c
+text \n.L
+end
+rule text.ccee9788ee630a91
+text     pop r11\n
+end
+rule text.d0aef66727d08b37
+text     pop rdx\n
+end
+rule text.d142bbe448005ce7
+text     mov qword ptr [rbp-16], rsp\n
+end
+rule text.cb03efe8ee360a4b
+text     sub rsp,\x20
+end
+rule text.e4109461abaf377f
+text     mov qword ptr [rsp+
+end
+rule text.cc3836120ed5ecf8
+text     movq xmm
+end
+rule text.d5ab32bec840f3fe
+text , qword ptr\x20
+end
+rule text.d4aa8d11e462616f
+text     mov rdi, rax\n
+end
+rule text.112b8d88b530b012
+text     mov al,\x20
+end
+rule text.02d54d9705b644c1
+text     call r11\n
+end
+rule text.b0d7482d199fb842
+text     mov rsp, qword ptr [rbp-16]\n
+end
+rule text.3520170c55ba558b
+text     mov eax, eax\n    push rax\n
+end
+rule text.5448a6e84572d981
+text     mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule text.975d1ac3de00bf49
+text     pop rsi\n    mov rdi, qword ptr [rbp-8]\n    mov ecx,\x20
+end
+rule text.c129ba0807158854
+text \n    rep movsb\n    mov rax, qword ptr [rbp-8]\n
+end
+rule text.5e083d46fce61f03
+text     pop rax\n    mov eax, eax\n
+end
+rule text.666c9c0127f987ab
+text     movq xmm0, rax\n
+end
+rule text.433c6caaac074862
+text     mov rsp, rbp\n    pop rbp\n    ret\n
+end
+rule text.ba1d0a3c1a91e644
+text     lea rax, [
+end
+rule text.6a557a74cc347725
+text     pop rdi\n    pop rsi\n    mov ecx,\x20
+end
+rule text.e0a9440bd43c1f8a
+text     pop rax\n    add rax, 15\n    and rax, -16\n    sub rsp, rax\n    mov rax, rsp\n    push rax\n
+end
+rule text.ad142bfd1df4af66
+text     xor edx, edx\n    div ecx\n
+end
+rule text.767d3f8a4f58efa7
+text     cdq\n    idiv ecx\n
+end
+rule text.fdf5cf8fa9ab9307
+text     movq xmm0, rcx\n    movq xmm1, rax\n\x20\x20\x20\x20
+end
+rule text.90bc70c67f005071
+text  xmm0, xmm1\n    movq rax, xmm0\n
+end
+rule text.4cc8939188beca23
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n\x20\x20\x20\x20
+end
+rule text.78576d88a1d6d704
+text  xmm0, xmm1\n
+end
+rule text.af40109a3e4c5b8d
+text     movq xmm0, rcx\n    movq xmm1, rax\n
+end
+rule text.bf90b28855981548
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n
+end
+rule text.efbd6e805ebcde33
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n
+end
+rule text.b984325137f3b5f0
+text     cvttsd2si rax, xmm0\n    mov eax, eax\n
+end
+rule text.5829b49189e5d8da
+text     mov eax, eax\n
+end
+rule text.806e40da505153d5
+text     movsxd rax, eax\n
+end
+rule text.e90ca0e5f84313f1
+text     cvtsi2sd xmm0, rax\n
+end
+rule text.2a7b9abdcdd1df24
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n    movq rax, xmm0\n
+end
+rule text.9bb2ec8aa477608c
+text  rax, rcx\n
+end
+rule text.dd74d87037e1c8a8
+text     imul rax, rcx\n
+end
+rule text.d729da48110992c8
+text     mov rax, rdx\n
+end
+rule text.3425d160c827d5dc
+text     shl rax, cl\n
+end
+rule text.207af587925b69e5
+text     mov rax, 0x43E0000000000000\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    jb .L
+end
+rule text.35961bcff24ffbb8
+text _u2i
+end
+rule text.9ed4773e60445886
+text \n    subsd xmm0, xmm1\n    cvttsd2si rax, xmm0\n    mov rcx, 0x8000000000000000\n    or rax, rcx\n    jmp .L
+end
+rule text.f93897535644328c
+text _u2id
+end
+rule text.c78cc2578921b416
+text :\n    cvttsd2si rax, xmm0\n.L
+end
+rule text.83267ea010e4594c
+text     cvttsd2si rax, xmm0\n
+end
+rule text.403bf3de62279b59
+text     test rax, rax\n    jns .L
+end
+rule text.cb0a2fa0d24b4edc
+text _i2u
+end
+rule text.195beb5ae1d61c37
+text \n    mov rcx, rax\n    and eax, 1\n    shr rcx, 1\n    or rcx, rax\n    cvtsi2sd xmm0, rcx\n    addsd xmm0, xmm0\n    jmp .L
+end
+rule text.80656b170c4f469a
+text _i2ud
+end
+rule text.5c67d0d3b542f472
+text :\n    cvtsi2sd xmm0, rax\n.L
+end
+rule text.d42526e17a4315a9
+text     pop rax\n    pop rcx\n    and eax,\x20
+end
+rule text.f6e886e4901ed44b
+text \n    mov edx, dword ptr [rcx]\n    and edx,\x20
+end
+rule text.f7ba77dc30202797
+text \n    or eax, edx\n    mov dword ptr [rcx], eax\n
+end
+rule text.6d0b3fef17dcd889
+text     pop rax\n    mov eax, dword ptr [rax]\n
+end
+rule text.0ab8a5dbb336271c
+text ) - not applicable on x86-64\n
+end
+rule text.e888ee0df925654a
+text     mov rax, qword ptr [rbp-8]\n
+end
+rule text.e57fab16113b0a0c
+text     xor eax, eax\n
+end
+rule text.43cbd64c703a3e68
+text     mov rsp, rbp\n    pop rbp\n    ret\n\n
+end
+rule encoding.xa_alu.1.3.5.0.0
+text 1
+end
+rule encoding.xa_alu.1.3.5.0.1
+text 3
+end
+rule encoding.xa_alu.1.3.5.0.2
+text 5
+end
+rule encoding.xa_alu.1.3.5.0.3
+text 0
+end
+rule encoding.xa_alu.41.43.45.5.0
+text 41
+end
+rule encoding.xa_alu.41.43.45.5.1
+text 43
+end
+rule encoding.xa_alu.41.43.45.5.2
+text 45
+end
+rule encoding.xa_alu.41.43.45.5.3
+text 5
+end
+rule encoding.xa_alu.57.59.61.7.0
+text 57
+end
+rule encoding.xa_alu.57.59.61.7.1
+text 59
+end
+rule encoding.xa_alu.57.59.61.7.2
+text 61
+end
+rule encoding.xa_alu.57.59.61.7.3
+text 7
+end
+rule encoding.xa_alu.49.51.53.6.0
+text 49
+end
+rule encoding.xa_alu.49.51.53.6.1
+text 51
+end
+rule encoding.xa_alu.49.51.53.6.2
+text 53
+end
+rule encoding.xa_alu.49.51.53.6.3
+text 6
+end
+rule encoding.xa_alu.33.35.37.4.0
+text 33
+end
+rule encoding.xa_alu.33.35.37.4.1
+text 35
+end
+rule encoding.xa_alu.33.35.37.4.2
+text 37
+end
+rule encoding.xa_alu.33.35.37.4.3
+text 4
+end
+rule encoding.xa_alu.9.11.13.1.0
+text 9
+end
+rule encoding.xa_alu.9.11.13.1.1
+text 11
+end
+rule encoding.xa_alu.9.11.13.1.2
+text 13
+end
+rule encoding.xa_alu.9.11.13.1.3
+text 1
+end
+rule encoding.xa_alu.17.19.21.2.0
+text 17
+end
+rule encoding.xa_alu.17.19.21.2.1
+text 19
+end
+rule encoding.xa_alu.17.19.21.2.2
+text 21
+end
+rule encoding.xa_alu.17.19.21.2.3
+text 2
+end
+rule encoding.xa_alu.25.27.29.3.0
+text 25
+end
+rule encoding.xa_alu.25.27.29.3.1
+text 27
+end
+rule encoding.xa_alu.25.27.29.3.2
+text 29
+end
+rule encoding.xa_alu.25.27.29.3.3
+text 3
+end
+rule encoding.xa_sse.242.88.0
+text 242
+end
+rule encoding.xa_sse.242.88.1
+text 88
+end
+rule encoding.xa_sse.242.92.0
+text 242
+end
+rule encoding.xa_sse.242.92.1
+text 92
+end
+rule encoding.xa_sse.242.89.0
+text 242
+end
+rule encoding.xa_sse.242.89.1
+text 89
+end
+rule encoding.xa_sse.242.94.0
+text 242
+end
+rule encoding.xa_sse.242.94.1
+text 94
+end
+rule encoding.xa_sse.242.81.0
+text 242
+end
+rule encoding.xa_sse.242.81.1
+text 81
+end
+rule encoding.xa_sse.243.88.0
+text 243
+end
+rule encoding.xa_sse.243.88.1
+text 88
+end
+rule encoding.xa_sse.243.92.0
+text 243
+end
+rule encoding.xa_sse.243.92.1
+text 92
+end
+rule encoding.xa_sse.243.89.0
+text 243
+end
+rule encoding.xa_sse.243.89.1
+text 89
+end
+rule encoding.xa_sse.243.94.0
+text 243
+end
+rule encoding.xa_sse.243.94.1
+text 94
+end
+rule encoding.xa_sse.243.81.0
+text 243
+end
+rule encoding.xa_sse.243.81.1
+text 81
+end
+rule encoding.xa_sse.243.17.0
+text 243
+end
+rule encoding.xa_sse.243.17.1
+text 17
+end
+rule encoding.xa_sse.243.16.0
+text 243
+end
+rule encoding.xa_sse.243.16.1
+text 16
+end
+rule encoding.xa_sse.0.46.0
+text 0
+end
+rule encoding.xa_sse.0.46.1
+text 46
+end
+rule encoding.xa_sse.0.47.0
+text 0
+end
+rule encoding.xa_sse.0.47.1
+text 47
+end
+rule encoding.xa_sse.243.44.0
+text 243
+end
+rule encoding.xa_sse.243.44.1
+text 44
+end
+rule encoding.xa_sse.243.42.0
+text 243
+end
+rule encoding.xa_sse.243.42.1
+text 42
+end
+rule encoding.xa_sse.102.46.0
+text 102
+end
+rule encoding.xa_sse.102.46.1
+text 46
+end
+rule encoding.xa_sse.102.47.0
+text 102
+end
+rule encoding.xa_sse.102.47.1
+text 47
+end
+rule encoding.xa_sse.242.44.0
+text 242
+end
+rule encoding.xa_sse.242.44.1
+text 44
+end
+rule encoding.xa_sse.242.42.0
+text 242
+end
+rule encoding.xa_sse.242.42.1
+text 42
+end
+rule encoding.xa_sse.242.90.0
+text 242
+end
+rule encoding.xa_sse.242.90.1
+text 90
+end
+rule encoding.xa_sse.243.90.0
+text 243
+end
+rule encoding.xa_sse.243.90.1
+text 90
+end
+rule encoding.xa_sse.102.84.0
+text 102
+end
+rule encoding.xa_sse.102.84.1
+text 84
+end
+rule encoding.xa_sse.102.86.0
+text 102
+end
+rule encoding.xa_sse.102.86.1
+text 86
+end
+rule encoding.xa_sse.102.40.0
+text 102
+end
+rule encoding.xa_sse.102.40.1
+text 40
+end
+rule encoding.xa_sse.242.17.0
+text 242
+end
+rule encoding.xa_sse.242.17.1
+text 17
+end
+rule encoding.xa_sse.242.16.0
+text 242
+end
+rule encoding.xa_sse.242.16.1
+text 16
+end
+rule encoding.xa_shift.4.0
+text 4
+end
+rule encoding.xa_shift.5.0
+text 5
+end
+rule encoding.xa_shift.7.0
+text 7
+end
+rule encoding.xa_shift.0.0
+text 0
+end
+rule encoding.xa_shift.1.0
+text 1
+end
+rule encoding.xa_grp3.2.0
+text 2
+end
+rule encoding.xa_grp3.3.0
+text 3
+end
+rule encoding.xa_grp3.4.0
+text 4
+end
+rule encoding.xa_grp3.7.0
+text 7
+end
+rule encoding.xa_grp3.6.0
+text 6
+end
+rule encoding.xa_setcc.148.0
+text 148
+end
+rule encoding.xa_setcc.149.0
+text 149
+end
+rule encoding.xa_setcc.156.0
+text 156
+end
+rule encoding.xa_setcc.157.0
+text 157
+end
+rule encoding.xa_setcc.158.0
+text 158
+end
+rule encoding.xa_setcc.159.0
+text 159
+end
+rule encoding.xa_setcc.146.0
+text 146
+end
+rule encoding.xa_setcc.147.0
+text 147
+end
+rule encoding.xa_setcc.150.0
+text 150
+end
+rule encoding.xa_setcc.151.0
+text 151
+end
+rule encoding.xa_setcc.154.0
+text 154
+end
+rule encoding.xa_setcc.155.0
+text 155
+end
+rule encoding.xa_branch.233.0.0
+text 233
+end
+rule encoding.xa_branch.233.0.1
+text 0
+end
+rule encoding.xa_branch.0.132.0
+text 0
+end
+rule encoding.xa_branch.0.132.1
+text 132
+end
+rule encoding.xa_branch.0.133.0
+text 0
+end
+rule encoding.xa_branch.0.133.1
+text 133
+end
+rule encoding.xa_branch.0.140.0
+text 0
+end
+rule encoding.xa_branch.0.140.1
+text 140
+end
+rule encoding.xa_branch.0.141.0
+text 0
+end
+rule encoding.xa_branch.0.141.1
+text 141
+end
+rule encoding.xa_branch.0.142.0
+text 0
+end
+rule encoding.xa_branch.0.142.1
+text 142
+end
+rule encoding.xa_branch.0.143.0
+text 0
+end
+rule encoding.xa_branch.0.143.1
+text 143
+end
+rule encoding.xa_branch.0.130.0
+text 0
+end
+rule encoding.xa_branch.0.130.1
+text 130
+end
+rule encoding.xa_branch.0.131.0
+text 0
+end
+rule encoding.xa_branch.0.131.1
+text 131
+end
+rule encoding.xa_branch.0.134.0
+text 0
+end
+rule encoding.xa_branch.0.134.1
+text 134
+end
+rule encoding.xa_branch.0.135.0
+text 0
+end
+rule encoding.xa_branch.0.135.1
+text 135
+end
+rule encoding.xa_branch.0.136.0
+text 0
+end
+rule encoding.xa_branch.0.136.1
+text 136
+end
+rule encoding.xa_branch.0.137.0
+text 0
+end
+rule encoding.xa_branch.0.137.1
+text 137
+end
+rule encoding.xa_branch.0.138.0
+text 0
+end
+rule encoding.xa_branch.0.138.1
+text 138
+end
+rule encoding.xa_branch.0.139.0
+text 0
+end
+rule encoding.xa_branch.0.139.1
+text 139
+end
+rule encoding.xa_branch.232.0.0
+text 232
+end
+rule encoding.xa_branch.232.0.1
+text 0
+end
+rule format.version
+text 1
+end
+rule type.pointer
+text 8
+end
+rule type.long
+text 8
+end
+rule abi.stack.word
+text 8
+end
+rule abi.integer.count
+text 6
+end
+rule register.names
+text al cl dl bl ah ch dh bh ax cx dx bx sp bp si di eax ecx edx ebx esp ebp esi edi rax rcx rdx rbx rsp rbp rsi rdi r8 r8d r8w r8b r9 r9d r9w r9b r10 r10d r10w r10b r11 r11d r11w r11b r12 r12d r12w r12b r13 r13d r13w r13b r14 r14d r14w r14b r15 r15d r15w r15b xmm0 xmm1 xmm2 xmm3 xmm4 xmm5 xmm6 xmm7 xmm8 xmm9 xmm10 xmm11 xmm12 xmm13 xmm14 xmm15
+end
+rule register.al
+text 0 1
+end
+rule register.cl
+text 1 1
+end
+rule register.dl
+text 2 1
+end
+rule register.bl
+text 3 1
+end
+rule register.ah
+text 4 1
+end
+rule register.ch
+text 5 1
+end
+rule register.dh
+text 6 1
+end
+rule register.bh
+text 7 1
+end
+rule register.ax
+text 0 2
+end
+rule register.cx
+text 1 2
+end
+rule register.dx
+text 2 2
+end
+rule register.bx
+text 3 2
+end
+rule register.sp
+text 4 2
+end
+rule register.bp
+text 5 2
+end
+rule register.si
+text 6 2
+end
+rule register.di
+text 7 2
+end
+rule register.eax
+text 0 4
+end
+rule register.ecx
+text 1 4
+end
+rule register.edx
+text 2 4
+end
+rule register.ebx
+text 3 4
+end
+rule register.esp
+text 4 4
+end
+rule register.ebp
+text 5 4
+end
+rule register.esi
+text 6 4
+end
+rule register.edi
+text 7 4
+end
+rule register.rax
+text 0 8
+end
+rule register.rcx
+text 1 8
+end
+rule register.rdx
+text 2 8
+end
+rule register.rbx
+text 3 8
+end
+rule register.rsp
+text 4 8
+end
+rule register.rbp
+text 5 8
+end
+rule register.rsi
+text 6 8
+end
+rule register.rdi
+text 7 8
+end
+rule register.r8
+text 8 8
+end
+rule register.r8d
+text 8 4
+end
+rule register.r8w
+text 8 2
+end
+rule register.r8b
+text 8 1
+end
+rule register.r9
+text 9 8
+end
+rule register.r9d
+text 9 4
+end
+rule register.r9w
+text 9 2
+end
+rule register.r9b
+text 9 1
+end
+rule register.r10
+text 10 8
+end
+rule register.r10d
+text 10 4
+end
+rule register.r10w
+text 10 2
+end
+rule register.r10b
+text 10 1
+end
+rule register.r11
+text 11 8
+end
+rule register.r11d
+text 11 4
+end
+rule register.r11w
+text 11 2
+end
+rule register.r11b
+text 11 1
+end
+rule register.r12
+text 12 8
+end
+rule register.r12d
+text 12 4
+end
+rule register.r12w
+text 12 2
+end
+rule register.r12b
+text 12 1
+end
+rule register.r13
+text 13 8
+end
+rule register.r13d
+text 13 4
+end
+rule register.r13w
+text 13 2
+end
+rule register.r13b
+text 13 1
+end
+rule register.r14
+text 14 8
+end
+rule register.r14d
+text 14 4
+end
+rule register.r14w
+text 14 2
+end
+rule register.r14b
+text 14 1
+end
+rule register.r15
+text 15 8
+end
+rule register.r15d
+text 15 4
+end
+rule register.r15w
+text 15 2
+end
+rule register.r15b
+text 15 1
+end
+rule register.xmm0
+text 0 16
+end
+rule register.xmm1
+text 1 16
+end
+rule register.xmm2
+text 2 16
+end
+rule register.xmm3
+text 3 16
+end
+rule register.xmm4
+text 4 16
+end
+rule register.xmm5
+text 5 16
+end
+rule register.xmm6
+text 6 16
+end
+rule register.xmm7
+text 7 16
+end
+rule register.xmm8
+text 8 16
+end
+rule register.xmm9
+text 9 16
+end
+rule register.xmm10
+text 10 16
+end
+rule register.xmm11
+text 11 16
+end
+rule register.xmm12
+text 12 16
+end
+rule register.xmm13
+text 13 16
+end
+rule register.xmm14
+text 14 16
+end
+rule register.xmm15
+text 15 16
+end
+rule abi.arg64.0
+text rdi
+end
+rule abi.arg32.0
+text edi
+end
+rule abi.arg64.1
+text rsi
+end
+rule abi.arg32.1
+text esi
+end
+rule abi.arg64.2
+text rdx
+end
+rule abi.arg32.2
+text edx
+end
+rule abi.arg64.3
+text rcx
+end
+rule abi.arg32.3
+text ecx
+end
+rule abi.arg64.4
+text r8
+end
+rule abi.arg32.4
+text r8d
+end
+rule abi.arg64.5
+text r9
+end
+rule abi.arg32.5
+text r9d
+end
+rule scalar32.s.add
+text     pop rcx\n    pop rax\n    add eax, ecx\n    push rax\n
+end
+rule scalar32.s.sub
+text     pop rcx\n    pop rax\n    sub eax, ecx\n    push rax\n
+end
+rule scalar32.s.and
+text     pop rcx\n    pop rax\n    and eax, ecx\n    push rax\n
+end
+rule scalar32.s.or
+text     pop rcx\n    pop rax\n    or eax, ecx\n    push rax\n
+end
+rule scalar32.s.xor
+text     pop rcx\n    pop rax\n    xor eax, ecx\n    push rax\n
+end
+rule scalar32.s.mul
+text     pop rcx\n    pop rax\n    imul eax, ecx\n    push rax\n
+end
+rule scalar32.s.div
+text     pop rcx\n    pop rax\n    cdq\n    idiv ecx\n    push rax\n
+end
+rule scalar32.s.mod
+text     pop rcx\n    pop rax\n    cdq\n    idiv ecx\n    push rdx\n
+end
+rule scalar32.s.shl
+text     pop rcx\n    pop rax\n    shl eax, cl\n    push rax\n
+end
+rule scalar32.s.shr
+text     pop rcx\n    pop rax\n    sar eax, cl\n    push rax\n
+end
+rule scalar32.s.eq
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.s.ne
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setne al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.s.lt
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setl al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.s.gt
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setg al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.s.le
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setle al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.s.ge
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setge al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.u.add
+text     pop rcx\n    pop rax\n    add eax, ecx\n    push rax\n
+end
+rule scalar32.u.sub
+text     pop rcx\n    pop rax\n    sub eax, ecx\n    push rax\n
+end
+rule scalar32.u.and
+text     pop rcx\n    pop rax\n    and eax, ecx\n    push rax\n
+end
+rule scalar32.u.or
+text     pop rcx\n    pop rax\n    or eax, ecx\n    push rax\n
+end
+rule scalar32.u.xor
+text     pop rcx\n    pop rax\n    xor eax, ecx\n    push rax\n
+end
+rule scalar32.u.mul
+text     pop rcx\n    pop rax\n    imul eax, ecx\n    push rax\n
+end
+rule scalar32.u.div
+text     pop rcx\n    pop rax\n    xor edx, edx\n    div ecx\n    push rax\n
+end
+rule scalar32.u.mod
+text     pop rcx\n    pop rax\n    xor edx, edx\n    div ecx\n    push rdx\n
+end
+rule scalar32.u.shl
+text     pop rcx\n    pop rax\n    shl eax, cl\n    push rax\n
+end
+rule scalar32.u.shr
+text     pop rcx\n    pop rax\n    shr eax, cl\n    push rax\n
+end
+rule scalar32.u.eq
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.u.ne
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setne al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.u.lt
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setb al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.u.gt
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    seta al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.u.le
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setbe al\n    movzx eax, al\n    push rax\n
+end
+rule scalar32.u.ge
+text     pop rcx\n    pop rax\n    cmp eax, ecx\n    setae al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.s.add
+text     pop rcx\n    pop rax\n    add rax, rcx\n    push rax\n
+end
+rule scalar64.s.sub
+text     pop rcx\n    pop rax\n    sub rax, rcx\n    push rax\n
+end
+rule scalar64.s.and
+text     pop rcx\n    pop rax\n    and rax, rcx\n    push rax\n
+end
+rule scalar64.s.or
+text     pop rcx\n    pop rax\n    or rax, rcx\n    push rax\n
+end
+rule scalar64.s.xor
+text     pop rcx\n    pop rax\n    xor rax, rcx\n    push rax\n
+end
+rule scalar64.s.mul
+text     pop rcx\n    pop rax\n    imul rax, rcx\n    push rax\n
+end
+rule scalar64.s.div
+text     pop rcx\n    pop rax\n    cqo\n    idiv rcx\n    push rax\n
+end
+rule scalar64.s.mod
+text     pop rcx\n    pop rax\n    cqo\n    idiv rcx\n    push rdx\n
+end
+rule scalar64.s.shl
+text     pop rcx\n    pop rax\n    shl rax, cl\n    push rax\n
+end
+rule scalar64.s.shr
+text     pop rcx\n    pop rax\n    sar rax, cl\n    push rax\n
+end
+rule scalar64.s.eq
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.s.ne
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setne al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.s.lt
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setl al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.s.gt
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setg al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.s.le
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setle al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.s.ge
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setge al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.u.add
+text     pop rcx\n    pop rax\n    add rax, rcx\n    push rax\n
+end
+rule scalar64.u.sub
+text     pop rcx\n    pop rax\n    sub rax, rcx\n    push rax\n
+end
+rule scalar64.u.and
+text     pop rcx\n    pop rax\n    and rax, rcx\n    push rax\n
+end
+rule scalar64.u.or
+text     pop rcx\n    pop rax\n    or rax, rcx\n    push rax\n
+end
+rule scalar64.u.xor
+text     pop rcx\n    pop rax\n    xor rax, rcx\n    push rax\n
+end
+rule scalar64.u.mul
+text     pop rcx\n    pop rax\n    imul rax, rcx\n    push rax\n
+end
+rule scalar64.u.div
+text     pop rcx\n    pop rax\n    xor edx, edx\n    div rcx\n    push rax\n
+end
+rule scalar64.u.mod
+text     pop rcx\n    pop rax\n    xor edx, edx\n    div rcx\n    push rdx\n
+end
+rule scalar64.u.shl
+text     pop rcx\n    pop rax\n    shl rax, cl\n    push rax\n
+end
+rule scalar64.u.shr
+text     pop rcx\n    pop rax\n    shr rax, cl\n    push rax\n
+end
+rule scalar64.u.eq
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.u.ne
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setne al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.u.lt
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setb al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.u.gt
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    seta al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.u.le
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setbe al\n    movzx eax, al\n    push rax\n
+end
+rule scalar64.u.ge
+text     pop rcx\n    pop rax\n    cmp rax, rcx\n    setae al\n    movzx eax, al\n    push rax\n
+end
+rule text.315cff705ce8e96c
+text .byte
+end
+rule text.36316f60cbea771f
+text .word
+end
+rule text.46303c2508c7b7c8
+text .long
+end
+rule text.894f405db0ceb0e2
+text .quad
+end
+rule text.d4a3ff058ef4428a
+text     .quad .Lgstr_
+end
+rule text.ded4af16bb21ec91
+text     .long .Lgstr_
+end
+rule text.e7ac0786668e0ff0
+text :
+end
+rule text.e3b0c44298fc1c14
+text
+end
+rule text.344ade76d4acecae
+text     movzx eax, al\n
+end
+rule text.fe88e51f8712bfcd
+text     movsx eax, al\n
+end
+rule text.edd53f9a0d5b9f63
+text     movzx eax, ax\n
+end
+rule text.8832c5e95cb1e8dd
+text     movsx eax, ax\n
+end
+rule text.054bf5894365747f
+text shr ebx, cl\n
+end
+rule text.5c8ed08f641c8a16
+text sar ebx, cl\n
+end
+rule text.6082778eecf4e8dd
+text shr eax, cl\n    xor ebx, ebx\n
+end
+rule text.2dfc378c712e8c2e
+text sar eax, cl\n    sar ebx, 31\n
+end
+rule text.d382154c42ac8a78
+text     movzx eax, byte ptr\x20
+end
+rule text.57f7fa00b5a14b35
+text     movsx eax, byte ptr\x20
+end
+rule text.adc6c614f58d2450
+text     movzx eax, word ptr\x20
+end
+rule text.96b670cf0b0d1b8b
+text     movsx eax, word ptr\x20
+end
+rule text.6d4d1dcbcda76ecd
+text     movzx eax, byte ptr [
+end
+rule text.719d4e0b279b0046
+text     movsx eax, byte ptr [
+end
+rule text.1a1f6255007ca43a
+text     movzx eax, word ptr [
+end
+rule text.b862f0104b5e524d
+text     movsx eax, word ptr [
+end
+rule text.320286e1233ba360
+text     movzx eax, byte ptr [rax]\n
+end
+rule text.f43341e99fe36f5d
+text     movsx eax, byte ptr [rax]\n
+end
+rule text.d3364f83450cc6cb
+text     movzx eax, word ptr [rax]\n
+end
+rule text.e9559e54b3b4eded
+text     movsx eax, word ptr [rax]\n
+end
+rule text.329878c2358781a6
+text     neg rax\n
+end
+rule text.4be3e7f0ae2e026e
+text     not rax\n
+end
+rule text.7c5dca04b91ccf52
+text jz .L
+end
+rule text.a472f8f0f8e38a6a
+text jnz .L
+end
+rule text.8bda95a54d415775
+text     xor edx, edx\n    div rcx\n
+end
+rule text.bc370da3c4dbbf24
+text     cqo\n    idiv rcx\n
+end
+rule text.b0d97196713fb33b
+text     shr rax, cl\n
+end
+rule text.b3ad277704da6177
+text     sar rax, cl\n
+end
+rule text.7e9e5ac30f2216fd
+text add
+end
+rule text.ddc6e2b224d0fd82
+text sub
+end
+rule text.6201111b83a0cb5b
+text and
+end
+rule text.7175517a370b5cd2
+text or
+end
+rule text.1ad321bd42eb7199
+text xor
+end
+rule text.7e974de45fbf7089
+text sete
+end
+rule text.2ebfda629113f6bc
+text setne
+end
+rule text.45b0a30471aa0a40
+text setb
+end
+rule text.c0f9a68a1e1d46ec
+text setl
+end
+rule text.8c8978cd7982d691
+text seta
+end
+rule text.50c15039fd24925d
+text setg
+end
+rule text.52842a6b5054f646
+text setbe
+end
+rule text.9c24a172eeb3546c
+text setle
+end
+rule text.f29a01dcd9f9f0d0
+text setae
+end
+rule text.b39541bead413722
+text setge
+end
+rule abi.inline32.0
+text eax
+end
+rule abi.inline64.0
+text rax
+end
+rule abi.inline32.1
+text ecx
+end
+rule abi.inline64.1
+text rcx
+end
+rule abi.inline32.2
+text edx
+end
+rule abi.inline64.2
+text rdx
+end
+rule encoding.byte.83
+text 131
+end
+rule encoding.byte.81
+text 129
+end
+rule encoding.byte.c7
+text 199
+end
+rule encoding.byte.0f
+text 15
+end
+rule encoding.byte.f3
+text 243
+end
+rule encoding.byte.7e
+text 126
+end
+rule encoding.byte.66
+text 102
+end
+rule encoding.byte.6e
+text 110
+end
+rule encoding.byte.d6
+text 214
+end
+rule encoding.byte.d3
+text 211
+end
+rule encoding.byte.c1
+text 193
+end
+rule encoding.byte.c6
+text 198
+end
+rule encoding.byte.63
+text 99
+end
+rule encoding.byte.6a
+text 106
+end
+rule encoding.byte.68
+text 104
+end
+rule encoding.byte.ff
+text 255
+end
+rule encoding.byte.8f
+text 143
+end
+rule encoding.byte.8d
+text 141
+end
+rule encoding.byte.85
+text 133
+end
+rule encoding.byte.a9
+text 169
+end
+rule encoding.byte.f7
+text 247
+end
+rule encoding.byte.af
+text 175
+end
+rule encoding.byte.69
+text 105
+end
+rule encoding.byte.99
+text 153
+end
+rule encoding.byte.98
+text 152
+end
+rule encoding.byte.c3
+text 195
+end
+rule encoding.byte.90
+text 144
+end
+rule encoding.byte.a4
+text 164
+end
+rule encoding.byte.a5
+text 165
+end
+rule encoding.byte.aa
+text 170
+end
+rule encoding.byte.ab
+text 171
+end
+rule encoding.byte.c9
+text 201
+end
+rule encoding.byte.cd
+text 205
+end
+rule encoding.byte.87
+text 135
+end
+rule encoding.constant.40
+text 64
+end
+rule encoding.constant.c0
+text 192
+end
+rule encoding.constant.02
+text 2
+end
+rule encoding.constant.66
+text 102
+end
+rule encoding.constant.ef
+text 239
+end
+rule encoding.constant.57
+text 87
+end
+rule encoding.constant.10
+text 16
+end
+rule encoding.constant.11
+text 17
+end
+rule encoding.constant.28
+text 40
+end
+rule encoding.constant.29
+text 41
+end
+rule encoding.constant.f3
+text 243
+end
+rule encoding.constant.6f
+text 111
+end
+rule encoding.constant.7f
+text 127
+end
+rule encoding.constant.a4
+text 164
+end
+rule encoding.constant.a5
+text 165
+end
+rule encoding.constant.aa
+text 170
+end
+rule encoding.constant.ab
+text 171
+end
+rule encoding.constant.ac
+text 172
+end
+rule encoding.constant.ae
+text 174
+end
+rule encoding.constant.a6
+text 166
+end
+rule encoding.constant.90
+text 144
+end
+rule encoding.rep.count
+text 10
+end
+rule encoding.rep.0.name
+text movsb
+end
+rule encoding.rep.0.prefix
+text 0
+end
+rule encoding.rep.0.op
+text 164
+end
+rule encoding.rep.1.name
+text movsw
+end
+rule encoding.rep.1.prefix
+text 102
+end
+rule encoding.rep.1.op
+text 165
+end
+rule encoding.rep.2.name
+text movsd
+end
+rule encoding.rep.2.prefix
+text 0
+end
+rule encoding.rep.2.op
+text 165
+end
+rule encoding.rep.3.name
+text movsq
+end
+rule encoding.rep.3.prefix
+text 64
+end
+rule encoding.rep.3.op
+text 165
+end
+rule encoding.rep.4.name
+text stosb
+end
+rule encoding.rep.4.prefix
+text 0
+end
+rule encoding.rep.4.op
+text 170
+end
+rule encoding.rep.5.name
+text stosd
+end
+rule encoding.rep.5.prefix
+text 0
+end
+rule encoding.rep.5.op
+text 171
+end
+rule encoding.rep.6.name
+text stosq
+end
+rule encoding.rep.6.prefix
+text 64
+end
+rule encoding.rep.6.op
+text 171
+end
+rule encoding.rep.7.name
+text lodsb
+end
+rule encoding.rep.7.prefix
+text 0
+end
+rule encoding.rep.7.op
+text 172
+end
+rule encoding.rep.8.name
+text scasb
+end
+rule encoding.rep.8.prefix
+text 0
+end
+rule encoding.rep.8.op
+text 174
+end
+rule encoding.rep.9.name
+text cmpsb
+end
+rule encoding.rep.9.prefix
+text 0
+end
+rule encoding.rep.9.op
+text 166
+end
+rule encoding.rex.w
+text 8
+end
+rule encoding.rex.r
+text 4
+end
+rule encoding.rex.x
+text 2
+end
+rule encoding.rex.b
+text 1
+end
+rule abi.stack.argument_base
+text 16
+end
+rule abi.vector.count
+text 8
+end
+rule encoding.rex.extended_start
+text 8
+end
+rule sequence.pair.pop64
+text     pop ${2}\n    pop ${0}\n    mov ${1}, ${1}\n    shl ${2}, 32\n    or ${0}, ${2}\n
+end
+rule sequence.pair.push64
+text     mov ${2}, ${0}\n    shr ${2}, 32\n    mov ${1}, ${1}\n    push ${0}\n    push ${2}\n
+end
+rule abi.pair_scratch.rax
+text rdx
+end
+rule abi.pair_scratch.rcx
+text rdx
+end
+rule abi.pair_scratch.rdx
+text rcx
+end
+rule abi.pair_scratch.rbx
+text rdx
+end
+rule abi.pair_scratch.rsi
+text rdx
+end
+rule abi.pair_scratch.rdi
+text rdx
+end
+rule abi.pair_scratch.r8
+text rdx
+end
+rule abi.pair_scratch.r9
+text rdx
+end
+rule abi.pair_scratch.r10
+text rdx
+end
+rule abi.pair_scratch.r11
+text rdx
+end

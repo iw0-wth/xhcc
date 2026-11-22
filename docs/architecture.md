@@ -9,7 +9,7 @@
 - src/driver.c、src/cli/package_options.c：统一请求解析与配置驱动参数映射。
 - src/packages.c：配置发现、工具别名、目标默认值、外部资源和编码规则路径。
 - src/backend/{arm,riscv32,x86_64,c}：当前机器目标和C发射器。
-- src/backend/rules：共享字段编码规则VM；外部RV32 R/I/S/B/U/J布局。
+- src/backend/rules：共享字段编码、RV32指令序列选择和全目标模板VM；ARM/RV32编码表与ARM/x86/AMD64/C发射模板外置。
 - object：标准ELF32/64、符号、重定位和GNU数据定义。
 - src/core：编译调度、CPU、配置、arena、私有对象和兼容链接。
 - src/diagnostics、src/platform/wasi：诊断及WASI文件/标准流/时间适配。
