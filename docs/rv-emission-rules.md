@@ -53,6 +53,24 @@ supported convention. The runtime self-call/long-argument/variadic/sret tests
 cover that implemented convention; external-tool ABI interoperability needs
 separate target-runtime gates.
 
+## Scalar soft-float and conversion selection
+
+The shared semantic table additionally supplies 38 complete scalar soft-float
+sequences: float/double ADD/SUB/MUL/DIV, six comparisons at both widths,
+signed/unsigned int32/int64 conversions in both directions, and float/double
+narrow/widen. Native code normalizes the IR operation and type flags; helper
+names, argument pop/shuffle, result pushes and comparison-to-boolean sequences
+come from selected package templates. Complex arithmetic and the general
+64-bit integer operator state machine remain native-control paths this round.
+
+Soft-float ABI tests provide integer helper fixtures that return observable
+floating-point bit patterns, so they validate helper choice and register/stack
+marshalling. They are not an IEEE arithmetic runtime and do not establish
+numerical correctness for arbitrary floats, NaNs, infinities or rounding modes.
+A copied package redirects only the FADD semantic record to the FSUB sequence;
+unchanged compiler/helper code then returns the different fixture bit pattern.
+Real libgcc/libm interoperability requires a separate RISC-V runtime gate.
+
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for
 their native engine family. The shared template VM enforces syntax, bounds,

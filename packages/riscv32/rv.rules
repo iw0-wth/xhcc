@@ -1143,6 +1143,120 @@ end
 rule semantic.index.store.32.1
 text     sb t0, 0(t1)\n    srli t2, t0, 8\n    sb t2, 1(t1)\n    srli t2, t0, 16\n    sb t2, 2(t1)\n    srli t2, t0, 24\n    sb t2, 3(t1)\n
 end
+rule softfloat.add.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __addsf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.sub.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __subsf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.mul.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __mulsf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.div.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __divsf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.eq.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __eqsf2\n    seqz a0, a0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.ne.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __nesf2\n    snez a0, a0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.lt.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __ltsf2\n    slti a0, a0, 0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.gt.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __gtsf2\n    slt a0, x0, a0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.le.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __lesf2\n    slti a0, a0, 1\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.ge.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __gesf2\n    slti a0, a0, 0\n    xori a0, a0, 1\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.f2i32.s.f32
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __fixsfsi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.i322f.s.f32
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call\x20__floatsisf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.f2i64.s.f32
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __fixsfdi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.i642f.s.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call\x20__floatdisf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.f2i32.u.f32
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __fixunssfsi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.i322f.u.f32
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call\x20__floatunsisf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.f2i64.u.f32
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __fixunssfdi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.i642f.u.f32
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call\x20__floatundisf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.add.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __adddf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule softfloat.sub.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __subdf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule softfloat.mul.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __muldf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule softfloat.div.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __divdf3\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule softfloat.cmp.eq.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __eqdf2\n    seqz a0, a0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.ne.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __nedf2\n    snez a0, a0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.lt.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __ltdf2\n    slti a0, a0, 0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.gt.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __gtdf2\n    slt a0, x0, a0\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.le.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __ledf2\n    slti a0, a0, 1\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule softfloat.cmp.ge.f64
+text     lw t3, 0(sp)\n    lw t2, 4(sp)\n    lw t1, 8(sp)\n    lw t0, 12(sp)\n    addi sp, sp, 16\n    mv a0, t0\n    mv a1, t1\n    mv a2, t2\n    mv a3, t3\n    call __gedf2\n    slti a0, a0, 0\n    xori a0, a0, 1\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.f2i32.s.f64
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __fixdfsi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.i322f.s.f64
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call\x20__floatsidf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.f2i64.s.f64
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __fixdfdi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.i642f.s.f64
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call\x20__floatdidf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.f2i32.u.f64
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __fixunsdfsi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.i322f.u.f64
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call\x20__floatunsidf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.f2i64.u.f64
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __fixunsdfdi\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.i642f.u.f64
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call\x20__floatundidf\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
+rule convert.f2f.narrow
+text     lw t1, 0(sp)\n    lw t0, 4(sp)\n    addi sp, sp, 8\n    mv a0, t0\n    mv a1, t1\n    call __truncdfsf2\n    addi sp, sp, -4\n    sw a0, 0(sp)\n
+end
+rule convert.f2f.widen
+text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __extendsfdf2\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
+end
 rule semantic.records
-text XHSEMANTIC 1\nmemory load 8 s index_aligned semantic.index.load.8.0 0 1\nmemory store 8 v index_aligned semantic.index.store.8.0 0 0\nmemory load 8 s index_packed semantic.index.load.8.1 0 1\nmemory store 8 v index_packed semantic.index.store.8.1 0 0\nmemory load 16 s index_aligned semantic.index.load.16.0 0 1\nmemory store 16 v index_aligned semantic.index.store.16.0 0 0\nmemory load 16 s index_packed semantic.index.load.16.1 0 1\nmemory store 16 v index_packed semantic.index.store.16.1 0 0\nmemory load 32 s index_aligned semantic.index.load.32.0 0 1\nmemory store 32 v index_aligned semantic.index.store.32.0 0 0\nmemory load 32 s index_packed semantic.index.load.32.1 0 1\nmemory store 32 v index_packed semantic.index.store.32.1 0 0\naddress scale 16 v index emit.fixed.0126 0 0\naddress scale 32 v index emit.fixed.0127 0 0\naddress scale 64 v index emit.fixed.0128 0 0\naddress scale 128 v index emit.fixed.0129 0 0\nunary neg 32 v stack unary.neg.i32 1 1\nunary not 32 v stack unary.not.i32 1 1\nunary lnot 32 v stack unary.lnot.i32 1 1\nunary identity 32 v stack unary.identity.i32 1 1\ncast trunc 8 s stack cast.trunc.s8 1 1\ncast trunc 8 u stack cast.trunc.u8 1 1\ncast trunc 16 s stack cast.trunc.s16 1 1\ncast trunc 16 u stack cast.trunc.u16 1 1\ncast trunc 32 s stack cast.trunc.32 1 1\ncast trunc 32 u stack cast.trunc.32 1 1\naddress frame 32 negative local address.frame.negative 0 0\naddress frame 32 positive local address.frame.positive 0 0\nmemory load 8 s local semantic.load.s8 0 1\nmemory load 8 u local semantic.load.u8 0 1\nmemory load 16 s local semantic.load.s16 0 1\nmemory load 16 u local semantic.load.u16 0 1\nmemory load 32 s local semantic.load.s32 0 1\nmemory load 32 u local semantic.load.u32 0 1\nmemory store 8 v local semantic.store.8 0 0\nmemory store 16 v local semantic.store.16 0 0\nmemory store 32 v local semantic.store.32 0 0\n
+text XHSEMANTIC 1\nfloat.bin add 32 real stack softfloat.add.f32 2 1\nfloat.bin sub 32 real stack softfloat.sub.f32 2 1\nfloat.bin mul 32 real stack softfloat.mul.f32 2 1\nfloat.bin div 32 real stack softfloat.div.f32 2 1\nfloat.cmp eq 32 real stack softfloat.cmp.eq.f32 2 1\nfloat.cmp ne 32 real stack softfloat.cmp.ne.f32 2 1\nfloat.cmp lt 32 real stack softfloat.cmp.lt.f32 2 1\nfloat.cmp gt 32 real stack softfloat.cmp.gt.f32 2 1\nfloat.cmp le 32 real stack softfloat.cmp.le.f32 2 1\nfloat.cmp ge 32 real stack softfloat.cmp.ge.f32 2 1\nconvert f2i32 32 s stack convert.f2i32.s.f32 1 1\nconvert i322f 32 s stack convert.i322f.s.f32 1 1\nconvert f2i64 32 s stack convert.f2i64.s.f32 1 2\nconvert i642f 32 s stack convert.i642f.s.f32 2 1\nconvert f2i32 32 u stack convert.f2i32.u.f32 1 1\nconvert i322f 32 u stack convert.i322f.u.f32 1 1\nconvert f2i64 32 u stack convert.f2i64.u.f32 1 2\nconvert i642f 32 u stack convert.i642f.u.f32 2 1\nfloat.bin add 64 real stack softfloat.add.f64 4 2\nfloat.bin sub 64 real stack softfloat.sub.f64 4 2\nfloat.bin mul 64 real stack softfloat.mul.f64 4 2\nfloat.bin div 64 real stack softfloat.div.f64 4 2\nfloat.cmp eq 64 real stack softfloat.cmp.eq.f64 4 1\nfloat.cmp ne 64 real stack softfloat.cmp.ne.f64 4 1\nfloat.cmp lt 64 real stack softfloat.cmp.lt.f64 4 1\nfloat.cmp gt 64 real stack softfloat.cmp.gt.f64 4 1\nfloat.cmp le 64 real stack softfloat.cmp.le.f64 4 1\nfloat.cmp ge 64 real stack softfloat.cmp.ge.f64 4 1\nconvert f2i32 64 s stack convert.f2i32.s.f64 2 1\nconvert i322f 64 s stack convert.i322f.s.f64 1 2\nconvert f2i64 64 s stack convert.f2i64.s.f64 2 2\nconvert i642f 64 s stack convert.i642f.s.f64 2 2\nconvert f2i32 64 u stack convert.f2i32.u.f64 2 1\nconvert i322f 64 u stack convert.i322f.u.f64 1 2\nconvert f2i64 64 u stack convert.f2i64.u.f64 2 2\nconvert i642f 64 u stack convert.i642f.u.f64 2 2\nconvert narrow 64 real stack convert.f2f.narrow 2 1\nconvert widen 32 real stack convert.f2f.widen 1 2\nmemory load 8 s index_aligned semantic.index.load.8.0 0 1\nmemory store 8 v index_aligned semantic.index.store.8.0 0 0\nmemory load 8 s index_packed semantic.index.load.8.1 0 1\nmemory store 8 v index_packed semantic.index.store.8.1 0 0\nmemory load 16 s index_aligned semantic.index.load.16.0 0 1\nmemory store 16 v index_aligned semantic.index.store.16.0 0 0\nmemory load 16 s index_packed semantic.index.load.16.1 0 1\nmemory store 16 v index_packed semantic.index.store.16.1 0 0\nmemory load 32 s index_aligned semantic.index.load.32.0 0 1\nmemory store 32 v index_aligned semantic.index.store.32.0 0 0\nmemory load 32 s index_packed semantic.index.load.32.1 0 1\nmemory store 32 v index_packed semantic.index.store.32.1 0 0\naddress scale 16 v index emit.fixed.0126 0 0\naddress scale 32 v index emit.fixed.0127 0 0\naddress scale 64 v index emit.fixed.0128 0 0\naddress scale 128 v index emit.fixed.0129 0 0\nunary neg 32 v stack unary.neg.i32 1 1\nunary not 32 v stack unary.not.i32 1 1\nunary lnot 32 v stack unary.lnot.i32 1 1\nunary identity 32 v stack unary.identity.i32 1 1\ncast trunc 8 s stack cast.trunc.s8 1 1\ncast trunc 8 u stack cast.trunc.u8 1 1\ncast trunc 16 s stack cast.trunc.s16 1 1\ncast trunc 16 u stack cast.trunc.u16 1 1\ncast trunc 32 s stack cast.trunc.32 1 1\ncast trunc 32 u stack cast.trunc.32 1 1\naddress frame 32 negative local address.frame.negative 0 0\naddress frame 32 positive local address.frame.positive 0 0\nmemory load 8 s local semantic.load.s8 0 1\nmemory load 8 u local semantic.load.u8 0 1\nmemory load 16 s local semantic.load.s16 0 1\nmemory load 16 u local semantic.load.u16 0 1\nmemory load 32 s local semantic.load.s32 0 1\nmemory load 32 u local semantic.load.u32 0 1\nmemory store 8 v local semantic.store.8 0 0\nmemory store 16 v local semantic.store.16 0 0\nmemory store 32 v local semantic.store.32 0 0\n
 end

@@ -203,6 +203,32 @@ return consume(a)==18 && consume(b)==26 && consume(c)==44 && packed(p)==36 && si
     if obj.exists():obj.unlink()
     self.invoke(root,'variant-gcc',source,obj,ok=False)
   self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_fp_semantic_sequences_bits_and_same_sha_variant(self):
+  source=OUT/'fp_semantic.c';source.write_text('''union F{float f;unsigned u;}; union D{double d;unsigned long long u;};
+float fadd(float a,float b){return a+b;} double dadd(double a,double b){return a+b;}
+int entry(void){union F f;union D d,n;float x=1.5f,y=2.0f;double a=7.5,b=2.5,z=0.0,mz=-0.0;unsigned u=4000000000u;
+f.f=fadd(x,y);d.d=dadd(a,b);n.u=0x7ff8000000000001ULL;
+return f.u==0x40600000u && d.u==0x4024000000000000ULL && (int)(a-b)==5 && (int)(a*b)==18 && (int)(a/b)==3
+&& (int)(x-y)==0 && (int)(x*y)==3 && (int)(x/y)==0 && a>b && b<a && a>=b && b<=a && a!=b && !(a==b)
+&& z==mz && !(z<mz) && !(z>mz) && n.d!=n.d && !(n.d==n.d) && !(n.d<z) && !(n.d<=z) && !(n.d>z) && !(n.d>=z)
+&& (unsigned)(double)u==u && (unsigned)(float)u==u && (int)(double)-123==-123 && (int)(float)-123==-123 && (double)(float)1.5==1.5;}
+''')
+  before=hashlib.sha256(self.compiler.read_bytes()).digest()
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-fp-select-') as tmp:
+    root=Path(tmp);pkg=self.package(root,target);obj=OUT/(target+'_fp_bits.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),1)
+    path=pkg/'x86.rules';base=path.read_text();probe=OUT/'fp_variant.c';probe.write_text('double calc(double a,double b){return a+b;}int entry(void){return (int)calc(10.5,3.5);}\n');outputs=[]
+    record='binary add 64 fp scalar fp.binary.add.64.fp.scalar 4 2'
+    self.assertIn(record,base)
+    for changed in [False,True]:
+     path.write_text(base.replace(record,'binary add 64 fp scalar fp.binary.sub.64.fp.scalar 4 2') if changed else base)
+     obj=OUT/(target+('_fp_changed.o' if changed else '_fp_base.o'));self.invoke(root,'variant-gcc',probe,obj);outputs.append(self.execute(obj,target=='x86_64'))
+    self.assertEqual(outputs,[14,7])
+    for idx,text in enumerate([base.replace(record,''),base.replace(record,record[:-3]+'3 2')]):
+     path.write_text(text);obj=OUT/(target+f'_fp_reject{idx}.o')
+     if obj.exists():obj.unlink()
+     self.invoke(root,'variant-gcc',probe,obj,ok=False)
+  self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

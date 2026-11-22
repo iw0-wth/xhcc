@@ -2865,3 +2865,102 @@ end
 rule abi.decision.17
 text 1 4 9 65535 1 4096 0 1 0 120 0 1 8 8 1 0
 end
+rule fp.binary.add.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    addsd xmm0, xmm1\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.binary.sub.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    subsd xmm0, xmm1\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.binary.mul.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    mulsd xmm0, xmm1\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.binary.div.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    divsd xmm0, xmm1\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.compare.eq.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ucomisd xmm0, xmm1\n    sete al\n    setnp cl\n    and al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.ne.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ucomisd xmm0, xmm1\n    setne al\n    setp cl\n    or al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.lt.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ucomisd xmm0, xmm1\n    setb al\n    setnp cl\n    and al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.le.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ucomisd xmm0, xmm1\n    setbe al\n    setnp cl\n    and al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.gt.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ucomisd xmm0, xmm1\n    seta al\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.ge.32.fp.scalar
+text     pop rax\n    pop rcx\n    movq xmm0, rcx\n    movq xmm1, rax\n    cvtss2sd xmm0, xmm0\n    cvtss2sd xmm1, xmm1\n    ucomisd xmm0, xmm1\n    setae al\n    movzx eax, al\n    push rax\n
+end
+rule fp.convert.i2f.32.signed.scalar
+text     pop rax\n    movsxd rax, eax\n    cvtsi2sd xmm0, rax\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.convert.f2i.32.signed.scalar
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n    cvttsd2si eax, xmm0\n    push rax\n
+end
+rule fp.convert.i2f.32.unsigned.scalar
+text     pop rax\n    mov eax, eax\n    cvtsi2sd xmm0, rax\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.convert.f2i.32.unsigned.scalar
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n    cvttsd2si rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.binary.add.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    addsd xmm0, xmm1\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.binary.sub.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    subsd xmm0, xmm1\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.binary.mul.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    mulsd xmm0, xmm1\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.binary.div.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    divsd xmm0, xmm1\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.compare.eq.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    sete al\n    setnp cl\n    and al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.ne.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    setne al\n    setp cl\n    or al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.lt.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    setb al\n    setnp cl\n    and al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.le.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    setbe al\n    setnp cl\n    and al, cl\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.gt.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    seta al\n    movzx eax, al\n    push rax\n
+end
+rule fp.compare.ge.64.fp.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    movq xmm0, rcx\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    setae al\n    movzx eax, al\n    push rax\n
+end
+rule fp.convert.i2f.64.signed.scalar
+text     pop rax\n    movsxd rax, eax\n    cvtsi2sd xmm0, rax\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.convert.f2i.64.signed.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    movq xmm0, rax\n    cvttsd2si eax, xmm0\n    push rax\n
+end
+rule fp.convert.i2f.64.unsigned.scalar
+text     pop rax\n    mov eax, eax\n    cvtsi2sd xmm0, rax\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.convert.f2i.64.unsigned.scalar
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    movq xmm0, rax\n    cvttsd2si rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.convert.f2f.32.fp.to64
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule fp.convert.f2f.64.fp.to32
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    movq xmm0, rax\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule fp.convert.f2f.32.fp.to32
+text
+end
+rule fp.convert.f2f.64.fp.to64
+text
+end
+rule semantic.fp
+text XHSEMANTIC 1\nbinary add 32 fp scalar fp.binary.add.32.fp.scalar 2 1\nbinary sub 32 fp scalar fp.binary.sub.32.fp.scalar 2 1\nbinary mul 32 fp scalar fp.binary.mul.32.fp.scalar 2 1\nbinary div 32 fp scalar fp.binary.div.32.fp.scalar 2 1\ncompare eq 32 fp scalar fp.compare.eq.32.fp.scalar 2 1\ncompare ne 32 fp scalar fp.compare.ne.32.fp.scalar 2 1\ncompare lt 32 fp scalar fp.compare.lt.32.fp.scalar 2 1\ncompare le 32 fp scalar fp.compare.le.32.fp.scalar 2 1\ncompare gt 32 fp scalar fp.compare.gt.32.fp.scalar 2 1\ncompare ge 32 fp scalar fp.compare.ge.32.fp.scalar 2 1\nconvert i2f 32 signed scalar fp.convert.i2f.32.signed.scalar 1 1\nconvert f2i 32 signed scalar fp.convert.f2i.32.signed.scalar 1 1\nconvert i2f 32 unsigned scalar fp.convert.i2f.32.unsigned.scalar 1 1\nconvert f2i 32 unsigned scalar fp.convert.f2i.32.unsigned.scalar 1 1\nbinary add 64 fp scalar fp.binary.add.64.fp.scalar 4 2\nbinary sub 64 fp scalar fp.binary.sub.64.fp.scalar 4 2\nbinary mul 64 fp scalar fp.binary.mul.64.fp.scalar 4 2\nbinary div 64 fp scalar fp.binary.div.64.fp.scalar 4 2\ncompare eq 64 fp scalar fp.compare.eq.64.fp.scalar 4 1\ncompare ne 64 fp scalar fp.compare.ne.64.fp.scalar 4 1\ncompare lt 64 fp scalar fp.compare.lt.64.fp.scalar 4 1\ncompare le 64 fp scalar fp.compare.le.64.fp.scalar 4 1\ncompare gt 64 fp scalar fp.compare.gt.64.fp.scalar 4 1\ncompare ge 64 fp scalar fp.compare.ge.64.fp.scalar 4 1\nconvert i2f 64 signed scalar fp.convert.i2f.64.signed.scalar 1 2\nconvert f2i 64 signed scalar fp.convert.f2i.64.signed.scalar 2 1\nconvert i2f 64 unsigned scalar fp.convert.i2f.64.unsigned.scalar 1 2\nconvert f2i 64 unsigned scalar fp.convert.f2i.64.unsigned.scalar 2 1\nconvert f2f 32 fp to64 fp.convert.f2f.32.fp.to64 1 2\nconvert f2f 64 fp to32 fp.convert.f2f.64.fp.to32 2 1\nconvert f2f 32 fp to32 fp.convert.f2f.32.fp.to32 1 1\nconvert f2f 64 fp to64 fp.convert.f2f.64.fp.to64 2 2\n
+end

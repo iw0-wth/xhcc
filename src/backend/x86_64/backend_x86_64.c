@@ -55,6 +55,16 @@ static XhX86AbiClass x86_type_class(Type *type,int result,int variadic,int index
     xh_x86_classify(result,kind,size,alignment>0?alignment:1,variadic,index,&value);return value;
 }
 
+static const char *x86_fp_operation(int op){
+    switch(op){case IR_FADD:return "add";case IR_FSUB:return "sub";case IR_FMUL:return "mul";case IR_FDIV:return "div";default:return "invalid";}
+}
+static const char *x86_fp_compare(int op){
+    switch(op){case TOK_EQ:return "eq";case TOK_NE:return "ne";case TOK_LT:return "lt";case TOK_LE:return "le";case TOK_GT:return "gt";case TOK_GE:return "ge";default:return "invalid";}
+}
+static void x86_fp_select(AsmBuffer *b,const char *family,const char *op,int width,const char *sign,const char *form,int pop,int push,const char *const *args,int count){
+    asmbuf_puts(b,xh_x86_semantic(family,op,width,sign,form,pop,push,args,count));
+}
+
 /* cdecl has no integer-class argument registers; all args are on the stack. */
 static const char *arg_reg(int i, int abi) {
     (void)i; (void)abi;
@@ -1556,146 +1566,36 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         asmbuf_puts(&buf, xh_x86_rule("text.9668ff9261324f75"));
                         asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
                         asmbuf_puts(&buf, xh_x86_rule("text.4a71ed58a4c7ae1d"));
-                    } else if ((I->aux & 0x200) != 0) {
-                        x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.010d4f88c41190b1"));
-                        x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.e7746556032f1280"));
-                        asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, xh_x86_rule("text.cb3f8202914f1fde"));
-                        x86_pair_swap_at(&buf, 0);
                     } else {
-                        /* float: one word per operand, single precision.
-                         * `addsd` on a 4-byte operand read the neighbouring
-                         * word as the high half of a double. */
-                        const char *ops = "addss";
-                        switch (I->op) {
-                            case IR_FSUB: ops = "subss"; break;
-                            case IR_FMUL: ops = "mulss"; break;
-                            case IR_FDIV: ops = "divss"; break;
-                            default: ops = "addss"; break;
-                        }
-                        asmbuf_puts(&buf, xh_x86_rule("text.4c1a9220c6b59e6a"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.ffe801bf0d7c4b9c"));
-                        asmbuf_puts(&buf, ops);
-                        asmbuf_puts(&buf, xh_x86_rule("text.8827580b6366c49c"));
+                        int width=(I->aux&0x200)?64:32;
+                        x86_fp_select(&buf,"binary",x86_fp_operation(I->op),width,"fp","scalar",width==64?4:2,width/32,0,0);
                     }
                     break;
                 }
 
                 /* IR_FCMP: compare two doubles, push 0 or 1. */
                 case IR_FCMP: {
-                    const char *cc = 0;
-                    int is_complex = (I->aux & IR_AUX_COMPLEX) != 0;
-                    int cmp_op = I->aux & 0xFF;
-                    if (is_complex) {
-                        /* A _Complex value is four words and this emitter has
-                         * no complex code generation at all; the old code
-                         * popped three words and answered from the wrong
-                         * halves.  Refuse loudly instead of inventing a value.
-                         */
-                        x86_complex_unsupported(&buf, "_Complex comparison");
-                    } else {
-                        switch (cmp_op) {
-                            case (int)TOK_EQ: cc = "sete";  break;
-                            case (int)TOK_NE: cc = "setne"; break;
-                            case (int)TOK_LT: cc = "setb";  break;
-                            case (int)TOK_GT: cc = "seta";  break;
-                            case (int)TOK_LE: cc = "setbe"; break;
-                            case (int)TOK_GE: cc = "setae"; break;
-                            default: cc = "sete"; break;
-                        }
-                        if ((I->aux & 0x200) != 0) {
-                            /* Flip each operand in place (high dword on top ->
-                             * blob order) before reading it with movq. */
-                            x86_pair_swap_at(&buf, 0);
-                            asmbuf_puts(&buf, xh_x86_rule("text.010d4f88c41190b1"));
-                            x86_pair_swap_at(&buf, 0);
-                            asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.dffd78210d40c71d"));
-                        } else {
-                            /* float: one word per side, ucomiss. */
-                            asmbuf_puts(&buf, xh_x86_rule("text.4c1a9220c6b59e6a"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.26f1e54784576a84"));
-                        }
-                        asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, xh_x86_rule("text.8d145c1a3edd357d"));
-                    }
+                    int width=(I->aux&0x200)?64:32;
+                    if(I->aux&IR_AUX_COMPLEX){x86_complex_unsupported(&buf,"complex comparison");break;}
+                    x86_fp_select(&buf,"compare",x86_fp_compare(I->aux&0xFF),width,"fp","scalar",width==64?4:2,1,0,0);
                     break;
                 }
 
                 /* IR_F2I: double -> int (truncate toward zero) */
                 case IR_F2I: {
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        /* creal / cimag / cabs / carg of a _Complex value. */
-                        x86_complex_unsupported(&buf, "creal/cimag/cabs/carg");
-                        break;
-                    }
-                    if ((I->aux & 0x200) != 0) {
-                        x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
-                    }
-                    /* aux bit 0x400 = the destination is unsigned.  cvttsd2si
-                     * is signed-only and answers 0xFFFFFFFE (the integer
-                     * indefinite sentinel) for anything >= 2^31, so
-                     * `(unsigned)3.5e9` came out as 4294967294.  Split at 2^31:
-                     * above it, truncate v - 2^31 and add the bias back. */
-                    if (I->aux & 0x400) {
-                        int lu = ++lbl64;
-                        if (!(I->aux & 0x200))
-                            asmbuf_puts(&buf, xh_x86_rule("text.5d9f1cb0416a63f8"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.92e14fca1a661366"));
-                        x86_elbl(&buf, f->name, "f2u", lu, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.4d3b5fd5c4d94c07"));
-                        x86_elbl(&buf, f->name, "f2u", lu, 1);
-                        x86_elbl(&buf, f->name, "f2u", lu, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
-                        x86_elbl(&buf, f->name, "f2u", lu, 1);
-                    } else if ((I->aux & 0x200) != 0) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.397d9424d08c5ab8"));
-                    }
-                    asmbuf_puts(&buf, xh_x86_rule("text.2ac65d444c4eb237"));
+                    int width=(I->aux&0x200)?64:32;
+                    char label0[160],label1[160];const char *args[2];int count=0;
+                    if(I->aux&0x400){int n=++lbl64;snprintf(label0,sizeof(label0),".L%s_f2u%d_lo",f->name,n);snprintf(label1,sizeof(label1),".L%s_f2u%d_end",f->name,n);args[0]=label0;args[1]=label1;count=2;}
+                    if(I->aux&IR_AUX_COMPLEX){x86_complex_unsupported(&buf,"complex to integer conversion");break;}
+                    x86_fp_select(&buf,"convert","f2i",width,(I->aux&0x400)?"unsigned":"signed","scalar",width/32,1,args,count);
                     break;
                 }
 
                 /* IR_I2F: int -> double */
                 case IR_I2F: {
-                    int is_dbl = (I->aux & 0x200) != 0;
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        /* widening a real value to _Complex double */
-                        x86_complex_unsupported(&buf, "real to complex conversion");
-                        break;
-                    }
-                    if (is_dbl) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
-                        /* aux bit 0x400 = the source is unsigned.  cvtsi2sd is
-                         * signed-only, so `(double)4000000000u` used to
-                         * produce -1610612736.0.  x86_u32_to_xmm splits the
-                         * low bit off: 2*(u >> 1) + (u & 1). */
-                        if (I->aux & 0x400)
-                            x86_u32_to_xmm(&buf, "xmm0");
-                        else
-                            asmbuf_puts(&buf, xh_x86_rule("text.59a1a43ff7880417"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
-                        x86_pair_swap_at(&buf, 0);
-                    } else {
-                        /* float result: one word, genuinely single precision.
-                         * The old code produced a 2-word double that merely
-                         * had float-ish precision, so a float store popped one
-                         * word and left the other on the IR stack. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
-                        if (I->aux & 0x400) {
-                            x86_u32_to_xmm(&buf, "xmm0");
-                            asmbuf_puts(&buf, xh_x86_rule("text.c39b283d66519bbc"));
-                        } else {
-                            asmbuf_puts(&buf, xh_x86_rule("text.8086d640eefab65a"));
-                        }
-                    }
+                    int width=(I->aux&0x200)?64:32;
+                    if(I->aux&IR_AUX_COMPLEX){x86_complex_unsupported(&buf,"real to complex conversion");break;}
+                    x86_fp_select(&buf,"convert","i2f",width,(I->aux&0x400)?"unsigned":"signed","scalar",1,width/32,0,0);
                     break;
                 }
 
@@ -1706,21 +1606,8 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                  * this case the emitter printed "# unknown IR op: F2F" and
                  * `double f(float x){return x;}` produced garbage. */
                 case IR_F2F: {
-                    /* aux 0x100 = float -> double (widen, 1 word -> 2),
-                     * aux 0x200 = double -> float (narrow, 2 -> 1).  The old
-                     * code printed "# unknown IR op: F2F", so every cast
-                     * between the two widths produced garbage. */
-                    int src_dbl = (I->aux & 0x200) != 0;
-                    int dst_dbl = (I->aux & 0x100) != 0;
-                    if (src_dbl && !dst_dbl) {
-                        /* Read the 2-word double as a blob (flip first, the
-                         * high dword is on top), then narrow. */
-                        x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.c896dbafaae43e47"));
-                    } else if (!src_dbl && dst_dbl) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.b7f0f3dfed7f198f"));
-                        x86_pair_swap_at(&buf, 0);
-                    }
+                    int source=(I->aux&0x200)?64:32,dest=(I->aux&0x100)?64:32;
+                    x86_fp_select(&buf,"convert","f2f",source,"fp",dest==64?"to64":"to32",source/32,dest/32,0,0);
                     break;
                 }
 
@@ -3388,116 +3275,37 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 case IR_FSUB:
                 case IR_FMUL:
                 case IR_FDIV: {
-                    const char *op_s = "addsd";
-                    int is_dbl;
-                    if ((I->aux & 0xF00) == 0x900) {
-                        amd_unsupported(&buf, "cexp");
-                        break;
-                    }
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        amd_unsupported(&buf, "_Complex arithmetic");
-                        break;
-                    }
-                    switch (I->op) {
-                        case IR_FADD: op_s = "addsd"; break;
-                        case IR_FSUB: op_s = "subsd"; break;
-                        case IR_FMUL: op_s = "mulsd"; break;
-                        case IR_FDIV: op_s = "divsd"; break;
-                        default: break;
-                    }
-                    is_dbl = (I->aux & 0x200) != 0;
-                    if (is_dbl) {
-                        amd_pop64(&buf, "rax", "eax");   /* b */
-                        amd_pop64(&buf, "rcx", "ecx");   /* a */
-                        asmbuf_puts(&buf, xh_x86_rule("text.fdf5cf8fa9ab9307"));
-                        asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, xh_x86_rule("text.90bc70c67f005071"));
-                        amd_push64(&buf, "rax", "eax");
-                    } else {
-                        /* No single-precision ALU in this assembler: widen both
-                         * operands, compute in double, narrow back.  Rounding
-                         * twice is exact for + - * / because 53 >= 2*24 + 2. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.4cc8939188beca23"));
-                        asmbuf_puts(&buf, op_s);
-                        asmbuf_puts(&buf, xh_x86_rule("text.78576d88a1d6d704"));
-                        amd_store_fp(&buf, 0);
-                    }
+                    int width=(I->aux&0x200)?64:32;
+                    if((I->aux&0xF00)==0x900 || (I->aux&IR_AUX_COMPLEX)){amd_unsupported(&buf,"complex floating arithmetic");break;}
+                    x86_fp_select(&buf,"binary",x86_fp_operation(I->op),width,"fp","scalar",width==64?4:2,width/32,0,0);
                     break;
                 }
 
                 case IR_FCMP: {
-                    int is_dbl = (I->aux & 0x200) != 0;
-                    int op = (int)(I->aux & 0xFF);
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        amd_unsupported(&buf, "_Complex comparison");
-                        break;
-                    }
-                    if (is_dbl) {
-                        amd_pop64(&buf, "rax", "eax");
-                        amd_pop64(&buf, "rcx", "ecx");
-                        asmbuf_puts(&buf, xh_x86_rule("text.af40109a3e4c5b8d"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.bf90b28855981548"));
-                    }
-                    amd_fcmp(&buf, op);
+                    int width=(I->aux&0x200)?64:32;
+                    if(I->aux&IR_AUX_COMPLEX){amd_unsupported(&buf,"complex comparison");break;}
+                    x86_fp_select(&buf,"compare",x86_fp_compare(I->aux&0xFF),width,"fp","scalar",width==64?4:2,1,0,0);
                     break;
                 }
 
                 case IR_F2I: {
-                    int src_dbl = (I->aux & 0x200) != 0;
-                    int dst_uns = (I->aux & 0x400) != 0;
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        amd_unsupported(&buf, "creal/cimag/cabs/carg");
-                        break;
-                    }
-                    if (src_dbl) {
-                        amd_pop64(&buf, "rax", "eax");
-                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.efbd6e805ebcde33"));
-                    }
-                    if (dst_uns) {
-                        /* The 64-bit form covers the whole unsigned 32-bit
-                         * range; the low half is then the answer. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.b984325137f3b5f0"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
-                    }
-                    asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
+                    int width=(I->aux&0x200)?64:32;
+                    const char **args=0;int count=0;
+                    if(I->aux&IR_AUX_COMPLEX){amd_unsupported(&buf,"complex to integer conversion");break;}
+                    x86_fp_select(&buf,"convert","f2i",width,(I->aux&0x400)?"unsigned":"signed","scalar",width/32,1,args,count);
                     break;
                 }
 
                 case IR_I2F: {
-                    int dst_dbl = (I->aux & 0x200) != 0;
-                    int src_uns = (I->aux & 0x400) != 0;
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        amd_unsupported(&buf, "real to complex conversion");
-                        break;
-                    }
-                    asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
-                    if (src_uns)
-                        asmbuf_puts(&buf, xh_x86_rule("text.5829b49189e5d8da"));
-                    else
-                        asmbuf_puts(&buf, xh_x86_rule("text.806e40da505153d5"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.e90ca0e5f84313f1"));
-                    amd_store_fp(&buf, dst_dbl);
+                    int width=(I->aux&0x200)?64:32;
+                    if(I->aux&IR_AUX_COMPLEX){amd_unsupported(&buf,"real to complex conversion");break;}
+                    x86_fp_select(&buf,"convert","i2f",width,(I->aux&0x400)?"unsigned":"signed","scalar",1,width/32,0,0);
                     break;
                 }
 
                 case IR_F2F: {
-                    if (I->aux & 0x200) {
-                        /* double -> float */
-                        amd_pop64(&buf, "rax", "eax");
-                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
-                        amd_store_fp(&buf, 0);
-                    } else if (I->aux & 0x100) {
-                        /* float -> double */
-                        asmbuf_puts(&buf, xh_x86_rule("text.2a7b9abdcdd1df24"));
-                        amd_push64(&buf, "rax", "eax");
-                    } else {
-                        /* Same width: irgen does not emit it, but keep the
-                         * value on the stack if it ever does. */
-                    }
+                    int source=(I->aux&0x200)?64:32,dest=(I->aux&0x100)?64:32;
+                    x86_fp_select(&buf,"convert","f2f",source,"fp",dest==64?"to64":"to32",source/32,dest/32,0,0);
                     break;
                 }
 

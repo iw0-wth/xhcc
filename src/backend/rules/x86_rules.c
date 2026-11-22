@@ -2,6 +2,7 @@
  * rules and a small result ring are resident. No instruction rules live here. */
 #include "xh_x86_rules.h"
 #include "xh_template.h"
+#include "xh_semantic.h"
 #include "diag.h"
 #include <stdlib.h>
 #include <string.h>
@@ -73,6 +74,12 @@ const char *xh_x86_expand(const char *key,const char *const *args,int count) {
     out=results[(cursor++) & 7];
     if(xh_template_emit(target,key,args,count,out,4096)<0){failed=1;out[0]=0;}
     return out;
+}
+const char *xh_x86_semantic(const char *family,const char *operation,int width,const char *sign,const char *form,int pop,int push,const char *const *args,int count){
+    XhSemanticInput input;XhSemanticResult result;
+    input.family=family;input.operation=operation;input.width=width;input.sign=sign;input.form=form;
+    if(xh_semantic_select(target,"semantic.fp",&input,&result)!=1 || result.pop!=pop || result.push!=push){failed=1;diag_tool(DIAG_SEV_ERROR,target,"missing or incompatible floating semantic rule",0,0,0,0,0,0);return "";}
+    return xh_x86_expand(result.template_key,args,count);
 }
 int xh_x86_number(const char *key) {
     const char *s=xh_x86_rule(key); char *end; long v=strtol(s,&end,0);

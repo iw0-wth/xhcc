@@ -449,6 +449,9 @@ static int semantic_effect(const char *family,const char *operation,int pop,int 
         wanted_pop=ark_streq(operation,"SWAP")||ark_streq(operation,"MEMCPY")?2:1;
         wanted_push=ark_streq(operation,"DUP")||ark_streq(operation,"SWAP")?2:ark_streq(operation,"ALLOCA")?1:0;
     } else if (ark_streq(family,"control")) wanted_pop=ark_streq(operation,"JZ")||ark_streq(operation,"JNZ")||ark_streq(operation,"RETURN");
+    else if (ark_streq(family,"call")) { wanted_pop=1;wanted_push=ark_streq(operation,"void")?0:1; }
+    else if (ark_streq(family,"callpop")) wanted_pop=1;
+    else if (ark_streq(family,"callprep") || ark_streq(family,"callarg") || ark_streq(family,"callaux")) {}
     else if (!ark_streq(family,"arg")) return -1;
     return pop==wanted_pop && push==wanted_push?0:-1;
 }
@@ -458,7 +461,7 @@ int xh_c_semantic_bind(const char *family,const char *operation,int width,const 
     const char *args[6]; int j;
     int selected=xh_semantic_select("c","semantic.selectors",&input,&result);
     if (selected != 1) { xh_c_rules_error("required C semantic lowering selection is missing or invalid"); return -1; }
-    if (semantic_effect(family,operation,result.pop,result.push)) {
+    if (semantic_effect(family,ark_streq(family,"call")?sign:operation,result.pop,result.push)) {
         xh_c_rules_error("invalid C semantic lowering stack effects");return -1;
     }
     *delta=result.push-result.pop;
@@ -557,3 +560,35 @@ void xh_c_rules_error(const char *message) {
     c_failed = 1;
 }
 int xh_c_rules_failed(void) { return c_failed; }
+
+int xh_c_call_effect(const char *route,const char *result,int *pop,int *push) {
+    XhSemanticInput input={"call",route,result,"-",64};XhSemanticResult selected;
+    int found=xh_semantic_select("c","semantic.selectors",&input,&selected);
+    if(found!=1 || selected.pop!=1 || selected.push!=(ark_streq(result,"void")?0:1)) {
+        xh_c_rules_error("missing or invalid C call descriptor effects");return -1;
+    }
+    *pop=selected.pop;*push=selected.push;return 0;
+}
+int xh_c_call_piece(const char *family,const char *operation,const char *const *args,char *out,int capacity) {
+    XhSemanticInput input={family,operation,"s","-",64};XhSemanticResult selected;
+    int found=xh_semantic_select("c","semantic.selectors",&input,&selected),n;
+    if(found!=1 || semantic_effect(family,operation,selected.pop,selected.push)) {
+        xh_c_rules_error("missing or invalid C call argument descriptor");return -1;
+    }
+    n=xh_template_emit("c",selected.template_key,args,6,out,capacity);
+    if(n<0){c_failed=1;return -1;}return n;
+}
+int xh_c_rule_find(const char *key,const char *name,char *out,int cap) {
+    const char *p=xh_c_rule_text(key);int n=ark_strlen(name);
+    while(*p) {
+        const char *start=p;int equal,j,len;
+        while(*p&&*p!='='&&*p!=' ')p++;
+        equal=p-start==n;
+        for(j=0;equal&&j<n;j++)if(start[j]!=name[j])equal=0;
+        if(*p!='='){xh_c_rules_error("invalid C call route mapping");return -1;}
+        start=++p;while(*p&&*p!=' ')p++;len=(int)(p-start);
+        if(equal){if(len<1||len>=cap){xh_c_rules_error("C call route exceeds capacity");return -1;}
+            for(j=0;j<len;j++)out[j]=start[j];out[len]=0;return 1;}
+        while(*p==' ')p++;
+    }return 0;
+}

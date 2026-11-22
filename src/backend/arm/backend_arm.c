@@ -5996,6 +5996,13 @@ static void arm_put_escaped_str(AsmBuffer *b, const char *s) {
 #ifdef XHCC
 #include "arm_listing.inc"
 #endif
+static const char *arm_fp_semantic_mode(int is_dbl){
+#if ARKCC_FEATURE_FPU_HW
+    if(g_config.enable_fpu_hw&&(!is_dbl||g_arm_fpu_dp))return "hard";
+#endif
+    return "soft";
+}
+
 static char *codegen_arm(IrProgram *prog) {
     const XhArmAbi *abi=xh_arm_abi();
     AsmBuffer buf;
@@ -7697,26 +7704,7 @@ static char *codegen_arm(IrProgram *prog) {
                         arm_cplx_addsub(&buf, "__aeabi_dadd");
                         break;
                     }
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        if (is_dbl) emit_vfp_f64_binop(&buf, "VADD");
-                        else        emit_vfp_f32_binop(&buf, "VADD");
-                        break;
-                    }
-#endif
-                    if (is_dbl) {
-                        xh_arm_rule(&buf, "text.0036");
-                        xh_arm_rule(&buf, "text.0037");
-                        xh_arm_rule(&buf, "text.0008");
-                        xh_arm_rule(&buf, "text.0007");
-                        xh_arm_rule(&buf, "text.0251");
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    } else {
-                        emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0252");
-                        emit_push_r0(&buf);
-                    }
+                    xh_arm_semantic(&buf,"floatbin","add",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,is_dbl?2:1);
                     break;
                 }
                 case IR_FSUB: {
@@ -7725,26 +7713,7 @@ static char *codegen_arm(IrProgram *prog) {
                         arm_cplx_addsub(&buf, "__aeabi_dsub");
                         break;
                     }
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        if (is_dbl) emit_vfp_f64_binop(&buf, "VSUB");
-                        else        emit_vfp_f32_binop(&buf, "VSUB");
-                        break;
-                    }
-#endif
-                    if (is_dbl) {
-                        xh_arm_rule(&buf, "text.0036");
-                        xh_arm_rule(&buf, "text.0037");
-                        xh_arm_rule(&buf, "text.0008");
-                        xh_arm_rule(&buf, "text.0007");
-                        xh_arm_rule(&buf, "text.0253");
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    } else {
-                        emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0254");
-                        emit_push_r0(&buf);
-                    }
+                    xh_arm_semantic(&buf,"floatbin","sub",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,is_dbl?2:1);
                     break;
                 }
                 case IR_FMUL: {
@@ -7753,26 +7722,7 @@ static char *codegen_arm(IrProgram *prog) {
                         arm_cplx_mul(&buf);
                         break;
                     }
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        if (is_dbl) emit_vfp_f64_binop(&buf, "VMUL");
-                        else        emit_vfp_f32_binop(&buf, "VMUL");
-                        break;
-                    }
-#endif
-                    if (is_dbl) {
-                        xh_arm_rule(&buf, "text.0036");
-                        xh_arm_rule(&buf, "text.0037");
-                        xh_arm_rule(&buf, "text.0008");
-                        xh_arm_rule(&buf, "text.0007");
-                        xh_arm_rule(&buf, "text.0255");
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    } else {
-                        emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0256");
-                        emit_push_r0(&buf);
-                    }
+                    xh_arm_semantic(&buf,"floatbin","mul",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,is_dbl?2:1);
                     break;
                 }
                 case IR_FDIV: {
@@ -7781,26 +7731,7 @@ static char *codegen_arm(IrProgram *prog) {
                         arm_cplx_div(&buf);
                         break;
                     }
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        if (is_dbl) emit_vfp_f64_binop(&buf, "VDIV");
-                        else        emit_vfp_f32_binop(&buf, "VDIV");
-                        break;
-                    }
-#endif
-                    if (is_dbl) {
-                        xh_arm_rule(&buf, "text.0036");
-                        xh_arm_rule(&buf, "text.0037");
-                        xh_arm_rule(&buf, "text.0008");
-                        xh_arm_rule(&buf, "text.0007");
-                        xh_arm_rule(&buf, "text.0257");
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    } else {
-                        emit_pop_r1(&buf); emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0258");
-                        emit_push_r0(&buf);
-                    }
+                    xh_arm_semantic(&buf,"floatbin","div",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,is_dbl?2:1);
                     break;
                 }
                 case IR_F2I: {
@@ -7852,52 +7783,8 @@ static char *codegen_arm(IrProgram *prog) {
                         }
                         break;
                     }
-                    /* float/double -> int (truncation toward zero) */
-                    int is_dbl = (I->aux & 0x200) != 0;
-                    /* F2I unsigned fix: 0x400 = unsigned destination; select
-                     * __aeabi_d2uiz/__aeabi_f2uiz for unsigned targets. */
-                    int is_unsigned = (I->aux & 0x400) != 0;
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        if (is_dbl) {
-                            /* double: pop d0, VCVT.S32.F64 s0,d0, move back to r0 */
-                            xh_arm_rule(&buf, "text.0008");  /* high */
-                            xh_arm_rule(&buf, "text.0007");  /* low */
-                            xh_arm_rule(&buf, "text.0032");
-                            xh_arm_rule(&buf, "text.0033");
-                            if (is_unsigned)
-                                xh_arm_rule(&buf, "text.0259");
-                            else
-                                xh_arm_rule(&buf, "text.0260");
-                            xh_arm_rule(&buf, "text.0035");
-                        } else {
-                            emit_pop_r0(&buf);
-                            xh_arm_rule(&buf, "text.0032");
-                            if (is_unsigned)
-                                xh_arm_rule(&buf, "text.0261");
-                            else
-                                xh_arm_rule(&buf, "text.0262");
-                            xh_arm_rule(&buf, "text.0035");
-                        }
-                        emit_push_r0(&buf);
-                        break;
-                    }
-#endif
-                    if (is_dbl) {
-                        xh_arm_rule(&buf, "text.0008");
-                        xh_arm_rule(&buf, "text.0007");
-                        if (is_unsigned)
-                            xh_arm_rule(&buf, "text.0263");
-                        else
-                            xh_arm_rule(&buf, "text.0264");
-                    } else {
-                        emit_pop_r0(&buf);
-                        if (is_unsigned)
-                            xh_arm_rule(&buf, "text.0265");
-                        else
-                            xh_arm_rule(&buf, "text.0266");
-                    }
-                    emit_push_r0(&buf);
+                    int is_dbl=(I->aux&0x200)!=0,is_unsigned=(I->aux&0x400)!=0;
+                    xh_arm_semantic(&buf,"cast","f2i",is_dbl?64:32,is_unsigned?"u":"s",arm_fp_semantic_mode(is_dbl),is_dbl?2:1,1);
                     break;
                 }
                 case IR_I2F: {
@@ -7926,142 +7813,23 @@ static char *codegen_arm(IrProgram *prog) {
                         break;
                     }
                     /* int -> float/double */
-                    int is_dbl = (I->aux & 0x200) != 0;
-                    /* Bug-P1-7: 0x400 = unsigned source; select __aeabi_ui2d /
-                     * __aeabi_ui2f instead of the signed __aeabi_i2d /
-                     * __aeabi_i2f so that (double)(unsigned)v yields the
-                     * correct positive value. */
-                    int is_unsigned = (I->aux & 0x400) != 0;
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0032");
-                        if (is_dbl) {
-                            if (is_unsigned)
-                                xh_arm_rule(&buf, "text.0268");
-                            else
-                                xh_arm_rule(&buf, "text.0269");
-                            xh_arm_rule(&buf, "text.0035");
-                            xh_arm_rule(&buf, "text.0041");
-                            emit_push_r0(&buf);
-                            xh_arm_rule(&buf, "text.0024");
-                        } else {
-                            if (is_unsigned)
-                                xh_arm_rule(&buf, "text.0270");
-                            else
-                                xh_arm_rule(&buf, "text.0271");
-                            xh_arm_rule(&buf, "text.0035");
-                            emit_push_r0(&buf);
-                        }
-                        break;
-                    }
-#endif
-                    emit_pop_r0(&buf);
-                    if (is_dbl) {
-                        xh_arm_rule(&buf,is_unsigned ? "extra.018" : "extra.019");
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    } else {
-                        xh_arm_rule(&buf,is_unsigned ? "extra.020" : "extra.021");
-                        emit_push_r0(&buf);
-                    }
+                    int is_dbl=(I->aux&0x200)!=0,is_unsigned=(I->aux&0x400)!=0;
+                    xh_arm_semantic(&buf,"cast","i2f",is_dbl?64:32,is_unsigned?"u":"s",arm_fp_semantic_mode(is_dbl),1,is_dbl?2:1);
                     break;
                 }
                 case IR_64I2F: {
-                    /* long long (64-bit) -> float/double.
-                     * Stack model: [r0_low, r1_high] (high on top).
-                     * AAPCS helpers: __aeabi_l2d/ul2d (-> r0/r1 double),
-                     *                __aeabi_l2f/ul2f (-> r0 float). */
-                    int is_dbl = (I->aux & 0x200) != 0;
-                    int is_unsigned = (I->aux & 0x400) != 0;
-                    emit_pop_r1(&buf);  /* high */
-                    emit_pop_r0(&buf);  /* low */
-                    if (is_dbl) {
-                        xh_arm_rule(&buf,is_unsigned ? "extra.022" : "extra.023");
-                        /* double result: r0=low, r1=high */
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    } else {
-                        xh_arm_rule(&buf,is_unsigned ? "extra.024" : "extra.025");
-                        emit_push_r0(&buf);
-                    }
+                    int is_dbl=(I->aux&0x200)!=0,is_unsigned=(I->aux&0x400)!=0;
+                    xh_arm_semantic(&buf,"cast","i64tof",is_dbl?64:32,is_unsigned?"u":"s","soft",2,is_dbl?2:1);
                     break;
                 }
                 case IR_64F2I: {
-                    /* float/double -> long long (64-bit).
-                     * For double: stack has [r0_low, r1_high]; pop both.
-                     * For float:  stack has [r0]; pop one.
-                     * AAPCS helpers: __aeabi_d2lz/d2ulz (double -> r0/r1),
-                     *                __aeabi_f2lz/f2ulz (float  -> r0/r1). */
-                    int is_dbl = (I->aux & 0x200) != 0;
-                    int is_unsigned = (I->aux & 0x400) != 0;
-                    if (is_dbl) {
-                        emit_pop_r1(&buf);  /* high */
-                        emit_pop_r0(&buf);  /* low */
-                        xh_arm_rule(&buf,is_unsigned ? "extra.026" : "extra.027");
-                    } else {
-                        emit_pop_r0(&buf);
-                        xh_arm_rule(&buf,is_unsigned ? "extra.028" : "extra.029");
-                    }
-                    /* 64-bit result: r0=low, r1=high */
-                    emit_push_r0(&buf);
-                    xh_arm_rule(&buf, "text.0024");
+                    int is_dbl=(I->aux&0x200)!=0,is_unsigned=(I->aux&0x400)!=0;
+                    xh_arm_semantic(&buf,"cast","ftoi64",is_dbl?64:32,is_unsigned?"u":"s","soft",is_dbl?2:1,2);
                     break;
                 }
                 case IR_F2F: {
-                    /* float <-> float cast. On the ARM soft-float stack:
-                     *   double = [r0_low, r1_high] (2 slots, high on top)
-                     *   float  = [r0]              (1 slot)
-                     *   aux 0x200 = double->float (narrow): -1 slot
-                     *   aux 0x100 = float->double (widen):  +1 slot
-                     * Both directions go to the run-time library: widening is
-                     * exact so it could be done here, but keeping one rule is
-                     * simpler than explaining why half of this IR op is
-                     * self-contained and half is not. */
-                    int src_dbl = (I->aux & 0x200) != 0;
-                    int dst_dbl = (I->aux & 0x100) != 0;
-#if ARKCC_FEATURE_FPU_HW
-                    /* A single-precision FPU cannot convert to or from double
-                     * (VCVT.F64.* is ARMv8-M / M7 DP only), so those two
-                     * directions stay on the software helpers even when
-                     * hardware FP is enabled. */
-                    if (g_config.enable_fpu_hw && g_arm_fpu_dp) {
-                        if (src_dbl && !dst_dbl) {
-                            /* double -> float */
-                            emit_pop_r1(&buf);
-                            emit_pop_r0(&buf);
-                            xh_arm_rule(&buf, "text.0032");
-                            xh_arm_rule(&buf, "text.0033");
-                            xh_arm_rule(&buf, "text.0082");
-                            xh_arm_rule(&buf, "text.0035");
-                            emit_push_r0(&buf);
-                        } else if (!src_dbl && dst_dbl) {
-                            /* float -> double */
-                            emit_pop_r0(&buf);
-                            xh_arm_rule(&buf, "text.0032");
-                            xh_arm_rule(&buf, "text.0080");
-                            xh_arm_rule(&buf, "text.0035");
-                            xh_arm_rule(&buf, "text.0041");
-                            emit_push_r0(&buf);
-                            xh_arm_rule(&buf, "text.0024");
-                        }
-                        break;
-                    }
-#endif
-                    if (src_dbl && !dst_dbl) {
-                        /* double -> float */
-                        emit_pop_r1(&buf);
-                        emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0083");
-                        emit_push_r0(&buf);
-                    } else if (!src_dbl && dst_dbl) {
-                        /* float -> double */
-                        emit_pop_r0(&buf);
-                        xh_arm_rule(&buf, "text.0081");
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                    }
-                    /* same-size: no-op */
+                    int src_dbl=(I->aux&0x200)!=0,dst_dbl=(I->aux&0x100)!=0;
+                    if(src_dbl!=dst_dbl)xh_arm_semantic(&buf,"cast",src_dbl?"narrow":"widen",src_dbl?64:32,"v",arm_fp_semantic_mode(1),src_dbl?2:1,dst_dbl?2:1);
                     break;
                 }
                 case IR_FCMP: {

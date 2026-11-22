@@ -1285,6 +1285,41 @@ text global ADDR 64 s seq.global.ADDR.64.s 0 1\n
 text global STORE 64 s seq.global.STORE.64.s 1 0\n
 text arg LOAD 64 s seq.arg.LOAD.64.s 0 0\n
 text arg LOAD 64 aggregate seq.arg.LOAD.64.aggregate 0 0\n
+text call printf 64 scalar seq.call.printf.scalar 1 1\n
+text call putchar 64 scalar seq.call.putchar.scalar 1 1\n
+text call puts 64 scalar seq.call.puts.scalar 1 1\n
+text call strlen 64 scalar seq.call.strlen.scalar 1 1\n
+text call strcmp 64 scalar seq.call.strcmp.scalar 1 1\n
+text call strcpy 64 scalar seq.call.strcpy.scalar 1 1\n
+text call memset 64 scalar seq.call.memset.scalar 1 1\n
+text call memcpy 64 scalar seq.call.memcpy.scalar 1 1\n
+text call abort 64 scalar seq.call.abort.scalar 1 1\n
+text call setjmp 64 scalar seq.call.setjmp.scalar 1 1\n
+text call longjmp 64 scalar seq.call.longjmp.scalar 1 1\n
+text call user 64 scalar seq.call.user.scalar 1 1\n
+text call user 64 void seq.call.user.void 1 0\n
+text call user 64 complex seq.call.user.complex 1 1\n
+text call wrapper 64 scalar seq.call.wrapper.scalar 1 1\n
+text call wrapper 64 void seq.call.wrapper.void 1 0\n
+text call wrapper 64 complex seq.call.wrapper.complex 1 1\n
+text call host 64 scalar seq.call.host.scalar 1 1\n
+text call host 64 void seq.call.host.void 1 0\n
+text call host 64 complex seq.call.host.complex 1 1\n
+text call host 64 struct seq.call.host.struct 1 1\n
+text call indirect 64 scalar seq.call.indirect.scalar 1 1\n
+text callarg integer 64 s seq.callarg.integer.s 0 0\n
+text callarg llong 64 s seq.callarg.llong.s 0 0\n
+text callarg pointer 64 s seq.callarg.pointer.s 0 0\n
+text callarg double 64 s seq.callarg.double.s 0 0\n
+text callarg complex 64 s seq.callarg.complex.s 0 0\n
+text callarg format 64 s seq.callarg.format.s 0 0\n
+text callprep integer 64 s seq.callprep.integer.s 0 0\n
+text callprep complex 64 s seq.callprep.complex.s 0 0\n
+text callpop integer 64 s seq.callpop.integer.s 1 0\n
+text callpop complex 64 s seq.callpop.complex.s 1 0\n
+text callaux signature 64 s seq.callaux.signature.s 0 0\n
+text callaux separator 64 s seq.callaux.separator.s 0 0\n
+text callaux end 64 s seq.callaux.end.s 0 0\n
 end
 rule semantic.operands
 text ark_a ark_c ark_fa ark_fc ark_ca ark_cc
@@ -1838,4 +1873,148 @@ end
 
 rule seq.arg.LOAD.64.aggregate
 text memcpy(frame + ${0}, (void*)(intptr_t)a${1}, (size_t)${2});
+end
+
+rule call.routes
+text printf=printf putchar=putchar puts=puts strlen=strlen strcmp=strcmp strcpy=strcpy memset=memset memcpy=memcpy abort=abort setjmp=setjmp longjmp=longjmp
+end
+
+rule seq.call.printf.scalar
+text stk[sp++].i = printf(${1});
+end
+
+rule seq.call.putchar.scalar
+text stk[sp++].i = putchar((int)aa[0]);
+end
+
+rule seq.call.puts.scalar
+text stk[sp++].i = puts((const char*)(intptr_t)aa[0]);
+end
+
+rule seq.call.strlen.scalar
+text stk[sp++].i = (long long)strlen((const char*)(intptr_t)aa[0]);
+end
+
+rule seq.call.strcmp.scalar
+text stk[sp++].i = strcmp((const char*)(intptr_t)aa[0],(const char*)(intptr_t)aa[1]);
+end
+
+rule seq.call.strcpy.scalar
+text stk[sp++].i = (long long)(intptr_t)strcpy((char*)(intptr_t)aa[0],(const char*)(intptr_t)aa[1]);
+end
+
+rule seq.call.memset.scalar
+text stk[sp++].i = (long long)(intptr_t)memset((void*)(intptr_t)aa[0],(int)aa[1],(size_t)aa[2]);
+end
+
+rule seq.call.memcpy.scalar
+text stk[sp++].i = (long long)(intptr_t)memcpy((void*)(intptr_t)aa[0],(const void*)(intptr_t)aa[1],(size_t)aa[2]);
+end
+
+rule seq.call.abort.scalar
+text abort(); stk[sp++].i = 0;
+end
+
+rule seq.call.setjmp.scalar
+text { int ark_sp0 = sp, ark_rv = setjmp(*(jmp_buf*)(void*)(intptr_t)aa[0]); sp = ark_sp0; stk[sp++].i = ark_rv; }
+end
+
+rule seq.call.longjmp.scalar
+text longjmp(*(jmp_buf*)(void*)(intptr_t)aa[0], (int)aa[1] ? (int)aa[1] : 1); stk[sp++].i = 0;
+end
+
+rule seq.call.user.scalar
+text stk[sp++].i = (long long)ark_${0}(${1});
+end
+
+rule seq.call.user.void
+text ark_${0}(${1});
+end
+
+rule seq.call.user.complex
+text stk[sp++].c = ark_${0}(${1});
+end
+
+rule seq.call.wrapper.scalar
+text stk[sp++].i = (long long)ark_${0}(${1});
+end
+
+rule seq.call.wrapper.void
+text ark_${0}(${1});
+end
+
+rule seq.call.wrapper.complex
+text stk[sp++].c = ark_${0}(${1});
+end
+
+rule seq.call.host.scalar
+text stk[sp++].i = (long long)${0}(${1});
+end
+
+rule seq.call.host.void
+text ${0}(${1});
+end
+
+rule seq.call.host.complex
+text stk[sp++].c = ${0}(${1});
+end
+
+rule seq.call.host.struct
+text { ${2} _r = ${0}(${1}); memcpy(frame + ${4}, &_r, sizeof(_r)); stk[sp++].i = (long long)(intptr_t)(frame + ${4}); }
+end
+
+rule seq.call.indirect.scalar
+text stk[sp++].i = (long long)((long long (*)(${3}))(intptr_t)aa[0])(${1});
+end
+
+rule seq.callarg.integer.s
+text (int)aa[${0}]
+end
+
+rule seq.callarg.llong.s
+text (long long)aa[${0}]
+end
+
+rule seq.callarg.pointer.s
+text (intptr_t)aa[${0}]
+end
+
+rule seq.callarg.double.s
+text _ark_ll2d(aa[${0}])
+end
+
+rule seq.callarg.complex.s
+text aac[${0}]
+end
+
+rule seq.callarg.format.s
+text (const char*)(intptr_t)aa[${0}]
+end
+
+rule seq.callprep.integer.s
+text { long long volatile aa[16] = {0};\x20
+end
+
+rule seq.callprep.complex.s
+text { long long volatile aa[16] = {0}; _Complex double volatile aac[16] = {0};\x20
+end
+
+rule seq.callpop.integer.s
+text aa[${0}] = stk[--sp].i;\x20
+end
+
+rule seq.callpop.complex.s
+text aac[${0}] = stk[--sp].c;\x20
+end
+
+rule seq.callaux.signature.s
+text long long
+end
+
+rule seq.callaux.separator.s
+text ,\x20
+end
+
+rule seq.callaux.end.s
+text  }
 end

@@ -9,6 +9,7 @@ const XhArmAbi *xh_arm_abi(void);
 int xh_arm_mem_form(int kind,int is_load,int rt,int rn,int rm,int imm,int wb,int shift);
 void xh_arm_rules_reset(void);
 int xh_arm_rules_failed(void);
+void xh_arm_semantic(AsmBuffer *b,const char *family,const char *operation,int width,const char *sign,const char *form,int pop,int push);
 void xh_arm_rule(AsmBuffer *b,const char *key);
 void xh_arm_rule_args(AsmBuffer *b,const char *key,const char *const *args,int count);
 void xh_arm_rule_ints(AsmBuffer *b,const char *key,int a,int c,int d);

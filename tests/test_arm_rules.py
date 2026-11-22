@@ -205,6 +205,47 @@ class ArmRules(unittest.TestCase):
             self.assertEqual(values,[42,42]);self.assertNotEqual(images[0],images[1]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
             path.write_text(base.replace('rule mem.policy.L.W\n','rule missing.mem.policy.L.W\n',1));self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',(work/'bad.o').relative_to(ROOT),ok=False)
 
+    def test_float_semantic_selection_same_sha_and_effect_validation(self):
+        compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-float-semantic-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'float.c';source.write_text('int entry(void){float a=7.5f,b=2.5f;return (int)(a+b);}\nint casts(void){unsigned u=3000000000u;double d=(double)u;float f=(float)d;long long k=(long long)f;return ((unsigned)d==u)&&((unsigned long long)k==3000000000ULL)&&((int)f==2147483647);}\n')
+            path=pkg/'arm.rules';base=path.read_text();values=[]
+            lib=subprocess.run([str(GNU/'arm-none-eabi-gcc.exe'),'-mcpu=cortex-m3','-mthumb','-mfloat-abi=soft','-print-libgcc-file-name'],capture_output=True,text=True,check=True).stdout.strip()
+            original='floatbin add 32 v soft sem.floatbin.add.32.soft 2 1';variant='floatbin add 32 v soft sem.floatbin.sub.32.soft 2 1'
+            for i,text in enumerate([base,base.replace(original,variant,1)]):
+                path.write_text(text);obj=work/(str(i)+'.o');exe=work/(str(i)+'.elf')
+                self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+                self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e','entry','-o',exe,obj,lib);values.append(self.execute(exe))
+            self.assertEqual(values,[10,5]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+            for replacement in [original.replace('2 1','1 1'),original+'\\n'+original,original.replace('floatbin add','floatbin missing')]:
+                path.write_text(base.replace(original,replacement,1));obj=work/'bad.o'
+                if obj.exists():obj.unlink()
+                self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT),ok=False);self.assertFalse(obj.exists())
+
+    def test_hardware_float_semantic_modes_execute(self):
+        from unicorn.arm_const import UC_ARM_REG_C1_C0_2,UC_ARM_REG_FPEXC,UC_ARM_REG_PC,UC_CPU_ARM_CORTEX_A15
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-fp-modes-') as tmp:
+            work=Path(tmp);source=work/'fp.c'
+            source.write_text('int entry(void){float a=7.5f,b=2.5f;unsigned u=19;return (int)((a+b)*(a-b)/b)+(int)(float)u;}\nint dp(void){double a=7.5,b=2.5;unsigned u=19;return (int)((a+b)*(a-b)/b)+(int)(double)u;}\n')
+            for cpu,fpu,name in [('cortex-m4','fpv4-sp-d16','entry'),('cortex-m7','fpv5-d16','dp')]:
+                obj=work/(name+'.o');exe=work/(name+'.elf')
+                self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-mcpu='+cpu,'-mfpu='+fpu,'-mfloat-abi=softfp','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+                lib=subprocess.run([str(GNU/'arm-none-eabi-gcc.exe'),'-mcpu='+cpu,'-mfpu='+fpu,'-mfloat-abi=softfp','-mthumb','-print-libgcc-file-name'],capture_output=True,text=True,check=True).stdout.strip()
+                self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e',name,'-o',exe,obj,lib)
+                with exe.open('rb') as f:
+                    # Cortex-A15 provides the DP instruction oracle Unicorn's default
+                    # MCLASS model lacks; target compilation remains M4/M7 softfp.
+                    # This checks Thumb/VFP results, not full MCU behavior or speed.
+                    elf=ELFFile(f);uc=Uc(UC_ARCH_ARM,UC_MODE_THUMB);uc.ctl_set_cpu_model(UC_CPU_ARM_CORTEX_A15);uc.mem_map(0x10000,0x40000);uc.mem_map(0x700000,0x20000)
+                    for sec in elf.iter_sections():
+                        if sec['sh_flags']&2 and sec['sh_type']!='SHT_NOBITS':uc.mem_write(sec['sh_addr'],sec.data())
+                    uc.reg_write(UC_ARM_REG_C1_C0_2,uc.reg_read(UC_ARM_REG_C1_C0_2)|(0xf<<20));uc.reg_write(UC_ARM_REG_FPEXC,0x40000000);uc.reg_write(UC_ARM_REG_SP,0x71f000);uc.reg_write(UC_ARM_REG_LR,0x4f001);
+                    try:uc.emu_start(elf['e_entry']|1,0x4f000,count=100000)
+                    except Exception as exc:self.fail(str((cpu,fpu,name,hex(uc.reg_read(UC_ARM_REG_PC)),exc)))
+                    self.assertEqual(uc.reg_read(UC_ARM_REG_R0),39,(cpu,fpu,name))
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

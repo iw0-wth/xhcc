@@ -24,6 +24,7 @@
 #include "arkcc_config.h"
 #include "xh_c_rules.h"
 #include <stdio.h>   /* snprintf used for float constant formatting */
+#include <string.h>
 
 #define MAX_CALL_ARGS (xh_c_abi()->max_call_args)
 
@@ -316,6 +317,90 @@ static int is_libc_var(const char *name) {
     return xh_c_rule_member("abi_vars", name);
 }
 
+/* IR metadata normalization plus bounded argument iteration. All target call
+ * routes, cast spellings and invocation productions are external selections. */
+static int c_call(IrProgram *prog, IrInst *I, AsmBuffer *out, int *delta) {
+    const char *result="scalar",*argmode="llong",*prep="integer";
+    char route[32],index[16],offset[16];
+    char arguments[2048],signature[512],fragment[128];
+    const char *bind[6];
+    int n,k,nargs,start=0,pop,push,is_host,is_wrapped,used=0,sigused=0;
+    unsigned long long raw=(unsigned long long)I->val;
+    if (I->op!=IR_CALL)return 0;
+    if (!I->name || !I->name[0] || (raw&0xffffffffu)>(unsigned)MAX_CALL_ARGS) {
+        xh_c_rules_error("invalid C call name or argument count");return -1;
+    }
+    n=(int)(raw&0xffffffffu);
+    if (is_void_func(I->name) || ((raw>>33)&1))result="void";
+    if (prog)for(k=0;k<prog->func_count;k++)if(ark_streq(prog->funcs[k]->name,I->name)) {
+        Type *rt=prog->funcs[k]->ret_type;
+        if(rt&&rt->kind==TYPE_VOID)result="void";
+        break;
+    }
+    is_wrapped=is_wrapped_func(I->name);
+    is_host=is_libc_func(I->name)&&!is_wrapped;
+    if(is_complex_ret_func(I->name)){result="complex";prep="complex";argmode="complex";}
+    else if(is_struct_ret_func(I->name))result="struct";
+    if(I->name[0]=='?') {
+        if(n<1){xh_c_rules_error("C indirect call requires a function pointer");return -1;}
+        strcpy(route,"indirect");start=1;nargs=n;argmode="llong";
+        /* IR indirect calls currently promise one integer result. */
+        if(!ark_streq(result,"scalar")){xh_c_rules_error("unsupported C indirect result shape");return -1;}
+    } else {
+        int found=xh_c_rule_find("call.routes",I->name,route,sizeof route);
+        if(found<0)return -1;
+        if(!found)strcpy(route,is_host?"host":is_wrapped?"wrapper":"user");
+        nargs=is_host?n:is_wrapped?xh_c_abi()->wrapper_args:MAX_CALL_ARGS;
+        if(is_host&&!ark_streq(prep,"complex"))argmode="pointer";
+        /* Explicit routes are complete historical host call productions. */
+        if(found){nargs=ark_streq(route,"printf")?MAX_CALL_ARGS:n;result="scalar";}
+    }
+    if(xh_c_call_effect(route,result,&pop,&push))return -1;
+    *delta=push-n*pop;
+    if(!out)return 1;
+    snprintf(offset,sizeof offset,"%d",xh_c_abi()->struct_return_offset);
+    bind[0]=index;bind[1]=arguments;bind[2]="";bind[3]=signature;bind[4]=offset;bind[5]="";
+    if(xh_c_semantic_bind("callprep",prep,64,"s",out,&k,bind,6))return -1;
+    for(k=0;k<n;k++) {
+        int ignored;snprintf(index,sizeof index,"%d",k);
+        if(xh_c_semantic_bind("callpop",prep,64,"s",out,&ignored,bind,6))return -1;
+    }
+    arguments[0]=0;signature[0]=0;
+    for(k=start;k<nargs;k++) {
+        int len;const char *mode=argmode;
+        if(ark_streq(route,"printf")) {
+            unsigned mask=(unsigned)I->aux;
+            mode=k==0?"format":(mask>>(2*k))&1?"double":(mask>>(2*k+1))&1?"llong":"integer";
+        }
+        snprintf(index,sizeof index,"%d",k);
+        if(k>start) {
+            len=xh_c_call_piece("callaux","separator",bind,fragment,sizeof fragment);
+            if(len<0||used+len>=(int)sizeof arguments)goto overflow;
+            memcpy(arguments+used,fragment,len);used+=len;
+        }
+        len=xh_c_call_piece("callarg",mode,bind,fragment,sizeof fragment);
+        if(len<0||used+len>=(int)sizeof arguments)goto overflow;
+        memcpy(arguments+used,fragment,len+1);used+=len;
+        if(ark_streq(route,"indirect")) {
+            if(k>start) {
+                len=xh_c_call_piece("callaux","separator",bind,fragment,sizeof fragment);
+                if(len<0||sigused+len>=(int)sizeof signature)goto overflow;
+                memcpy(signature+sigused,fragment,len);sigused+=len;
+            }
+            len=xh_c_call_piece("callaux","signature",bind,fragment,sizeof fragment);
+            if(len<0||sigused+len>=(int)sizeof signature)goto overflow;
+            memcpy(signature+sigused,fragment,len+1);sigused+=len;
+        }
+    }
+    bind[0]=I->name;
+    if(ark_streq(result,"struct"))bind[2]=struct_ret_type(I->name);
+    if(xh_c_semantic_bind("call",route,64,result,out,&k,bind,6))return -1;
+    if(xh_c_semantic_bind("callaux","end",64,"s",out,&k,bind,6))return -1;
+    return 1;
+overflow:
+    xh_c_rules_error("C call argument or signature expansion exceeds capacity");return -1;
+}
+
 /* Emit an extern prototype so undefined references in this TU link correctly. */
 static void emit_extern_proto(AsmBuffer *b, const char *name) {
     int i;
@@ -479,8 +564,10 @@ static int c_type_is_aggregate(Type *t) {
 
 /* Compute the stack-effect delta of a single IR instruction.
  * Positive = pushes, negative = pops, zero = no net change. */
-static int ir_stack_delta(IrInst *I) {
-    int delta, selected = c_memory(I, 0, 0, 0, 0, &delta);
+static int ir_stack_delta_ctx(IrProgram *prog,IrInst *I) {
+    int delta, selected = c_call(prog,I,0,&delta);
+    if (selected) return selected > 0 ? delta : 0;
+    selected = c_memory(I, 0, 0, 0, 0, &delta);
     if (selected) return selected > 0 ? delta : 0;
     selected = c_semantic(I, 0, &delta);
     if (selected) return selected > 0 ? delta : 0;
@@ -552,6 +639,8 @@ static int ir_stack_delta(IrInst *I) {
     }
 }
 
+static int ir_stack_delta(IrInst *I) { return ir_stack_delta_ctx(0,I); }
+
 /* Compute the maximum stack depth (sp value) for an IR function.
  * Uses fixpoint iteration to correctly handle jumps: a forward jump may
  * skip over POP instructions, so the sp at a label reached via a jump can
@@ -561,7 +650,7 @@ static int ir_stack_delta(IrInst *I) {
 /* Label table for the C backend's stack bookkeeping. Host 16384 / board 4096
  * (the C backend is trimmed on the board anyway), overridable. */
 #define MAX_LABELS_FOR_SP  ARK_C_MAX_LABELS
-static int compute_max_sp(IrFunc *f) {
+static int compute_max_sp(IrProgram *prog,IrFunc *f) {
     /* Collect named labels and assign them indices after numeric labels. */
     int named_count = 0;
     const char *named_names[256];
@@ -592,7 +681,7 @@ static int compute_max_sp(IrFunc *f) {
         int sp = 0;
         max_sp = 1;
         for (i = 0; i < f->code_count; i++) {
-            int delta = ir_stack_delta(&f->code[i]);
+            int delta = ir_stack_delta_ctx(prog,&f->code[i]);
             sp += delta;
             if (sp > max_sp) max_sp = sp;
             if (sp < 0) sp = 0;
@@ -609,7 +698,7 @@ static int compute_max_sp(IrFunc *f) {
 
         for (i = 0; i < f->code_count; i++) {
             IrInst *I = &f->code[i];
-            int delta = ir_stack_delta(I);
+            int delta = ir_stack_delta_ctx(prog,I);
             int jmp_tgt = -1;
             int jmp_sp = 0;
 
@@ -1116,7 +1205,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_65"));
         {
             int frame_sz = compute_frame_size(f);
-            int stk_sz = compute_max_sp(f);
+            int stk_sz = compute_max_sp(prog,f);
             /* Add safety margin to stk to account for any simulation imprecision */
             stk_sz += xh_c_abi()->stack_margin;
             if (stk_sz < xh_c_abi()->stack_min) stk_sz = xh_c_abi()->stack_min;
@@ -1142,7 +1231,8 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
             IrInst *I = &f->code[i];
             asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_69"));
             {
-                int delta, selected = c_memory(I, f, prog, &param_idx, &buf, &delta);
+                int delta, selected = c_call(prog,I,&buf,&delta);
+                if (!selected) selected = c_memory(I, f, prog, &param_idx, &buf, &delta);
                 if (!selected) selected = c_semantic(I, &buf, &delta);
                 if (selected < 0) { if (cap > 0) out[0] = 0; return -1; }
                 if (selected) { asmbuf_putc(&buf, '\n'); continue; }
@@ -1279,199 +1369,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     }
                     break;
-                case IR_CALL: {
-                    int n = I->val;
-                    int k;
-                    /* Pop n args off the stack into aa[] (in call order arg0..argN-1).
-                     * aa[] is volatile so gcc cannot constant-fold away the stores.
-                     * Without volatile, gcc -O2 would erase the union(ark_slot) write
-                     * pattern, breaking printf's variadic ABI. The default values are
-                     * 0 so unused slots read as NULL (avoids %s printing "(null)"). */
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_call"));
-                    if (n > MAX_CALL_ARGS) n = MAX_CALL_ARGS;
-                    if (is_complex_ret_func(I->name)) {
-                        /* Complex-function args are _Complex double (16 bytes, .c member);
-                         * popping via .i reads only 8 bytes. Use a separate _Complex array. */
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_2"));
-                        for (k = 0; k < n; k++) {
-                            xh_c_rule_ints(&buf, "ir_call_value", k, 0);
-                        }
-                    } else {
-                        for (k = 0; k < n; k++) {
-                            xh_c_rule_ints(&buf, "ir_call_value_2", k, 0);
-                        }
-                    }
-                    /* Dispatch to libc if the function is host libc; otherwise ark_ prefix. */
-                    if (ark_streq(I->name, xh_c_rule_text("ir_call_3"))) {
-                        /* printf variadic ABI: arkcc stores all args as long long in aa[].
-                         * aux encodes per-argument type using 2 bits per arg:
-                         *   bit(2*i)   = 1 => float/double (promoted to double, XMM/8B)
-                         *   bit(2*i+1) = 1 => long long (8 bytes on the wire)
-                         *   both 0     => int/ptr/short/char (int-promoted, 4 bytes)
-                         * On 32-bit hosts va_arg(int) reads 4 bytes and va_arg(long long)
-                         * reads 8 bytes; passing everything as long long shifts subsequent
-                         * arguments and produces garbage. Casting to `int` for int-typed
-                         * args restores the proper stack layout. */
-                        int amask = I->aux;
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_4"));
-                        for (k = 1; k < MAX_CALL_ARGS; k++) {
-                            int is_double = (amask >> (2 * k)) & 1;
-                            int is_llong  = (amask >> (2 * k + 1)) & 1;
-                            if (k > 1) asmbuf_putc(&buf, ',');
-                            if (is_double) {
-                                xh_c_rule_ints(&buf, "ir_call_value_3", k, 0);
-                            } else if (is_llong) {
-                                xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
-                            } else {
-                                xh_c_rule_ints(&buf, "ir_call_value_5", k, 0);
-                            }
-                        }
-                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_5"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_6"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_7"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_8"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_9"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_10"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_11"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_12"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_13"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_14"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_15"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_16"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_17"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_18"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_19"))) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_20"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_21"))) {
-                        /* setjmp: dispatched inline because .gen.c has #include <setjmp.h>.
-                         * The IR folds jmp_buf as int[20]=80B; we cast the slot back to
-                         * jmp_buf. Requires host jmp_buf to fit in 80B; if it grows,
-                         * extend the frame size or emit a dedicated buffer for jmp_buf.
-                         *
-                         * sp MUST be saved before setjmp and restored after the longjmp
-                         * return: C99 7.13.2.1p3 makes any non-volatile automatic object
-                         * that is modified between setjmp and longjmp indeterminate. sp is
-                         * bumped by every IR op in between, so a plain
-                         * `stk[sp++] = setjmp(...)` resumes with a garbage sp and walks off
-                         * stk[] (observed as a segfault on the second traversal). ark_sp0 is
-                         * not modified after the setjmp, so its value is retained. */
-                        asmbuf_puts(&buf,
-                            xh_c_rule_text("ir_call_22"));
-                    } else if (ark_streq(I->name, xh_c_rule_text("ir_call_23"))) {
-                        /* longjmp: never returns; we still push a 0 result so gcc -O2
-                         * does not delete the push. C mandates val==0 returns 1. */
-                        asmbuf_puts(&buf,
-                            xh_c_rule_text("ir_call_24"));
-                    } else if (I->name[0] == '?') {
-                        /* Indirect call through function pointer: aa[0] is the
-                         * function pointer, aa[1..n-1] are the actual arguments.
-                         * Cast aa[0] to a function pointer and call through it. */
-                        int k;
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_25"));
-                        for (k = 1; k < n; k++) {
-                            if (k > 1) asmbuf_puts(&buf, xh_c_rule_text("ir_call_26"));
-                            asmbuf_puts(&buf, xh_c_rule_text("ir_call_27"));
-                        }
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_call_28"));
-                        for (k = 1; k < n; k++) {
-                            if (k > 1) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
-                            xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
-                        }
-                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                    } else {
-                        int is_libc = is_libc_func(I->name) && !is_wrapped_func(I->name);
-                        int is_wrapped = is_wrapped_func(I->name);
-                        int is_void_ret = is_void_func(I->name);
-                        int is_struct_ret = is_struct_ret_func(I->name);
-                        /* ROUND4-P2 FIX: Also detect user-defined void functions via
-                         * prog->funcs. irgen's AST_EXPR_STMT no longer emits IR_POP
-                         * for direct void calls, so the backend must NOT synthesize a
-                         * 0 result onto the stack (otherwise sp would drift). This
-                         * branch only handles direct calls; indirect ('?') calls
-                         * are dispatched above and conservatively push. */
-                        if (!is_void_ret) {
-                            int fi2;
-                            int found = 0;
-                            for (fi2 = 0; fi2 < prog->func_count; fi2++) {
-                                if (ark_streq(prog->funcs[fi2]->name, I->name)) {
-                                    Type *rt = prog->funcs[fi2]->ret_type;
-                                    found = 1;
-                                    if (rt && rt->kind == TYPE_VOID) is_void_ret = 1;
-                                    break;
-                                }
-                            }
-                            /* Declared-only callee: irgen knows the prototype,
-                             * so take the result shape from the call site. */
-                            if (!found && !is_void_ret)
-                                is_void_ret = (int)((I->val >> 33) & 1);
-                        }
-                        int k;
-                        /* libc: pass only n args; wrapped: wrappers have fixed 8-arg
-                         * signature; user-defined: pass all MAX_CALL_ARGS args. */
-                        int nargs = is_libc ? n : (is_wrapped ? xh_c_abi()->wrapper_args : MAX_CALL_ARGS);
-                        if (is_struct_ret) {
-                            const char *tname = struct_ret_type(I->name);
-                            asmbuf_puts(&buf, xh_c_rule_text("type_union"));
-                            asmbuf_puts(&buf, tname);
-                            asmbuf_puts(&buf, xh_c_rule_text("ir_call_29"));
-                            asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
-                            for (k = 0; k < n; k++) {
-                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
-                                xh_c_rule_ints(&buf, "ir_call_value_6", k, 0);
-                            }
-                            /* Store the returned aggregate with memcpy: writing through a casted
-                             * T* into the char[] frame is the same aliasing violation, and sizeof(_r)
-                             * keeps the copy exact without re-spelling the type name. */
-                            xh_c_rule_ints(&buf, "ir_call_30", xh_c_abi()->struct_return_offset, 0);
-                        } else if (is_complex_ret_func(I->name)) {
-                            /* Complex-returning functions: store result via .c member, pass
-                             * args from aac[] (_Complex array). Do NOT cast to long long
-                             * (would lose the imaginary part). These are in is_libc_func,
-                             * so call host libc directly. */
-                            asmbuf_puts(&buf, xh_c_rule_text("ir_call_31"));
-                            asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
-                            for (k = 0; k < n; k++) {
-                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
-                                xh_c_rule_ints(&buf, "ir_call_value_7", k, 0);
-                            }
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                        } else if (is_void_ret) {
-                            /* ROUND4-P2 FIX: Do not push a synthesized 0 result.
-                             * irgen_discard_result skips IR_POP for direct void
-                             * calls, so pushing here would leave sp unbalanced. */
-                            asmbuf_puts(&buf, xh_c_rule_text("type_ptr_4"));
-                            if (!is_libc) asmbuf_puts(&buf, xh_c_rule_text("ir_call_32"));
-                            asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
-                            for (k = 0; k < nargs; k++) {
-                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
-                                if (is_libc)
-                                    asmbuf_puts(&buf, xh_c_rule_text("ir_call_33"));
-                                else
-                                    xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
-                            }
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                        } else {
-                            asmbuf_puts(&buf, xh_c_rule_text("ir_push_global_3"));
-                            if (!is_libc) asmbuf_puts(&buf, xh_c_rule_text("ir_call_32"));
-                            asmbuf_puts(&buf, I->name);
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_18"));
-                            for (k = 0; k < nargs; k++) {
-                                if (k) asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_19"));
-                                if (is_libc)
-                                    asmbuf_puts(&buf, xh_c_rule_text("ir_call_33"));
-                                else
-                                    xh_c_rule_ints(&buf, "ir_call_value_4", k, 0);
-                            }
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                        }
-                    }
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_call_34"));
-                    break;
-                }
                 case IR_SVC: {
                     /* __svc(n) is an ARM supervisor call; in C it is a no-op.
                      * We emit the comment so the SVC number is preserved in code. */

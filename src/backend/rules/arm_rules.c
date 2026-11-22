@@ -1,6 +1,7 @@
 /* ARM adapter for the shared external text-template VM; no built-in rules. */
 #include "xh_arm_rules.h"
 #include "xh_template.h"
+#include "xh_semantic.h"
 #include <stdio.h>
 #include "diag.h"
 static int failed;
@@ -63,6 +64,13 @@ void xh_arm_rule_args(AsmBuffer*b,const char*key,const char*const*args,int count
     n=xh_template_emit("arm",key,args,count,out,sizeof(out));
     if(n<0){failed=1;return;}
     asmbuf_puts(b,out);
+}
+void xh_arm_semantic(AsmBuffer*b,const char*family,const char*operation,int width,const char*sign,const char*form,int pop,int push){
+    XhSemanticInput in;XhSemanticResult result;int rc;
+    if(failed)return;in.family=family;in.operation=operation;in.width=width;in.sign=sign;in.form=form;
+    rc=xh_semantic_select("arm","semantic.records",&in,&result);
+    if(rc!=1||result.pop!=pop||result.push!=push){failed=1;diag_tool(DIAG_SEV_ERROR,"ARM semantic rules","missing selection or incompatible stack effect",0,0,0,0,0,0);return;}
+    xh_arm_rule(b,result.template_key);
 }
 void xh_arm_rule(AsmBuffer*b,const char*key){xh_arm_rule_args(b,key,0,0);}
 void xh_arm_rule_ints(AsmBuffer*b,const char*key,int a,int c,int d){

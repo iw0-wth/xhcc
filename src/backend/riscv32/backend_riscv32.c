@@ -244,31 +244,6 @@ static void rv_put_cstr(AsmBuffer *b, const char *s) {
  * lower-numbered register; results come back the same way.  An image built for
  * this backend therefore has to be linked against libgcc.a.
  */
-static const char *rv_fbin_helper(int op, int is_dbl) {
-    switch (op) {
-        case (int)TOK_PLUS:  return is_dbl ? "__adddf3" : "__addsf3";
-        case (int)TOK_MINUS: return is_dbl ? "__subdf3" : "__subsf3";
-        case (int)TOK_MUL:   return is_dbl ? "__muldf3" : "__mulsf3";
-        case (int)TOK_DIV:   return is_dbl ? "__divdf3" : "__divsf3";
-        default: return 0;
-    }
-}
-
-/* The comparison helpers answer like strcmp -- negative / zero / positive --
- * with unordered pairs folded in per IEEE: 1 for eq/ne and for lt/le, -1 for
- * gt/ge.  That is exactly what C's six relational operators must return. */
-static const char *rv_fcmp_helper(int op, int is_dbl) {
-    switch (op) {
-        case (int)TOK_EQ: return is_dbl ? "__eqdf2" : "__eqsf2";
-        case (int)TOK_NE: return is_dbl ? "__nedf2" : "__nesf2";
-        case (int)TOK_LT: return is_dbl ? "__ltdf2" : "__ltsf2";
-        case (int)TOK_GT: return is_dbl ? "__gtdf2" : "__gtsf2";
-        case (int)TOK_LE: return is_dbl ? "__ledf2" : "__lesf2";
-        case (int)TOK_GE: return is_dbl ? "__gedf2" : "__gesf2";
-        default: return 0;
-    }
-}
-
 /* Pop two soft-float operands: the left one into a0 (a0:a1 for a double), the
  * right one into a2 (a2:a3).  The IR stack keeps a 64-bit value with its HIGH
  * word on top, while the psABI wants the low word in the lower register, so
@@ -1506,20 +1481,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                         else                       rv_cx_div(&buf);
                         break;
                     }
-                    const char *h = rv_fbin_helper(I->aux & ~0x200, is_dbl);
-                    if (!h) {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "the riscv32 backend does not implement the "
-                                  "floating-point operator %s (function '%s')",
-                                  diag_num(b1, I->aux & ~0x200), f->name, 0,0,0,0);
-                        break;
-                    }
-                    rv_fpop2(&buf, is_dbl);
-                    xh_rv_rule(&buf,"emit.fixed.0022");
-                    asmbuf_puts(&buf, h);
-                    asmbuf_putc(&buf, '\n');
-                    rv_fpush1(&buf, is_dbl);
+                    xh_rv_semantic(&buf,"float.bin",I->op==IR_FADD?"add":I->op==IR_FSUB?"sub":I->op==IR_FMUL?"mul":"div",is_dbl?64:32,"real","stack",is_dbl?4:2,is_dbl?2:1,0,0);
                     break;
                 }
                 case IR_FCMP: {
@@ -1527,34 +1489,11 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * returns strcmp-style, so the boolean is a sign test. */
                     int is_dbl = (I->aux & 0x200) != 0;
                     int op = I->aux & ~0x200;
-                    const char *h;
                     if (I->aux & IR_AUX_COMPLEX) {
                         rv_cx_cmp(&buf, (I->aux & ~(0x200 | IR_AUX_COMPLEX)) == (int)TOK_NE);
                         break;
                     }
-                    h = rv_fcmp_helper(op, is_dbl);
-                    if (!h) {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "the riscv32 backend does not implement the "
-                                  "floating-point comparison %s (function '%s')",
-                                  diag_num(b1, op), f->name, 0,0,0,0);
-                        break;
-                    }
-                    rv_fpop2(&buf, is_dbl);
-                    xh_rv_rule(&buf,"emit.fixed.0022");
-                    asmbuf_puts(&buf, h);
-                    asmbuf_putc(&buf, '\n');
-                    switch (op) {
-                        case (int)TOK_EQ: xh_rv_rule(&buf,"emit.fixed.0169"); break;
-                        case (int)TOK_NE: xh_rv_rule(&buf,"emit.fixed.0170"); break;
-                        case (int)TOK_LT: xh_rv_rule(&buf,"emit.fixed.0171"); break;
-                        case (int)TOK_GT: xh_rv_rule(&buf,"emit.fixed.0172"); break;
-                        case (int)TOK_LE: xh_rv_rule(&buf,"emit.fixed.0173"); break;
-                        case (int)TOK_GE: xh_rv_rule(&buf,"emit.fixed.0174"); break;
-                        default: break;
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0018");
+                    xh_rv_semantic(&buf,"float.cmp",op==TOK_EQ?"eq":op==TOK_NE?"ne":op==TOK_LT?"lt":op==TOK_GT?"gt":op==TOK_LE?"le":"ge",is_dbl?64:32,"real","stack",is_dbl?4:2,1,0,0);
                     break;
                 }
                 case IR_F2I: {
@@ -1585,17 +1524,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     }
                     int is_dbl = (I->aux & 0x200) != 0;
                     int is_unsigned = (I->aux & 0x400) != 0;
-                    const char *h = is_dbl
-                        ? (is_unsigned ? "__fixunsdfsi" : "__fixdfsi")
-                        : (is_unsigned ? "__fixunssfsi" : "__fixsfsi");
-                    if (is_dbl)
-                        xh_rv_rule(&buf,"emit.fixed.0016");
-                    else
-                        xh_rv_rule(&buf,"emit.fixed.0178");
-                    xh_rv_rule(&buf,"emit.fixed.0022");
-                    asmbuf_puts(&buf, h);
-                    asmbuf_putc(&buf, '\n');
-                    xh_rv_rule(&buf,"emit.fixed.0018");
+                    xh_rv_semantic(&buf,"convert","f2i32",is_dbl?64:32,is_unsigned?"u":"s","stack",is_dbl?2:1,1,0,0);
                     break;
                 }
                 case IR_I2F: {
@@ -1620,13 +1549,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     }
                     int is_dbl = (I->aux & 0x200) != 0;
                     int is_unsigned = (I->aux & 0x400) != 0;
-                    const char *h = is_dbl
-                        ? (is_unsigned ? "__floatunsidf" : "__floatsidf")
-                        : (is_unsigned ? "__floatunsisf" : "__floatsisf");
-                    xh_rv_rule(&buf,"emit.fixed.0179");
-                    asmbuf_puts(&buf, h);
-                    asmbuf_putc(&buf, '\n');
-                    rv_fpush1(&buf, is_dbl);
+                    xh_rv_semantic(&buf,"convert","i322f",is_dbl?64:32,is_unsigned?"u":"s","stack",1,is_dbl?2:1,0,0);
                     break;
                 }
                 case IR_64I2F: {
@@ -1634,13 +1557,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * aux: 0x200 = double destination, 0x400 = unsigned source. */
                     int is_dbl = (I->aux & 0x200) != 0;
                     int is_unsigned = (I->aux & 0x400) != 0;
-                    const char *h = is_dbl
-                        ? (is_unsigned ? "__floatundidf" : "__floatdidf")
-                        : (is_unsigned ? "__floatundisf" : "__floatdisf");
-                    xh_rv_rule(&buf,"emit.fixed.0183");
-                    asmbuf_puts(&buf, h);
-                    asmbuf_putc(&buf, '\n');
-                    rv_fpush1(&buf, is_dbl);
+                    xh_rv_semantic(&buf,"convert","i642f",is_dbl?64:32,is_unsigned?"u":"s","stack",2,is_dbl?2:1,0,0);
                     break;
                 }
                 case IR_64F2I: {
@@ -1650,17 +1567,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * aux: 0x200 = double source, 0x400 = unsigned target. */
                     int is_dbl = (I->aux & 0x200) != 0;
                     int is_unsigned = (I->aux & 0x400) != 0;
-                    const char *h = is_dbl
-                        ? (is_unsigned ? "__fixunsdfdi" : "__fixdfdi")
-                        : (is_unsigned ? "__fixunssfdi" : "__fixsfdi");
-                    if (is_dbl)
-                        xh_rv_rule(&buf,"emit.fixed.0016");
-                    else
-                        xh_rv_rule(&buf,"emit.fixed.0178");
-                    xh_rv_rule(&buf,"emit.fixed.0022");
-                    asmbuf_puts(&buf, h);
-                    asmbuf_putc(&buf, '\n');
-                    rv_fpush1(&buf, 1);
+                    xh_rv_semantic(&buf,"convert","f2i64",is_dbl?64:32,is_unsigned?"u":"s","stack",is_dbl?2:1,2,0,0);
                     break;
                 }
                 case IR_F2F: {
@@ -1669,13 +1576,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * destination (widening); neither means same width. */
                     int src_dbl = (I->aux & 0x200) != 0;
                     int dst_dbl = (I->aux & 0x100) != 0;
-                    if (src_dbl && !dst_dbl) {
-                        xh_rv_rule(&buf,"emit.fixed.0184");
-                        xh_rv_rule(&buf,"emit.fixed.0018");
-                    } else if (!src_dbl && dst_dbl) {
-                        xh_rv_rule(&buf,"emit.fixed.0181");
-                        rv_fpush1(&buf, 1);
-                    }
+                    if(src_dbl!=dst_dbl)xh_rv_semantic(&buf,"convert",src_dbl?"narrow":"widen",src_dbl?64:32,"real","stack",src_dbl?2:1,dst_dbl?2:1,0,0);
                     break;
                 }
                 case IR_UNARY: {

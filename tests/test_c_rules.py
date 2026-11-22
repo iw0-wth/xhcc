@@ -113,7 +113,7 @@ class CRules(unittest.TestCase):
         elf_path = source.with_suffix('.elf')
         process = subprocess.run([str(compiler), '-w', '-Wno-error=implicit-function-declaration', '-std=gnu99', '-O1', '-mcpu=cortex-m3',
                                   '-mthumb', '-ffunction-sections', '-fdata-sections', '-nostdlib',
-                                  '-Wl,--gc-sections,-Ttext=0x10000,-e,ark_main', str(source),
+                                  '-Wl,--gc-sections,-Ttext=0x10000,-e,ark_main', str(source), '-lc', '-lgcc',
                                   '-o', str(elf_path)], cwd=ROOT, capture_output=True, text=True, timeout=90)
         self.assertEqual(process.returncode, 0, process.stderr)
         with elf_path.open('rb') as stream:
@@ -174,6 +174,24 @@ class CRules(unittest.TestCase):
         output = self.compile(changed, 'policy').read_text(encoding='utf-8')
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
+
+    def test_external_call_argument_cast_changes_execution_same_sha(self):
+        original = self.source.read_text(encoding='utf-8')
+        before = hashlib.sha256(COMPILER.read_bytes()).digest()
+        try:
+            # Execution below uses a user function pointer and a void call;
+            # changing the integer argument cast affects an observable value.
+            self.source.write_text('void touch(int x) { } int id(long long x) { return x == 4294967295LL ? 41 : 9; } int main(void) { int (*p)(long long) = id; touch(3); return p(4294967295LL); }\n', encoding='utf-8')
+            base = self.compile(self.original, 'call_base')
+            variant = self.original.replace('callarg llong 64 s seq.callarg.llong.s 0 0',
+                                            'callarg llong 64 s seq.callarg.integer.s 0 0', 1)
+            self.assertNotEqual(variant, self.original)
+            changed = self.compile(variant, 'call_variant')
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            self.assertEqual([self.run_arm_generated_c(arm, output) for output in [base, changed]], [41, 9])
+            self.assertEqual(hashlib.sha256(COMPILER.read_bytes()).digest(), before)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
 
     def test_memory_selector_changes_signed_load_execution_same_sha(self):
         original = self.source.read_text(encoding='utf-8')
@@ -244,6 +262,17 @@ int main(int argc,char**argv){
  IrProgram prog={0};IrFunc f={0};IrFunc*funcs[1]={&f};IrInst inst={0};static char out[100000];int n;
  prog.funcs=funcs;prog.func_count=1;f.name="entry";f.code=&inst;f.code_count=1;
  inst.op=IR_PUSH_INT;inst.val=7;
+ if(!strcmp(argv[1],"calls")){
+  int a,b,c,d,e,g;Type rt={0};if(xh_c_rules_begin())return 2;
+  inst.op=IR_CALL;inst.name="entry";inst.val=3;rt.kind=TYPE_VOID;f.ret_type=&rt;
+  a=ir_stack_delta_ctx(&prog,&inst);
+  rt.kind=TYPE_INT;b=ir_stack_delta_ctx(&prog,&inst);
+  inst.name="conj";inst.val=1;c=ir_stack_delta_ctx(&prog,&inst);
+  inst.name="?";inst.val=2;d=ir_stack_delta_ctx(&prog,&inst);
+  inst.name="entry";inst.val=0;e=ir_stack_delta_ctx(&prog,&inst);
+  inst.val=16;g=ir_stack_delta_ctx(&prog,&inst);
+  printf("%d %d %d %d %d %d\n",a,b,c,d,e,g);return a==-3&&b==-2&&c==0&&d==-1&&e==1&&g==-15?0:1;
+ }
  if(!strcmp(argv[1],"effects")){
   int a,b,c,d;if(xh_c_rules_begin())return 2;
   inst.op=IR_TRUNC;a=ir_stack_delta(&inst);
@@ -253,6 +282,9 @@ int main(int argc,char**argv){
   printf("%d %d %d %d\n",a,b,c,d);return a==0&&b==-1&&c==0&&d==0?0:1;
  }
  if(!strcmp(argv[1],"ir"))inst.op=(IrOp)99999;
+ else if(!strcmp(argv[1],"call17")){inst.op=IR_CALL;inst.name="entry";inst.val=17;}
+ else if(!strcmp(argv[1],"callnull")){inst.op=IR_CALL;inst.name=0;inst.val=0;}
+ else if(!strcmp(argv[1],"indirect0")){inst.op=IR_CALL;inst.name="?";inst.val=0;}
  else if(!strcmp(argv[1],"binary")){inst.op=IR_BINARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"unary")){inst.op=IR_UNARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"compare")){inst.op=IR_FCMP;inst.aux=99999;}
@@ -296,8 +328,14 @@ class CBackendRejections(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(), '0 -1 0 0')
 
+    def test_dynamic_call_stack_effects_use_real_return_shape(self):
+        result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), 'calls'],
+                                cwd=ROOT, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), '-3 -2 0 -1 1 -15')
+
     def test_invalid_ir_operator_and_type_limits_reject_without_output(self):
-        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array']:
+        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0']:
             with self.subTest(mode=mode):
                 result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
                                         cwd=ROOT, capture_output=True, text=True, timeout=30)

@@ -1722,3 +1722,138 @@ end
 rule mem.policy.L.SH
 text 1 1 7 0 0 0 0 -4095 4095 1\n5 1 15 3 1 0 3 -4095 4095 1\n6 0 15 3 1 1 0 -255 255 1\n7 0 15 3 1 0 0 0 4095 1\n8 0 15 3 1 0 0 -255 -1 1
 end
+rule sem.floatbin.add.32.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fadd\n    PUSH {r0}\n
+end
+rule sem.floatbin.add.32.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VADD.F32 s0, s0, s1\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.floatbin.add.64.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dadd\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.add.64.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    VADD.F64 d0, d0, d1\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.sub.32.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fsub\n    PUSH {r0}\n
+end
+rule sem.floatbin.sub.32.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VSUB.F32 s0, s0, s1\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.floatbin.sub.64.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dsub\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.sub.64.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    VSUB.F64 d0, d0, d1\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.mul.32.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fmul\n    PUSH {r0}\n
+end
+rule sem.floatbin.mul.32.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMUL.F32 s0, s0, s1\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.floatbin.mul.64.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dmul\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.mul.64.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    VMUL.F64 d0, d0, d1\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.div.32.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fdiv\n    PUSH {r0}\n
+end
+rule sem.floatbin.div.32.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VDIV.F32 s0, s0, s1\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.floatbin.div.64.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ddiv\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.floatbin.div.64.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    VDIV.F64 d0, d0, d1\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.f2i.32.s.soft
+text     POP {r0}\n    BL __aeabi_f2iz\n    PUSH {r0}\n
+end
+rule sem.cast.f2i.32.s.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.S32.F32 s0, s0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.i2f.32.s.soft
+text     POP {r0}\n    BL __aeabi_i2f\n    PUSH {r0}\n
+end
+rule sem.cast.i2f.32.s.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.F32.S32 s0, s0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.i64tof.32.s
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_l2f\n    PUSH {r0}\n
+end
+rule sem.cast.ftoi64.32.s
+text     POP {r0}\n    BL __aeabi_f2lz\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.f2i.32.u.soft
+text     POP {r0}\n    BL __aeabi_f2uiz\n    PUSH {r0}\n
+end
+rule sem.cast.f2i.32.u.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.U32.F32 s0, s0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.i2f.32.u.soft
+text     POP {r0}\n    BL __aeabi_ui2f\n    PUSH {r0}\n
+end
+rule sem.cast.i2f.32.u.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.F32.U32 s0, s0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.i64tof.32.u
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_ul2f\n    PUSH {r0}\n
+end
+rule sem.cast.ftoi64.32.u
+text     POP {r0}\n    BL __aeabi_f2ulz\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.f2i.64.s.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2iz\n    PUSH {r0}\n
+end
+rule sem.cast.f2i.64.s.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VCVT.S32.F64 s0, d0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.i2f.64.s.soft
+text     POP {r0}\n    BL __aeabi_i2d\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.i2f.64.s.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.F64.S32 d0, s0\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.i64tof.64.s
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_l2d\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.ftoi64.64.s
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2lz\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.f2i.64.u.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2uiz\n    PUSH {r0}\n
+end
+rule sem.cast.f2i.64.u.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VCVT.U32.F64 s0, d0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.i2f.64.u.soft
+text     POP {r0}\n    BL __aeabi_ui2d\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.i2f.64.u.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.F64.U32 d0, s0\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.i64tof.64.u
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_ul2d\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.ftoi64.64.u
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2ulz\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule semantic.records
+text XHSEMANTIC 1\nfloatbin add 32 v soft sem.floatbin.add.32.soft 2 1\nfloatbin add 32 v hard sem.floatbin.add.32.hard 2 1\nfloatbin add 64 v soft sem.floatbin.add.64.soft 4 2\nfloatbin add 64 v hard sem.floatbin.add.64.hard 4 2\nfloatbin sub 32 v soft sem.floatbin.sub.32.soft 2 1\nfloatbin sub 32 v hard sem.floatbin.sub.32.hard 2 1\nfloatbin sub 64 v soft sem.floatbin.sub.64.soft 4 2\nfloatbin sub 64 v hard sem.floatbin.sub.64.hard 4 2\nfloatbin mul 32 v soft sem.floatbin.mul.32.soft 2 1\nfloatbin mul 32 v hard sem.floatbin.mul.32.hard 2 1\nfloatbin mul 64 v soft sem.floatbin.mul.64.soft 4 2\nfloatbin mul 64 v hard sem.floatbin.mul.64.hard 4 2\nfloatbin div 32 v soft sem.floatbin.div.32.soft 2 1\nfloatbin div 32 v hard sem.floatbin.div.32.hard 2 1\nfloatbin div 64 v soft sem.floatbin.div.64.soft 4 2\nfloatbin div 64 v hard sem.floatbin.div.64.hard 4 2\ncast f2i 32 s soft sem.cast.f2i.32.s.soft 1 1\ncast f2i 32 s hard sem.cast.f2i.32.s.hard 1 1\ncast i2f 32 s soft sem.cast.i2f.32.s.soft 1 1\ncast i2f 32 s hard sem.cast.i2f.32.s.hard 1 1\ncast i64tof 32 s soft sem.cast.i64tof.32.s 2 1\ncast ftoi64 32 s soft sem.cast.ftoi64.32.s 1 2\ncast f2i 32 u soft sem.cast.f2i.32.u.soft 1 1\ncast f2i 32 u hard sem.cast.f2i.32.u.hard 1 1\ncast i2f 32 u soft sem.cast.i2f.32.u.soft 1 1\ncast i2f 32 u hard sem.cast.i2f.32.u.hard 1 1\ncast i64tof 32 u soft sem.cast.i64tof.32.u 2 1\ncast ftoi64 32 u soft sem.cast.ftoi64.32.u 1 2\ncast f2i 64 s soft sem.cast.f2i.64.s.soft 2 1\ncast f2i 64 s hard sem.cast.f2i.64.s.hard 2 1\ncast i2f 64 s soft sem.cast.i2f.64.s.soft 1 2\ncast i2f 64 s hard sem.cast.i2f.64.s.hard 1 2\ncast i64tof 64 s soft sem.cast.i64tof.64.s 2 2\ncast ftoi64 64 s soft sem.cast.ftoi64.64.s 2 2\ncast f2i 64 u soft sem.cast.f2i.64.u.soft 2 1\ncast f2i 64 u hard sem.cast.f2i.64.u.hard 2 1\ncast i2f 64 u soft sem.cast.i2f.64.u.soft 1 2\ncast i2f 64 u hard sem.cast.i2f.64.u.hard 1 2\ncast i64tof 64 u soft sem.cast.i64tof.64.u 2 2\ncast ftoi64 64 u soft sem.cast.ftoi64.64.u 2 2\ncast narrow 64 v soft sem.cast.narrow.soft 2 1\ncast narrow 64 v hard sem.cast.narrow.hard 2 1\ncast widen 32 v soft sem.cast.widen.soft 1 2\ncast widen 32 v hard sem.cast.widen.hard 1 2\n
+end
+rule sem.cast.narrow.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2f\n    PUSH {r0}\n
+end
+rule sem.cast.narrow.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VCVT.F32.F64 s0, d0\n    VMOV r0, s0\n    PUSH {r0}\n
+end
+rule sem.cast.widen.soft
+text     POP {r0}\n    BL __aeabi_f2d\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.cast.widen.hard
+text     POP {r0}\n    VMOV s0, r0\n    VCVT.F64.F32 d0, s0\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
