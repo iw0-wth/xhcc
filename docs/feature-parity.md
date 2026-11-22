@@ -37,6 +37,12 @@ reference paths that silently emitted incorrect code.
 | ARMCC syntax | `__irq`, `__weak`, `__naked`, `__packed`, `__align`, `__at`, `__svc`, `__softfp`, `__forceinline`, arm pragmas, asm functions and other existing keywords remain parsed. They are ARM extensions; other targets do not acquire their ARM semantics merely by parsing them. |
 | Preprocessor | Macro expansion, conditional directives, includes, trigraphs, wide literals, macro redefinition checking and dynamic macro bodies are retained. Capacity limits remain explicit below. |
 
+The C emitter's declared ABI supports at most **16 call arguments**. Calls above
+that capacity fail with an argument-count diagnostic; the 17th-FP-class regression
+therefore tests rejection for C and correct emission for machine targets. C uses
+one ordinal stack slot per scalar/complex value, including double and long long;
+discarded expressions and small aggregate results follow that single-slot rule.
+
 ## Inline assembly: verified scope and reference defects
 
 Basic `asm`, `__asm` and `__asm__` statements retain user text for the selected

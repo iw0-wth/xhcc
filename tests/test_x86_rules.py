@@ -229,6 +229,36 @@ return f.u==0x40600000u && d.u==0x4024000000000000ULL && (int)(a-b)==5 && (int)(
      if obj.exists():obj.unlink()
      self.invoke(root,'variant-gcc',probe,obj,ok=False)
   self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_integer64_semantic_edges_and_rule_mutation(self):
+  source=OUT/'integer64_semantic.c';source.write_text('''unsigned long long add(unsigned long long a,unsigned long long b){return a+b;}
+unsigned long long sub(unsigned long long a,unsigned long long b){return a-b;}
+unsigned long long mul(unsigned long long a,unsigned long long b){return a*b;}
+unsigned long long left(unsigned long long a,int n){return a<<n;}
+unsigned long long right(unsigned long long a,int n){return a>>n;}
+long long aright(long long a,int n){return a>>n;}
+int greater(long long a,long long b){return a>b;} int less(long long a,long long b){return a<b;}
+int ge(long long a,long long b){return a>=b;} int le(long long a,long long b){return a<=b;}
+long long sdiv(long long a,long long b){return a/b;} long long smod(long long a,long long b){return a%b;}
+unsigned long long udiv(unsigned long long a,unsigned long long b){return a/b;} unsigned long long umod(unsigned long long a,unsigned long long b){return a%b;}
+int entry(void){unsigned long long a=0x12345678ffffffffULL,b=0x100000003ULL;long long n=-0x123456789LL;int shifts[4]={0,31,32,63};int i;
+if(add(a,b)!=0x1234567a00000002ULL || sub(a,b)!=0x12345677fffffffcULL || mul(0x100000001ULL,0x100000003ULL)!=0x400000003ULL)return 0;
+for(i=0;i<4;i++){int k=shifts[i];if(left(1ULL,k)!=(1ULL<<k) || right(0x8000000000000000ULL,k)!=(0x8000000000000000ULL>>k) || aright(-8LL,k)!=(-8LL>>k))return 0;}
+if(!greater(0x1ffffffffLL,0x100000000LL) || !ge(0x1ffffffffLL,0x100000000LL) || !less(0x100000000LL,0x1ffffffffLL) || !le(0x100000000LL,0x1ffffffffLL))return 0;
+if(!(n<1LL) || n==1LL || !(0x8000000000000000ULL>1ULL) || 0x8000000000000000ULL<1ULL)return 0;
+return udiv(0x123456789abcdef0ULL,17ULL)==0x112233445566777ULL && umod(0x123456789abcdef0ULL,17ULL)==9 && sdiv(-10000000001LL,3LL)==-3333333333LL && smod(-10000000001LL,3LL)==-2;}
+''')
+  before=hashlib.sha256(self.compiler.read_bytes()).digest()
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-i64-') as tmp:
+    root=Path(tmp);pkg=self.package(root,target);obj=OUT/(target+'_integer64.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),1)
+    probe=OUT/'integer64_variant.c';probe.write_text('long long calc(long long a,long long b){return a+b;}int entry(void){return (int)calc(0x10000000aLL,3LL);}\n');path=pkg/'x86.rules';base=path.read_text();record='binary add 64 signed pair int64.binary.add.signed 4 2';self.assertIn(record,base);outputs=[]
+    for changed in [False,True]:
+     path.write_text(base.replace(record,'binary add 64 signed pair int64.binary.sub.signed 4 2') if changed else base);obj=OUT/(target+('_i64_changed.o' if changed else '_i64_base.o'));self.invoke(root,'variant-gcc',probe,obj);outputs.append(self.execute(obj,target=='x86_64'))
+    self.assertEqual(outputs,[13,7])
+    path.write_text(base.replace(record,''));obj=OUT/(target+'_i64_rejected.o')
+    if obj.exists():obj.unlink()
+    self.invoke(root,'variant-gcc',probe,obj,ok=False)
+  self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

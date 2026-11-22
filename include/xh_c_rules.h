@@ -21,6 +21,8 @@ int xh_c_rule_member(const char *key, const char *name);
 const char *xh_c_rule_map(const char *key, const char *name);
 int xh_c_rule_find(const char *key,const char *name,char *out,int cap);
 int xh_c_call_effect(const char *route,const char *result,int *pop,int *push);
+void xh_c_effect_set(int pop,int push);
+void xh_c_effect_get(int *pop,int *push);
 int xh_c_call_piece(const char *family,const char *operation,const char *const *args,char *out,int capacity);
 int xh_c_rule_copy(char *out, int capacity, const char *key);
 void xh_c_rules_error(const char *message);

@@ -7844,86 +7844,11 @@ static char *codegen_arm(IrProgram *prog) {
                         arm_cplx_cmp(&buf, op == (int)TOK_NE);
                         break;
                     }
-#if ARKCC_FEATURE_FPU_HW
-                    if (g_config.enable_fpu_hw) {
-                        const char *cond = "EQ";
-                        /* r0 must be cleared after the operands are moved
-                         * into the FPU registers and before VCMP, never
-                         * between VMRS and the IT block: outside an IT block
-                         * `MOV r0, #imm8` assembles to the 16-bit MOVS form and
-                         * would overwrite the flags that VMRS has just loaded
-                         * from FPSCR.  Both halves were measured on the board:
-                         * with the MOV after VMRS every EQ test came out true
-                         * (double_cmp returned 100, not 1001), and with it
-                         * before the POPs r0 still held the low word of the
-                         * left operand, so a *false* compare returned that word
-                         * (7.9 >= 2^63 answered -1717986918 = 0x9999999A, and
-                         * __aeabi_d2lz read it as "too large" and saturated). */
-                        if (is_dbl) {
-                            xh_arm_rule(&buf, "text.0036");
-                            xh_arm_rule(&buf, "text.0037");
-                            xh_arm_rule(&buf, "text.0008");
-                            xh_arm_rule(&buf, "text.0007");
-                            xh_arm_rule(&buf, "text.0032");
-                            xh_arm_rule(&buf, "text.0033");
-                            xh_arm_rule(&buf, "text.0038");
-                            xh_arm_rule(&buf, "text.0039");
-                            emit_mov_imm(&buf, 0, 0);
-                            xh_arm_rule(&buf, "text.0272");
-                        } else {
-                            emit_pop_r1(&buf); emit_pop_r0(&buf);
-                            xh_arm_rule(&buf, "text.0032");
-                            xh_arm_rule(&buf, "text.0033");
-                            emit_mov_imm(&buf, 0, 0);
-                            xh_arm_rule(&buf, "text.0273");
-                        }
-                        xh_arm_rule(&buf, "text.0274");
-                        switch (op) {
-                            case (int)TOK_EQ: cond = "EQ"; break;
-                            case (int)TOK_NE: cond = "NE"; break;
-                            case (int)TOK_LT: cond = "LT"; break;
-                            case (int)TOK_GT: cond = "GT"; break;
-                            case (int)TOK_LE: cond = "LE"; break;
-                            case (int)TOK_GE: cond = "GE"; break;
-                            default: cond = "EQ"; break;
-                        }
-                        xh_arm_rule(&buf, "text.0275");
-                        asmbuf_puts(&buf, cond);
-                        asmbuf_putc(&buf, '\n');
-                        xh_arm_rule(&buf, "text.0276");
-                        asmbuf_puts(&buf, cond);
-                        xh_arm_rule(&buf, "text.0277");
-                        emit_push_r0(&buf);
-                        break;
-                    }
-#endif
                     {
-                    const char *helper = "__aeabi_fcmpeq";
-                    switch (op) {
-                        case (int)TOK_EQ: helper = is_dbl ? "__aeabi_dcmpeq" : "__aeabi_fcmpeq"; break;
-                        case (int)TOK_NE: helper = is_dbl ? "__aeabi_dcmpeq" : "__aeabi_fcmpeq"; break;
-                        case (int)TOK_LT: helper = is_dbl ? "__aeabi_dcmplt" : "__aeabi_fcmplt"; break;
-                        case (int)TOK_GT: helper = is_dbl ? "__aeabi_dcmpgt" : "__aeabi_fcmpgt"; break;
-                        case (int)TOK_LE: helper = is_dbl ? "__aeabi_dcmple" : "__aeabi_fcmple"; break;
-                        case (int)TOK_GE: helper = is_dbl ? "__aeabi_dcmpge" : "__aeabi_fcmpge"; break;
-                        default: break;
+                        const char *name=arm_scalar_rule(op);
+                        xh_arm_semantic(&buf,"floatcmp",name?name:"unknown",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,1);
                     }
-                    if (is_dbl) {
-                        xh_arm_rule(&buf, "text.0036");
-                        xh_arm_rule(&buf, "text.0037");
-                        xh_arm_rule(&buf, "text.0008");
-                        xh_arm_rule(&buf, "text.0007");
-                    } else {
-                        emit_pop_r1(&buf); emit_pop_r0(&buf);
-                    }
-                    xh_arm_rule(&buf, "text.0278");
-                    asmbuf_puts(&buf, helper);
-                    asmbuf_putc(&buf, '\n');
-                    /* NE: use fcmpeq/dcmpeq then flip the low bit */
-                    if (op == (int)TOK_NE) xh_arm_rule(&buf, "text.0279");
-                    emit_push_r0(&buf);
                     break;
-                    }
                 }
                 case IR_ASM:
                     if(I->aux&0x40000000){int k,outs=I->aux&1;const char*s=I->name?I->name:"";for(k=(int)I->val-1;k>=0;k--){xh_arm_rule(&buf, "text.0061");asmbuf_int(&buf,outs+k);xh_arm_rule(&buf, "text.0058");}xh_arm_rule(&buf, "text.0000");while(*s){if(*s=='%'&&s[1]=='%'){asmbuf_putc(&buf,'%');s+=2;}else if(*s=='%'&&s[1]>='0'&&s[1]<='2'){asmbuf_putc(&buf,'r');asmbuf_putc(&buf,s[1]);s+=2;}else asmbuf_putc(&buf,*s++);}asmbuf_putc(&buf,'\n');if(outs)emit_push_r0(&buf);break;}
@@ -8587,107 +8512,12 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_push_r0(&buf);
                     break;
                 case IR_64BINARY: {
-                    /* #I2 FIX: Mask off unsigned flag (0x100) from op, and use
-                     * correct AEABI helper names (__aeabi_ldivmod not __aeabi_ldiv). */
-                    int is_unsigned = (I->aux & 0x100) != 0;
-                    int op = I->aux & ~0x100;
-                    const char *helper = 0;
-                    int is_div = 0, is_mod = 0;
-                    int is_add = 0, is_sub = 0;
-                    switch (op) {
-                        /* 64-bit add/sub are two instructions -- emit them
-                         * inline instead of calling the AEABI helpers.
-                         * __aeabi_ladd/__aeabi_lsub are *not* in gcc's
-                         * libgcc.a any more (gcc >= 4.x inlines them, so the
-                         * archive never defines them), which made every
-                         * 64-bit add/sub image fail to link with
-                         * "undefined reference to `__aeabi_ladd'". */
-                        case (int)TOK_PLUS:  is_add = 1; break;
-                        case (int)TOK_MINUS: is_sub = 1; break;
-                        case (int)TOK_MUL:   helper = "__aeabi_lmul"; break;
-                        case (int)TOK_DIV:   helper = is_unsigned ? "__aeabi_uldivmod" : "__aeabi_ldivmod"; is_div = 1; break;
-                        case (int)TOK_MOD:   helper = is_unsigned ? "__aeabi_uldivmod" : "__aeabi_ldivmod"; is_mod = 1; break;
-                        /* Shifts: value in r0:r1, count in r2 (0..63).  These are
-                         * the standard AEABI helper names, so an image linked
-                         * against a real runtime library also resolves them. */
-                        case (int)TOK_SHL:   helper = "__aeabi_llsl"; break;
-                        case (int)TOK_SHR:   helper = is_unsigned ? "__aeabi_llsr"
-                                                                  : "__aeabi_lasr"; break;
-                        default: break;
-                    }
-                    xh_arm_rule(&buf, "text.0036");
-                    xh_arm_rule(&buf, "text.0037");
-                    xh_arm_rule(&buf, "text.0008");
-                    xh_arm_rule(&buf, "text.0007");
-                    /* Bitwise AND/OR/XOR need no helper: both words are
-                     * independent.  They used to fall through with no helper at
-                     * all, i.e. the result was whatever happened to be in
-                     * r0:r1 -- measured: `(-100LL & 1)` did not behave like 0,
-                     * which quietly broke the standard "clear the low bit"
-                     * idiom used by the reference code in the shift tests. */
-                    if (op == (int)TOK_BAND) { xh_arm_rule(&buf, "text.0320"); xh_arm_rule(&buf, "text.0321"); }
-                    else if (op == (int)TOK_BOR)  { xh_arm_rule(&buf, "text.0322"); xh_arm_rule(&buf, "text.0323"); }
-                    else if (op == (int)TOK_BXOR) { xh_arm_rule(&buf, "text.0324"); xh_arm_rule(&buf, "text.0325"); }
-                    /* ADDS/ADC and SUBS/SBC are emitted in their 16-bit
-                     * two/three-operand forms on purpose: a Thumb-2 wide
-                     * `ADD.W r0, r0, #imm` does not update APSR under
-                     * unicorn 2.1.4, which would silently corrupt the carry
-                     * into ADC (measured: -7LL + -1LL came out as -8LL).  The S is
-                     * mandatory here: without it GNU as picks the 32-bit
-                     * ADD.W/SUB.W (verified with objdump: `add r0, r0, r2` ->
-                     * eb00 0002, `adds ...` -> 1880), which leaves the flags
-                     * alone and breaks the carry chain.  The built-in assembler
-                     * therefore accepts ADDS/SUBS without --asm-extra. */
-                    if (is_add) {
-                        xh_arm_rule(&buf, "text.0326");
-                        xh_arm_rule(&buf, "text.0327");
-                    } else if (is_sub) {
-                        xh_arm_rule(&buf, "text.0328");
-                        xh_arm_rule(&buf, "text.0329");
-                    }
-                    if (helper) {
-                        xh_arm_rule(&buf, "text.0278");
-                        asmbuf_puts(&buf, helper);
-                        asmbuf_putc(&buf, '\n');
-                    }
-                    if (is_mod) {
-                        /* __aeabi_ldivmod/uldivmod: quotient in r0/r1, remainder in r2/r3;
-                         * take remainder to r0/r1 for MOD result. */
-                        xh_arm_rule(&buf, "text.0330");
-                        xh_arm_rule(&buf, "text.0331");
-                    }
-                    /* For DIV, quotient is already in r0/r1. */
-                    emit_push_r0(&buf);                 /* result low 32 bits */
-                    xh_arm_rule(&buf, "text.0024"); /* result high 32 bits */
-                    break;
+                    int u=(I->aux&0x100)!=0;const char*op=arm_scalar_rule(I->aux&~0x100);
+                    xh_arm_semantic(&buf,"integerbin",op?op:"unknown",64,u?"u":"s","stack",4,2);break;
                 }
                 case IR_64CMP: {
-                    /* #I3 FIX: Check unsigned flag (0x100) to select __aeabi_ulcmp
-                     * for unsigned comparison instead of always using __aeabi_lcmp. */
-                    int is_unsigned = (I->aux & 0x100) != 0;
-                    int op = I->aux & ~0x100;
-                    const char *cmp_helper = is_unsigned ? "__aeabi_ulcmp" : "__aeabi_lcmp";
-                    /* __aeabi_lcmp/ulcmp returns -1/0/1 (a<b / a==b / a>b) in r0;
-                     * use conditional MOV to produce a 0/1 comparison result. */
-                    xh_arm_rule(&buf, "text.0036");
-                    xh_arm_rule(&buf, "text.0037");
-                    xh_arm_rule(&buf, "text.0008");
-                    xh_arm_rule(&buf, "text.0007");
-                    xh_arm_rule(&buf, "text.0278");
-                    asmbuf_puts(&buf, cmp_helper);
-                    asmbuf_putc(&buf, '\n');
-                    xh_arm_rule(&buf, "text.0241");
-                    switch (op) {
-                        case (int)TOK_EQ: xh_arm_rule(&buf, "text.0332"); xh_arm_rule(&buf, "text.0333"); xh_arm_rule(&buf, "text.0334"); break;
-                        case (int)TOK_NE: xh_arm_rule(&buf, "text.0335"); xh_arm_rule(&buf, "text.0336"); xh_arm_rule(&buf, "text.0337"); break;
-                        case (int)TOK_LT: xh_arm_rule(&buf, "text.0338"); xh_arm_rule(&buf, "text.0339"); xh_arm_rule(&buf, "text.0340"); break;
-                        case (int)TOK_GT: xh_arm_rule(&buf, "text.0341"); xh_arm_rule(&buf, "text.0342"); xh_arm_rule(&buf, "text.0343"); break;
-                        case (int)TOK_LE: xh_arm_rule(&buf, "text.0344"); xh_arm_rule(&buf, "text.0345"); xh_arm_rule(&buf, "text.0346"); break;
-                        case (int)TOK_GE: xh_arm_rule(&buf, "text.0347"); xh_arm_rule(&buf, "text.0348"); xh_arm_rule(&buf, "text.0349"); break;
-                        default: break;
-                    }
-                    emit_push_r0(&buf);
-                    break;
+                    int u=(I->aux&0x100)!=0;const char*op=arm_scalar_rule(I->aux&~0x100);
+                    xh_arm_semantic(&buf,"integercmp",op?op:"unknown",64,u?"u":"s","stack",4,1);break;
                 }
                 /* === Memory copy: top of stack is destination address, next is source; BL memcpy === */
                 case IR_MEMCPY:

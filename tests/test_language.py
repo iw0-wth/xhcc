@@ -187,11 +187,37 @@ long long_identity(long a) { long local = a; return local; }
                                       '-fno-builtin', success=False)
         self.assertTrue('puts' in diagnostics or 'undefined' in diagnostics.lower(), diagnostics)
 
+    @unittest.skipUnless(TARGET == 'c', 'C ordinal single-slot representation')
+    def test_c_discarded_values_keep_loop_stack_balanced(self):
+        asm, _ = self.compile('''
+long long wide(void) { return 4294967297LL; }
+double real_value(void) { return 1.5; }
+_Complex double complex_value(void) { return 2.0 + 3.0i; }
+struct Pair { int a; int b; };
+struct Pair pair_value(void) { return (struct Pair){3, 4}; }
+void no_result(void) { }
+int discarded_values(void) {
+    int i;
+    for (i = 0; i < 5; ++i) {
+        wide(); real_value(); complex_value(); pair_value(); no_result();
+        (void)wide(); (void)real_value(); (void)complex_value();
+        (void)pair_value(); (void)no_result();
+        (void)4294967297LL; (void)1.5;
+    }
+    return i;
+}
+''', '-std=c99', '-O0')
+        self.assertIn('discarded_values', asm)
+
     def test_floating_class_beyond_legacy_argument_mask(self):
         parameters = ', '.join('int a' + str(i) for i in range(16))
         arguments = ', '.join(str(i + 1) for i in range(16))
         source = ('extern double late_fp(' + parameters + ', double last);\n'
                   'double call_late_fp(void) { return late_fp(' + arguments + ', 3.5); }\n')
+        if TARGET == 'c':
+            _, diagnostics = self.compile(source, '-O0', success=False)
+            self.assertIn('argument count', diagnostics.lower())
+            return
         asm, _ = self.compile(source, '-O0')
         self.assertIn('late_fp', asm)
         if TARGET == 'x86_64':

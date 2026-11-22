@@ -228,7 +228,7 @@ class ArmRules(unittest.TestCase):
         from unicorn.arm_const import UC_ARM_REG_C1_C0_2,UC_ARM_REG_FPEXC,UC_ARM_REG_PC,UC_CPU_ARM_CORTEX_A15
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-fp-modes-') as tmp:
             work=Path(tmp);source=work/'fp.c'
-            source.write_text('int entry(void){float a=7.5f,b=2.5f;unsigned u=19;return (int)((a+b)*(a-b)/b)+(int)(float)u;}\nint dp(void){double a=7.5,b=2.5;unsigned u=19;return (int)((a+b)*(a-b)/b)+(int)(double)u;}\n')
+            source.write_text('int entry(void){float a=7.5f,b=2.5f;unsigned u=19;return (int)((a+b)*(a-b)/b)+(int)(float)u;}\nint dp(void){double a=7.5,b=2.5;unsigned u=19;return (int)((a+b)*(a-b)/b)+(int)(double)u;}\nint nancompare(void){union {unsigned u;float f;} n;n.u=0x7fc00000u;return (n.f<1.0f)+2*(n.f<=1.0f)+4*(n.f>1.0f)+8*(n.f>=1.0f)+16*(n.f==1.0f)+32*(n.f!=1.0f);}\n')
             for cpu,fpu,name in [('cortex-m4','fpv4-sp-d16','entry'),('cortex-m7','fpv5-d16','dp')]:
                 obj=work/(name+'.o');exe=work/(name+'.elf')
                 self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-mcpu='+cpu,'-mfpu='+fpu,'-mfloat-abi=softfp','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
@@ -245,6 +245,24 @@ class ArmRules(unittest.TestCase):
                     try:uc.emu_start(elf['e_entry']|1,0x4f000,count=100000)
                     except Exception as exc:self.fail(str((cpu,fpu,name,hex(uc.reg_read(UC_ARM_REG_PC)),exc)))
                     self.assertEqual(uc.reg_read(UC_ARM_REG_R0),39,(cpu,fpu,name))
+                    nanentry=elf.get_section_by_name('.symtab').get_symbol_by_name('nancompare')[0]['st_value'];uc.reg_write(UC_ARM_REG_SP,0x71f000);uc.reg_write(UC_ARM_REG_LR,0x4f001);uc.emu_start(nanentry|1,0x4f000,count=100000)
+                    self.assertEqual(uc.reg_read(UC_ARM_REG_R0),32,'unordered NaN comparisons')
+
+    def test_integer64_and_floatcmp_semantic_records_execute(self):
+        compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-64-semantic-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'ops.c';source.write_text('long long divide(long long a,long long b){return a/b;}\nint relation(long long a,long long b){return a<b;}\nint entry(void){return (int)divide(37LL,5LL);}\nint compare(void){return relation(3LL,8LL);}\nint floatrelation(float a,float b){return a<b;}\nint fpentry(void){return floatrelation(3.0f,8.0f);}\nint bounds(void){long long a=-100LL,b=7LL;unsigned long long u=0x8000000000000000ULL;return ((a+b)==-93LL)&&((a-b)==-107LL)&&((a*b)==-700LL)&&((a%b)==-2LL)&&((a&b)==4LL)&&((a|b)==-97LL)&&((a^b)==-101LL)&&((a>>3)==-13LL)&&((u>>63)==1ULL)&&((u/3ULL)==3074457345618258602ULL)&&((u%3ULL)==2ULL)&&((b<<33)==60129542144LL)&&(u>7ULL);}\n')
+            lib=subprocess.run([str(GNU/'arm-none-eabi-gcc.exe'),'-mcpu=cortex-m3','-mthumb','-mfloat-abi=soft','-print-libgcc-file-name'],capture_output=True,text=True,check=True).stdout.strip();path=pkg/'arm.rules';base=path.read_text()
+            changes=[base,base.replace('integerbin div 64 s stack sem.integerbin.div.64.s.stack 4 2','integerbin div 64 s stack sem.integerbin.mod.64.s.stack 4 2',1),base.replace('integercmp lt 64 s stack sem.integercmp.lt.64.s.stack 4 1','integercmp lt 64 s stack sem.integercmp.gt.64.s.stack 4 1',1),base.replace('floatcmp lt 32 v soft sem.floatcmp.lt.32.v.soft 2 1','floatcmp lt 32 v soft sem.floatcmp.gt.32.v.soft 2 1',1)]
+            results=[]
+            for i,text in enumerate(changes):
+                path.write_text(text);obj=work/(str(i)+'.o');exe=work/(str(i)+'.elf')
+                self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT));self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e','entry','-o',exe,obj,lib)
+                results.append((self.execute(exe),self.execute(exe,'compare'),self.execute(exe,'fpentry')))
+                self.assertEqual(self.execute(exe,'bounds'),1)
+            self.assertEqual(results,[(7,1,1),(2,1,1),(7,0,1),(7,1,0)]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
 
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:

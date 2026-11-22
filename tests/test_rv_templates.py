@@ -67,6 +67,36 @@ unsigned entry(void){union F a,b,c;a.u=0x3fc00000u;b.u=0x40200000u;c.f=a.f+b.f;r
   with tempfile.TemporaryDirectory(prefix='xh-rv-float-') as tmp:
    root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';rules.write_text(rules.read_text().replace('float.bin add 32 real stack softfloat.add.f32 2 1','float.bin add 32 real stack softfloat.sub.f32 2 1'));changed=self.compile(source,'softvariant',root);self.assertEqual(self.execute(changed),0x3f800000)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_integer64_sequences_boundaries_and_selection_variant(self):
+  operations={'add':'+','sub':'-','band':'&','bor':'|','bxor':'^','mul':'*','shl':'<<','shr':'>>','div':'/','mod':'%','eq':'==','ne':'!=','lt':'<','gt':'>','le':'<=','ge':'>='}
+  source='int entry(void){return 0;}'+''.join(f'{typ} {prefix}_{name}({typ} a,{typ} b){{return a {op} b;}}' for prefix,typ in [('s','long long'),('u','unsigned long long')] for name,op in operations.items())
+  exe=self.compile(source,'integer64');mask=(1<<64)-1
+  with exe.open('rb') as f:
+   elf=ELFFile(f);symbols={s.name:s['st_value'] for s in elf.get_section_by_name('.symtab').iter_symbols()};uc=Uc(UC_ARCH_RISCV,UC_MODE_RISCV32);uc.mem_map(0x10000,0x30000);uc.mem_map(0x700000,0x20000)
+   from unicorn.riscv_const import UC_RISCV_REG_A2,UC_RISCV_REG_A3
+   for sec in elf.iter_sections():
+    if sec['sh_flags']&2 and sec['sh_type']!='SHT_NOBITS':uc.mem_write(sec['sh_addr'],sec.data())
+   count=0
+   for unsigned in [False,True]:
+    for name,op in operations.items():
+     pairs=[(0,1),(1,1),(mask,3),(1<<63,7),((1<<63)-1,0xffffffff),(0x1234567887654321,0x102030405)]
+     if name in ['shl','shr']:pairs=[(a,b) for a in [1,mask,1<<63,0x1234567887654321] for b in [0,1,31,32,33,63]]
+     for a,b in pairs:
+      aa=a if unsigned or a<(1<<63) else a-(1<<64);bb=b if unsigned or b<(1<<63) else b-(1<<64)
+      if name in ['div','mod']:
+       q=abs(aa)//abs(bb);q=-q if (aa<0)!=(bb<0) else q;want=q if name=='div' else aa-q*bb
+      elif name=='band':want=aa&bb
+      elif name=='bor':want=aa|bb
+      elif name=='bxor':want=aa^bb
+      else:want=eval(f'aa {op} bb')
+      uc.reg_write(UC_RISCV_REG_SP,0x71f000);uc.reg_write(UC_RISCV_REG_RA,0x3f000)
+      for register,value in [(UC_RISCV_REG_A0,a&0xffffffff),(UC_RISCV_REG_A1,a>>32),(UC_RISCV_REG_A2,b&0xffffffff),(UC_RISCV_REG_A3,b>>32)]:uc.reg_write(register,value)
+      uc.emu_start(symbols[('u' if unsigned else 's')+'_'+name],0x3f000,count=100000);got=(uc.reg_read(UC_RISCV_REG_A0)&0xffffffff)|((uc.reg_read(UC_RISCV_REG_A1)&0xffffffff)<<32);self.assertEqual(got,int(want)&mask,(unsigned,name,hex(a),hex(b),hex(got),hex(int(want)&mask)));count+=1
+  self.assertEqual(count,264)
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-i64-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';text=rules.read_text();simple='unsigned entry(void){long long a=10,b=3;return (unsigned)(a+b);}';normal=self.compile(simple,'i64normal',root);self.assertEqual(self.execute(normal),13);rules.write_text(text.replace('integer64 add 64 s stack integer64.add.s 4 2','integer64 add 64 s stack integer64.sub.s 4 2'));variant=self.compile(simple,'i64variant',root);self.assertEqual(self.execute(variant),7)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

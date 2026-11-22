@@ -2321,9 +2321,19 @@ static int irgen_compound_literal(IrGen *g, AstNode *node) {
  * void calls still conservatively push, so they need the POP. 64-bit
  * returns occupy 2 stack slots and need 2 POPs. */
 static void irgen_discard_result(IrGen *g, AstNode *node) {
-    Type *et = node ? node->type : 0;
+    Type *et;
     int words = 1;
-    if (et && (type_is_64bit_integer(et) || et->kind == TYPE_DOUBLE)) {
+    /* A cast to void currently leaves its operand's representation on the IR
+     * stack. Classify that operand (including a nested void call) for discard. */
+    while (node && node->kind == AST_CAST && node->type &&
+           node->type->kind == TYPE_VOID) node = node->u.unary.operand;
+    et = node ? node->type : 0;
+    /* C's ordinal 8-byte slot is one union element for every scalar/complex
+     * value. Machine backends retain word pairs even on AMD64; pointer slot64
+     * is a separate representation and must not enable this scalar shortcut. */
+    if (g_irgen_64bit_slots) {
+        words = 1;
+    } else if (et && (type_is_64bit_integer(et) || et->kind == TYPE_DOUBLE)) {
         words = 2;
     } else if (et && (et->kind == TYPE_STRUCT || et->kind == TYPE_UNION)) {
         /* An aggregate expression is passed as a low/high word pair

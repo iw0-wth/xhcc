@@ -1009,7 +1009,7 @@ rule emit.choice.0036
 text     srl t1, t1, t3\n
 end
 rule emit.choice.0037
-text     sra t1, t1, t3\n
+text     srl t1, t1, t3\n
 end
 rule emit.choice.0038
 text     srl t0, t0, t3\n
@@ -1257,6 +1257,111 @@ end
 rule convert.f2f.widen
 text     lw a0, 0(sp)\n    addi sp, sp, 4\n    call __extendsfdf2\n    addi sp, sp, -4\n    sw a0, 0(sp)\n    addi sp, sp, -4\n    sw a1, 0(sp)\n
 end
+rule integer64.add.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    add t1, t1, t3\n    sltu t4, t1, t3\n    add t0, t0, t2\n    add t0, t0, t4\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.sub.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    sltu t4, t1, t3\n    sub t1, t1, t3\n    sub t0, t0, t2\n    sub t0, t0, t4\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.and.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    and t0, t0, t2\n    and t1, t1, t3\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.or.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    or t0, t0, t2\n    or t1, t1, t3\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.xor.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    xor t0, t0, t2\n    xor t1, t1, t3\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.mul.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    mulhu t4, t1, t3\n    mul t5, t1, t2\n    mul t6, t0, t3\n    add t4, t4, t5\n    add t4, t4, t6\n    mul t1, t1, t3\n    mv t0, t4\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.shl.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    andi t3, t3, 63\n    beqz t3, 21f\n    li t4, 32\n    bgeu t3, t4, 23f\n    li t4, 32\n    sub t4, t4, t3\n    srl t4, t1, t4\n    sll t0, t0, t3\n    or t0, t0, t4\n    sll t1, t1, t3\n    j 21f\n23:\n    addi t3, t3, -32\n    sll t0, t1, t3\n    li t1, 0\n21:\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.shr.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    andi t3, t3, 63\n    beqz t3, 31f\n    li t4, 32\n    bgeu t3, t4, 33f\n    li t4, 32\n    sub t4, t4, t3\n    sll t4, t0, t4\n    srl t1, t1, t3\n    or t1, t1, t4\n    sra t0, t0, t3\n    j 31f\n33:\n    addi t3, t3, -32\n    sra t1, t0, t3\n    srai t0, t0, 31\n31:\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.div.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    addi sp, sp, -32\n    sw s0, 0(sp)\n    sw s1, 4(sp)\n    sw s2, 8(sp)\n    sw s3, 12(sp)\n    sw s4, 16(sp)\n    sw s5, 20(sp)\n    sw s6, 24(sp)\n    sw s7, 28(sp)\n    mv s0, t0\n    mv s1, t1\n    mv s2, t2\n    mv s3, t3\n    li t4, 0\n    li t5, 0\n    srli t4, s0, 31\n    srli t5, s2, 31\n    beqz t4, 41f\n    sltu t0, x0, s1\n    sub s1, x0, s1\n    add s0, s0, t0\n    sub s0, x0, s0\n41:\n    beqz t5, 42f\n    sltu t0, x0, s3\n    sub s3, x0, s3\n    add s2, s2, t0\n    sub s2, x0, s2\n42:\n    li s4, 0\n    li s5, 0\n    li s6, 0\n    li s7, 0\n    li t6, 64\n43:\n    srli t0, s0, 31\n    srli t1, s1, 31\n    slli s0, s0, 1\n    or s0, s0, t1\n    slli s1, s1, 1\n    srli t1, s7, 31\n    slli s6, s6, 1\n    or s6, s6, t1\n    slli s7, s7, 1\n    or s7, s7, t0\n    bltu s6, s2, 44f\n    bne s6, s2, 45f\n    bltu s7, s3, 44f\n45:\n    sltu t1, s7, s3\n    sub s7, s7, s3\n    sub s6, s6, s2\n    sub s6, s6, t1\n    li t2, 1\n    j 46f\n44:\n    li t2, 0\n46:\n    srli t1, s5, 31\n    slli s4, s4, 1\n    or s4, s4, t1\n    slli s5, s5, 1\n    or s5, s5, t2\n    addi t6, t6, -1\n    bnez t6, 43b\n    mv t0, s4\n    mv t1, s5\n    xor t4, t4, t5\n    beqz t4, 47f\n    sltu t2, x0, t1\n    sub t1, x0, t1\n    add t0, t0, t2\n    sub t0, x0, t0\n47:\n    lw s0, 0(sp)\n    lw s1, 4(sp)\n    lw s2, 8(sp)\n    lw s3, 12(sp)\n    lw s4, 16(sp)\n    lw s5, 20(sp)\n    lw s6, 24(sp)\n    lw s7, 28(sp)\n    addi sp, sp, 32\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.mod.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    addi sp, sp, -32\n    sw s0, 0(sp)\n    sw s1, 4(sp)\n    sw s2, 8(sp)\n    sw s3, 12(sp)\n    sw s4, 16(sp)\n    sw s5, 20(sp)\n    sw s6, 24(sp)\n    sw s7, 28(sp)\n    mv s0, t0\n    mv s1, t1\n    mv s2, t2\n    mv s3, t3\n    li t4, 0\n    li t5, 0\n    srli t4, s0, 31\n    srli t5, s2, 31\n    beqz t4, 41f\n    sltu t0, x0, s1\n    sub s1, x0, s1\n    add s0, s0, t0\n    sub s0, x0, s0\n41:\n    beqz t5, 42f\n    sltu t0, x0, s3\n    sub s3, x0, s3\n    add s2, s2, t0\n    sub s2, x0, s2\n42:\n    li s4, 0\n    li s5, 0\n    li s6, 0\n    li s7, 0\n    li t6, 64\n43:\n    srli t0, s0, 31\n    srli t1, s1, 31\n    slli s0, s0, 1\n    or s0, s0, t1\n    slli s1, s1, 1\n    srli t1, s7, 31\n    slli s6, s6, 1\n    or s6, s6, t1\n    slli s7, s7, 1\n    or s7, s7, t0\n    bltu s6, s2, 44f\n    bne s6, s2, 45f\n    bltu s7, s3, 44f\n45:\n    sltu t1, s7, s3\n    sub s7, s7, s3\n    sub s6, s6, s2\n    sub s6, s6, t1\n    li t2, 1\n    j 46f\n44:\n    li t2, 0\n46:\n    srli t1, s5, 31\n    slli s4, s4, 1\n    or s4, s4, t1\n    slli s5, s5, 1\n    or s5, s5, t2\n    addi t6, t6, -1\n    bnez t6, 43b\n    mv t0, s6\n    mv t1, s7\n    beqz t4, 47f\n    sltu t2, x0, t1\n    sub t1, x0, t1\n    add t0, t0, t2\n    sub t0, x0, t0\n47:\n    lw s0, 0(sp)\n    lw s1, 4(sp)\n    lw s2, 8(sp)\n    lw s3, 12(sp)\n    lw s4, 16(sp)\n    lw s5, 20(sp)\n    lw s6, 24(sp)\n    lw s7, 28(sp)\n    addi sp, sp, 32\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule compare64.eq.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    xor t0, t0, t2\n    xor t1, t1, t3\n    or t0, t0, t1\n    seqz t0, t0\n    sw t0, 0(sp)\n
+end
+rule compare64.ne.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    xor t0, t0, t2\n    xor t1, t1, t3\n    or t0, t0, t1\n    snez t0, t0\n    sw t0, 0(sp)\n
+end
+rule compare64.lt.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t0, t2, 51f\n    sltu t4, t1, t3\n    j 52f\n51:\n    slt t4, t0, t2\n52:\n    mv t0, t4\n    sw t0, 0(sp)\n
+end
+rule compare64.gt.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t2, t0, 53f\n    sltu t4, t3, t1\n    j 54f\n53:\n    slt t4, t2, t0\n54:\n    mv t0, t4\n    sw t0, 0(sp)\n
+end
+rule compare64.le.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t2, t0, 53f\n    sltu t4, t3, t1\n    j 54f\n53:\n    slt t4, t2, t0\n54:\n    mv t0, t4\n    xori t0, t0, 1\n    sw t0, 0(sp)\n
+end
+rule compare64.ge.s
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t0, t2, 51f\n    sltu t4, t1, t3\n    j 52f\n51:\n    slt t4, t0, t2\n52:\n    mv t0, t4\n    xori t0, t0, 1\n    sw t0, 0(sp)\n
+end
+rule integer64.add.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    add t1, t1, t3\n    sltu t4, t1, t3\n    add t0, t0, t2\n    add t0, t0, t4\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.sub.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    sltu t4, t1, t3\n    sub t1, t1, t3\n    sub t0, t0, t2\n    sub t0, t0, t4\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.and.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    and t0, t0, t2\n    and t1, t1, t3\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.or.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    or t0, t0, t2\n    or t1, t1, t3\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.xor.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    xor t0, t0, t2\n    xor t1, t1, t3\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.mul.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    mulhu t4, t1, t3\n    mul t5, t1, t2\n    mul t6, t0, t3\n    add t4, t4, t5\n    add t4, t4, t6\n    mul t1, t1, t3\n    mv t0, t4\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.shl.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    andi t3, t3, 63\n    beqz t3, 21f\n    li t4, 32\n    bgeu t3, t4, 23f\n    li t4, 32\n    sub t4, t4, t3\n    srl t4, t1, t4\n    sll t0, t0, t3\n    or t0, t0, t4\n    sll t1, t1, t3\n    j 21f\n23:\n    addi t3, t3, -32\n    sll t0, t1, t3\n    li t1, 0\n21:\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.shr.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    andi t3, t3, 63\n    beqz t3, 31f\n    li t4, 32\n    bgeu t3, t4, 33f\n    li t4, 32\n    sub t4, t4, t3\n    sll t4, t0, t4\n    srl t1, t1, t3\n    or t1, t1, t4\n    srl t0, t0, t3\n    j 31f\n33:\n    addi t3, t3, -32\n    srl t1, t0, t3\n    li t0, 0\n31:\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.div.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    addi sp, sp, -32\n    sw s0, 0(sp)\n    sw s1, 4(sp)\n    sw s2, 8(sp)\n    sw s3, 12(sp)\n    sw s4, 16(sp)\n    sw s5, 20(sp)\n    sw s6, 24(sp)\n    sw s7, 28(sp)\n    mv s0, t0\n    mv s1, t1\n    mv s2, t2\n    mv s3, t3\n    li t4, 0\n    li t5, 0\n    li s4, 0\n    li s5, 0\n    li s6, 0\n    li s7, 0\n    li t6, 64\n43:\n    srli t0, s0, 31\n    srli t1, s1, 31\n    slli s0, s0, 1\n    or s0, s0, t1\n    slli s1, s1, 1\n    srli t1, s7, 31\n    slli s6, s6, 1\n    or s6, s6, t1\n    slli s7, s7, 1\n    or s7, s7, t0\n    bltu s6, s2, 44f\n    bne s6, s2, 45f\n    bltu s7, s3, 44f\n45:\n    sltu t1, s7, s3\n    sub s7, s7, s3\n    sub s6, s6, s2\n    sub s6, s6, t1\n    li t2, 1\n    j 46f\n44:\n    li t2, 0\n46:\n    srli t1, s5, 31\n    slli s4, s4, 1\n    or s4, s4, t1\n    slli s5, s5, 1\n    or s5, s5, t2\n    addi t6, t6, -1\n    bnez t6, 43b\n    mv t0, s4\n    mv t1, s5\n    lw s0, 0(sp)\n    lw s1, 4(sp)\n    lw s2, 8(sp)\n    lw s3, 12(sp)\n    lw s4, 16(sp)\n    lw s5, 20(sp)\n    lw s6, 24(sp)\n    lw s7, 28(sp)\n    addi sp, sp, 32\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule integer64.mod.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 8\n    addi sp, sp, -32\n    sw s0, 0(sp)\n    sw s1, 4(sp)\n    sw s2, 8(sp)\n    sw s3, 12(sp)\n    sw s4, 16(sp)\n    sw s5, 20(sp)\n    sw s6, 24(sp)\n    sw s7, 28(sp)\n    mv s0, t0\n    mv s1, t1\n    mv s2, t2\n    mv s3, t3\n    li t4, 0\n    li t5, 0\n    li s4, 0\n    li s5, 0\n    li s6, 0\n    li s7, 0\n    li t6, 64\n43:\n    srli t0, s0, 31\n    srli t1, s1, 31\n    slli s0, s0, 1\n    or s0, s0, t1\n    slli s1, s1, 1\n    srli t1, s7, 31\n    slli s6, s6, 1\n    or s6, s6, t1\n    slli s7, s7, 1\n    or s7, s7, t0\n    bltu s6, s2, 44f\n    bne s6, s2, 45f\n    bltu s7, s3, 44f\n45:\n    sltu t1, s7, s3\n    sub s7, s7, s3\n    sub s6, s6, s2\n    sub s6, s6, t1\n    li t2, 1\n    j 46f\n44:\n    li t2, 0\n46:\n    srli t1, s5, 31\n    slli s4, s4, 1\n    or s4, s4, t1\n    slli s5, s5, 1\n    or s5, s5, t2\n    addi t6, t6, -1\n    bnez t6, 43b\n    mv t0, s6\n    mv t1, s7\n    lw s0, 0(sp)\n    lw s1, 4(sp)\n    lw s2, 8(sp)\n    lw s3, 12(sp)\n    lw s4, 16(sp)\n    lw s5, 20(sp)\n    lw s6, 24(sp)\n    lw s7, 28(sp)\n    addi sp, sp, 32\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule compare64.eq.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    xor t0, t0, t2\n    xor t1, t1, t3\n    or t0, t0, t1\n    seqz t0, t0\n    sw t0, 0(sp)\n
+end
+rule compare64.ne.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    xor t0, t0, t2\n    xor t1, t1, t3\n    or t0, t0, t1\n    snez t0, t0\n    sw t0, 0(sp)\n
+end
+rule compare64.lt.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t0, t2, 51f\n    sltu t4, t1, t3\n    j 52f\n51:\n    sltu t4, t0, t2\n52:\n    mv t0, t4\n    sw t0, 0(sp)\n
+end
+rule compare64.gt.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t2, t0, 53f\n    sltu t4, t3, t1\n    j 54f\n53:\n    sltu t4, t2, t0\n54:\n    mv t0, t4\n    sw t0, 0(sp)\n
+end
+rule compare64.le.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t2, t0, 53f\n    sltu t4, t3, t1\n    j 54f\n53:\n    sltu t4, t2, t0\n54:\n    mv t0, t4\n    xori t0, t0, 1\n    sw t0, 0(sp)\n
+end
+rule compare64.ge.u
+text     lw t2, 0(sp)\n    lw t3, 4(sp)\n    lw t0, 8(sp)\n    lw t1, 12(sp)\n    addi sp, sp, 12\n    bne t0, t2, 51f\n    sltu t4, t1, t3\n    j 52f\n51:\n    sltu t4, t0, t2\n52:\n    mv t0, t4\n    xori t0, t0, 1\n    sw t0, 0(sp)\n
+end
+rule unary64.neg
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    sltu t2, x0, t1\n    sub t1, x0, t1\n    sub t0, x0, t0\n    sub t0, t0, t2\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule unary64.not
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    not t0, t0\n    not t1, t1\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
+rule unary64.lnot
+text     lw t0, 0(sp)\n    lw t1, 4(sp)\n    or t0, t0, t1\n    seqz t0, t0\n    addi sp, sp, 4\n    mv t1, x0\n    sw t0, 0(sp)\n    sw t1, 4(sp)\n
+end
 rule semantic.records
-text XHSEMANTIC 1\nfloat.bin add 32 real stack softfloat.add.f32 2 1\nfloat.bin sub 32 real stack softfloat.sub.f32 2 1\nfloat.bin mul 32 real stack softfloat.mul.f32 2 1\nfloat.bin div 32 real stack softfloat.div.f32 2 1\nfloat.cmp eq 32 real stack softfloat.cmp.eq.f32 2 1\nfloat.cmp ne 32 real stack softfloat.cmp.ne.f32 2 1\nfloat.cmp lt 32 real stack softfloat.cmp.lt.f32 2 1\nfloat.cmp gt 32 real stack softfloat.cmp.gt.f32 2 1\nfloat.cmp le 32 real stack softfloat.cmp.le.f32 2 1\nfloat.cmp ge 32 real stack softfloat.cmp.ge.f32 2 1\nconvert f2i32 32 s stack convert.f2i32.s.f32 1 1\nconvert i322f 32 s stack convert.i322f.s.f32 1 1\nconvert f2i64 32 s stack convert.f2i64.s.f32 1 2\nconvert i642f 32 s stack convert.i642f.s.f32 2 1\nconvert f2i32 32 u stack convert.f2i32.u.f32 1 1\nconvert i322f 32 u stack convert.i322f.u.f32 1 1\nconvert f2i64 32 u stack convert.f2i64.u.f32 1 2\nconvert i642f 32 u stack convert.i642f.u.f32 2 1\nfloat.bin add 64 real stack softfloat.add.f64 4 2\nfloat.bin sub 64 real stack softfloat.sub.f64 4 2\nfloat.bin mul 64 real stack softfloat.mul.f64 4 2\nfloat.bin div 64 real stack softfloat.div.f64 4 2\nfloat.cmp eq 64 real stack softfloat.cmp.eq.f64 4 1\nfloat.cmp ne 64 real stack softfloat.cmp.ne.f64 4 1\nfloat.cmp lt 64 real stack softfloat.cmp.lt.f64 4 1\nfloat.cmp gt 64 real stack softfloat.cmp.gt.f64 4 1\nfloat.cmp le 64 real stack softfloat.cmp.le.f64 4 1\nfloat.cmp ge 64 real stack softfloat.cmp.ge.f64 4 1\nconvert f2i32 64 s stack convert.f2i32.s.f64 2 1\nconvert i322f 64 s stack convert.i322f.s.f64 1 2\nconvert f2i64 64 s stack convert.f2i64.s.f64 2 2\nconvert i642f 64 s stack convert.i642f.s.f64 2 2\nconvert f2i32 64 u stack convert.f2i32.u.f64 2 1\nconvert i322f 64 u stack convert.i322f.u.f64 1 2\nconvert f2i64 64 u stack convert.f2i64.u.f64 2 2\nconvert i642f 64 u stack convert.i642f.u.f64 2 2\nconvert narrow 64 real stack convert.f2f.narrow 2 1\nconvert widen 32 real stack convert.f2f.widen 1 2\nmemory load 8 s index_aligned semantic.index.load.8.0 0 1\nmemory store 8 v index_aligned semantic.index.store.8.0 0 0\nmemory load 8 s index_packed semantic.index.load.8.1 0 1\nmemory store 8 v index_packed semantic.index.store.8.1 0 0\nmemory load 16 s index_aligned semantic.index.load.16.0 0 1\nmemory store 16 v index_aligned semantic.index.store.16.0 0 0\nmemory load 16 s index_packed semantic.index.load.16.1 0 1\nmemory store 16 v index_packed semantic.index.store.16.1 0 0\nmemory load 32 s index_aligned semantic.index.load.32.0 0 1\nmemory store 32 v index_aligned semantic.index.store.32.0 0 0\nmemory load 32 s index_packed semantic.index.load.32.1 0 1\nmemory store 32 v index_packed semantic.index.store.32.1 0 0\naddress scale 16 v index emit.fixed.0126 0 0\naddress scale 32 v index emit.fixed.0127 0 0\naddress scale 64 v index emit.fixed.0128 0 0\naddress scale 128 v index emit.fixed.0129 0 0\nunary neg 32 v stack unary.neg.i32 1 1\nunary not 32 v stack unary.not.i32 1 1\nunary lnot 32 v stack unary.lnot.i32 1 1\nunary identity 32 v stack unary.identity.i32 1 1\ncast trunc 8 s stack cast.trunc.s8 1 1\ncast trunc 8 u stack cast.trunc.u8 1 1\ncast trunc 16 s stack cast.trunc.s16 1 1\ncast trunc 16 u stack cast.trunc.u16 1 1\ncast trunc 32 s stack cast.trunc.32 1 1\ncast trunc 32 u stack cast.trunc.32 1 1\naddress frame 32 negative local address.frame.negative 0 0\naddress frame 32 positive local address.frame.positive 0 0\nmemory load 8 s local semantic.load.s8 0 1\nmemory load 8 u local semantic.load.u8 0 1\nmemory load 16 s local semantic.load.s16 0 1\nmemory load 16 u local semantic.load.u16 0 1\nmemory load 32 s local semantic.load.s32 0 1\nmemory load 32 u local semantic.load.u32 0 1\nmemory store 8 v local semantic.store.8 0 0\nmemory store 16 v local semantic.store.16 0 0\nmemory store 32 v local semantic.store.32 0 0\n
+text XHSEMANTIC 1\ninteger64 add 64 s stack integer64.add.s 4 2\ninteger64 sub 64 s stack integer64.sub.s 4 2\ninteger64 and 64 s stack integer64.and.s 4 2\ninteger64 or 64 s stack integer64.or.s 4 2\ninteger64 xor 64 s stack integer64.xor.s 4 2\ninteger64 mul 64 s stack integer64.mul.s 4 2\ninteger64 shl 64 s stack integer64.shl.s 4 2\ninteger64 shr 64 s stack integer64.shr.s 4 2\ninteger64 div 64 s stack integer64.div.s 4 2\ninteger64 mod 64 s stack integer64.mod.s 4 2\ncompare64 eq 64 s stack compare64.eq.s 4 1\ncompare64 ne 64 s stack compare64.ne.s 4 1\ncompare64 lt 64 s stack compare64.lt.s 4 1\ncompare64 gt 64 s stack compare64.gt.s 4 1\ncompare64 le 64 s stack compare64.le.s 4 1\ncompare64 ge 64 s stack compare64.ge.s 4 1\ninteger64 add 64 u stack integer64.add.u 4 2\ninteger64 sub 64 u stack integer64.sub.u 4 2\ninteger64 and 64 u stack integer64.and.u 4 2\ninteger64 or 64 u stack integer64.or.u 4 2\ninteger64 xor 64 u stack integer64.xor.u 4 2\ninteger64 mul 64 u stack integer64.mul.u 4 2\ninteger64 shl 64 u stack integer64.shl.u 4 2\ninteger64 shr 64 u stack integer64.shr.u 4 2\ninteger64 div 64 u stack integer64.div.u 4 2\ninteger64 mod 64 u stack integer64.mod.u 4 2\ncompare64 eq 64 u stack compare64.eq.u 4 1\ncompare64 ne 64 u stack compare64.ne.u 4 1\ncompare64 lt 64 u stack compare64.lt.u 4 1\ncompare64 gt 64 u stack compare64.gt.u 4 1\ncompare64 le 64 u stack compare64.le.u 4 1\ncompare64 ge 64 u stack compare64.ge.u 4 1\nunary neg 64 v stack unary64.neg 2 2\nunary not 64 v stack unary64.not 2 2\nunary lnot 64 v stack unary64.lnot 2 1\nfloat.bin add 32 real stack softfloat.add.f32 2 1\nfloat.bin sub 32 real stack softfloat.sub.f32 2 1\nfloat.bin mul 32 real stack softfloat.mul.f32 2 1\nfloat.bin div 32 real stack softfloat.div.f32 2 1\nfloat.cmp eq 32 real stack softfloat.cmp.eq.f32 2 1\nfloat.cmp ne 32 real stack softfloat.cmp.ne.f32 2 1\nfloat.cmp lt 32 real stack softfloat.cmp.lt.f32 2 1\nfloat.cmp gt 32 real stack softfloat.cmp.gt.f32 2 1\nfloat.cmp le 32 real stack softfloat.cmp.le.f32 2 1\nfloat.cmp ge 32 real stack softfloat.cmp.ge.f32 2 1\nconvert f2i32 32 s stack convert.f2i32.s.f32 1 1\nconvert i322f 32 s stack convert.i322f.s.f32 1 1\nconvert f2i64 32 s stack convert.f2i64.s.f32 1 2\nconvert i642f 32 s stack convert.i642f.s.f32 2 1\nconvert f2i32 32 u stack convert.f2i32.u.f32 1 1\nconvert i322f 32 u stack convert.i322f.u.f32 1 1\nconvert f2i64 32 u stack convert.f2i64.u.f32 1 2\nconvert i642f 32 u stack convert.i642f.u.f32 2 1\nfloat.bin add 64 real stack softfloat.add.f64 4 2\nfloat.bin sub 64 real stack softfloat.sub.f64 4 2\nfloat.bin mul 64 real stack softfloat.mul.f64 4 2\nfloat.bin div 64 real stack softfloat.div.f64 4 2\nfloat.cmp eq 64 real stack softfloat.cmp.eq.f64 4 1\nfloat.cmp ne 64 real stack softfloat.cmp.ne.f64 4 1\nfloat.cmp lt 64 real stack softfloat.cmp.lt.f64 4 1\nfloat.cmp gt 64 real stack softfloat.cmp.gt.f64 4 1\nfloat.cmp le 64 real stack softfloat.cmp.le.f64 4 1\nfloat.cmp ge 64 real stack softfloat.cmp.ge.f64 4 1\nconvert f2i32 64 s stack convert.f2i32.s.f64 2 1\nconvert i322f 64 s stack convert.i322f.s.f64 1 2\nconvert f2i64 64 s stack convert.f2i64.s.f64 2 2\nconvert i642f 64 s stack convert.i642f.s.f64 2 2\nconvert f2i32 64 u stack convert.f2i32.u.f64 2 1\nconvert i322f 64 u stack convert.i322f.u.f64 1 2\nconvert f2i64 64 u stack convert.f2i64.u.f64 2 2\nconvert i642f 64 u stack convert.i642f.u.f64 2 2\nconvert narrow 64 real stack convert.f2f.narrow 2 1\nconvert widen 32 real stack convert.f2f.widen 1 2\nmemory load 8 s index_aligned semantic.index.load.8.0 0 1\nmemory store 8 v index_aligned semantic.index.store.8.0 0 0\nmemory load 8 s index_packed semantic.index.load.8.1 0 1\nmemory store 8 v index_packed semantic.index.store.8.1 0 0\nmemory load 16 s index_aligned semantic.index.load.16.0 0 1\nmemory store 16 v index_aligned semantic.index.store.16.0 0 0\nmemory load 16 s index_packed semantic.index.load.16.1 0 1\nmemory store 16 v index_packed semantic.index.store.16.1 0 0\nmemory load 32 s index_aligned semantic.index.load.32.0 0 1\nmemory store 32 v index_aligned semantic.index.store.32.0 0 0\nmemory load 32 s index_packed semantic.index.load.32.1 0 1\nmemory store 32 v index_packed semantic.index.store.32.1 0 0\naddress scale 16 v index emit.fixed.0126 0 0\naddress scale 32 v index emit.fixed.0127 0 0\naddress scale 64 v index emit.fixed.0128 0 0\naddress scale 128 v index emit.fixed.0129 0 0\nunary neg 32 v stack unary.neg.i32 1 1\nunary not 32 v stack unary.not.i32 1 1\nunary lnot 32 v stack unary.lnot.i32 1 1\nunary identity 32 v stack unary.identity.i32 1 1\ncast trunc 8 s stack cast.trunc.s8 1 1\ncast trunc 8 u stack cast.trunc.u8 1 1\ncast trunc 16 s stack cast.trunc.s16 1 1\ncast trunc 16 u stack cast.trunc.u16 1 1\ncast trunc 32 s stack cast.trunc.32 1 1\ncast trunc 32 u stack cast.trunc.32 1 1\naddress frame 32 negative local address.frame.negative 0 0\naddress frame 32 positive local address.frame.positive 0 0\nmemory load 8 s local semantic.load.s8 0 1\nmemory load 8 u local semantic.load.u8 0 1\nmemory load 16 s local semantic.load.s16 0 1\nmemory load 16 u local semantic.load.u16 0 1\nmemory load 32 s local semantic.load.s32 0 1\nmemory load 32 u local semantic.load.u32 0 1\nmemory store 8 v local semantic.store.8 0 0\nmemory store 16 v local semantic.store.16 0 0\nmemory store 32 v local semantic.store.32 0 0\n
 end

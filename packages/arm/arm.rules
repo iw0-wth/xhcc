@@ -1843,7 +1843,7 @@ rule sem.cast.ftoi64.64.u
 text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2ulz\n    PUSH {r0}\n    PUSH {r1}\n
 end
 rule semantic.records
-text XHSEMANTIC 1\nfloatbin add 32 v soft sem.floatbin.add.32.soft 2 1\nfloatbin add 32 v hard sem.floatbin.add.32.hard 2 1\nfloatbin add 64 v soft sem.floatbin.add.64.soft 4 2\nfloatbin add 64 v hard sem.floatbin.add.64.hard 4 2\nfloatbin sub 32 v soft sem.floatbin.sub.32.soft 2 1\nfloatbin sub 32 v hard sem.floatbin.sub.32.hard 2 1\nfloatbin sub 64 v soft sem.floatbin.sub.64.soft 4 2\nfloatbin sub 64 v hard sem.floatbin.sub.64.hard 4 2\nfloatbin mul 32 v soft sem.floatbin.mul.32.soft 2 1\nfloatbin mul 32 v hard sem.floatbin.mul.32.hard 2 1\nfloatbin mul 64 v soft sem.floatbin.mul.64.soft 4 2\nfloatbin mul 64 v hard sem.floatbin.mul.64.hard 4 2\nfloatbin div 32 v soft sem.floatbin.div.32.soft 2 1\nfloatbin div 32 v hard sem.floatbin.div.32.hard 2 1\nfloatbin div 64 v soft sem.floatbin.div.64.soft 4 2\nfloatbin div 64 v hard sem.floatbin.div.64.hard 4 2\ncast f2i 32 s soft sem.cast.f2i.32.s.soft 1 1\ncast f2i 32 s hard sem.cast.f2i.32.s.hard 1 1\ncast i2f 32 s soft sem.cast.i2f.32.s.soft 1 1\ncast i2f 32 s hard sem.cast.i2f.32.s.hard 1 1\ncast i64tof 32 s soft sem.cast.i64tof.32.s 2 1\ncast ftoi64 32 s soft sem.cast.ftoi64.32.s 1 2\ncast f2i 32 u soft sem.cast.f2i.32.u.soft 1 1\ncast f2i 32 u hard sem.cast.f2i.32.u.hard 1 1\ncast i2f 32 u soft sem.cast.i2f.32.u.soft 1 1\ncast i2f 32 u hard sem.cast.i2f.32.u.hard 1 1\ncast i64tof 32 u soft sem.cast.i64tof.32.u 2 1\ncast ftoi64 32 u soft sem.cast.ftoi64.32.u 1 2\ncast f2i 64 s soft sem.cast.f2i.64.s.soft 2 1\ncast f2i 64 s hard sem.cast.f2i.64.s.hard 2 1\ncast i2f 64 s soft sem.cast.i2f.64.s.soft 1 2\ncast i2f 64 s hard sem.cast.i2f.64.s.hard 1 2\ncast i64tof 64 s soft sem.cast.i64tof.64.s 2 2\ncast ftoi64 64 s soft sem.cast.ftoi64.64.s 2 2\ncast f2i 64 u soft sem.cast.f2i.64.u.soft 2 1\ncast f2i 64 u hard sem.cast.f2i.64.u.hard 2 1\ncast i2f 64 u soft sem.cast.i2f.64.u.soft 1 2\ncast i2f 64 u hard sem.cast.i2f.64.u.hard 1 2\ncast i64tof 64 u soft sem.cast.i64tof.64.u 2 2\ncast ftoi64 64 u soft sem.cast.ftoi64.64.u 2 2\ncast narrow 64 v soft sem.cast.narrow.soft 2 1\ncast narrow 64 v hard sem.cast.narrow.hard 2 1\ncast widen 32 v soft sem.cast.widen.soft 1 2\ncast widen 32 v hard sem.cast.widen.hard 1 2\n
+text XHSEMANTIC 1\nfloatbin add 32 v soft sem.floatbin.add.32.soft 2 1\nfloatbin add 32 v hard sem.floatbin.add.32.hard 2 1\nfloatbin add 64 v soft sem.floatbin.add.64.soft 4 2\nfloatbin add 64 v hard sem.floatbin.add.64.hard 4 2\nfloatbin sub 32 v soft sem.floatbin.sub.32.soft 2 1\nfloatbin sub 32 v hard sem.floatbin.sub.32.hard 2 1\nfloatbin sub 64 v soft sem.floatbin.sub.64.soft 4 2\nfloatbin sub 64 v hard sem.floatbin.sub.64.hard 4 2\nfloatbin mul 32 v soft sem.floatbin.mul.32.soft 2 1\nfloatbin mul 32 v hard sem.floatbin.mul.32.hard 2 1\nfloatbin mul 64 v soft sem.floatbin.mul.64.soft 4 2\nfloatbin mul 64 v hard sem.floatbin.mul.64.hard 4 2\nfloatbin div 32 v soft sem.floatbin.div.32.soft 2 1\nfloatbin div 32 v hard sem.floatbin.div.32.hard 2 1\nfloatbin div 64 v soft sem.floatbin.div.64.soft 4 2\nfloatbin div 64 v hard sem.floatbin.div.64.hard 4 2\ncast f2i 32 s soft sem.cast.f2i.32.s.soft 1 1\ncast f2i 32 s hard sem.cast.f2i.32.s.hard 1 1\ncast i2f 32 s soft sem.cast.i2f.32.s.soft 1 1\ncast i2f 32 s hard sem.cast.i2f.32.s.hard 1 1\ncast i64tof 32 s soft sem.cast.i64tof.32.s 2 1\ncast ftoi64 32 s soft sem.cast.ftoi64.32.s 1 2\ncast f2i 32 u soft sem.cast.f2i.32.u.soft 1 1\ncast f2i 32 u hard sem.cast.f2i.32.u.hard 1 1\ncast i2f 32 u soft sem.cast.i2f.32.u.soft 1 1\ncast i2f 32 u hard sem.cast.i2f.32.u.hard 1 1\ncast i64tof 32 u soft sem.cast.i64tof.32.u 2 1\ncast ftoi64 32 u soft sem.cast.ftoi64.32.u 1 2\ncast f2i 64 s soft sem.cast.f2i.64.s.soft 2 1\ncast f2i 64 s hard sem.cast.f2i.64.s.hard 2 1\ncast i2f 64 s soft sem.cast.i2f.64.s.soft 1 2\ncast i2f 64 s hard sem.cast.i2f.64.s.hard 1 2\ncast i64tof 64 s soft sem.cast.i64tof.64.s 2 2\ncast ftoi64 64 s soft sem.cast.ftoi64.64.s 2 2\ncast f2i 64 u soft sem.cast.f2i.64.u.soft 2 1\ncast f2i 64 u hard sem.cast.f2i.64.u.hard 2 1\ncast i2f 64 u soft sem.cast.i2f.64.u.soft 1 2\ncast i2f 64 u hard sem.cast.i2f.64.u.hard 1 2\ncast i64tof 64 u soft sem.cast.i64tof.64.u 2 2\ncast ftoi64 64 u soft sem.cast.ftoi64.64.u 2 2\ncast narrow 64 v soft sem.cast.narrow.soft 2 1\ncast narrow 64 v hard sem.cast.narrow.hard 2 1\ncast widen 32 v soft sem.cast.widen.soft 1 2\ncast widen 32 v hard sem.cast.widen.hard 1 2\nintegerbin add 64 s stack sem.integerbin.add.64.s.stack 4 2\nintegerbin sub 64 s stack sem.integerbin.sub.64.s.stack 4 2\nintegerbin mul 64 s stack sem.integerbin.mul.64.s.stack 4 2\nintegerbin div 64 s stack sem.integerbin.div.64.s.stack 4 2\nintegerbin mod 64 s stack sem.integerbin.mod.64.s.stack 4 2\nintegerbin and 64 s stack sem.integerbin.and.64.s.stack 4 2\nintegerbin or 64 s stack sem.integerbin.or.64.s.stack 4 2\nintegerbin xor 64 s stack sem.integerbin.xor.64.s.stack 4 2\nintegerbin shl 64 s stack sem.integerbin.shl.64.s.stack 4 2\nintegerbin shr 64 s stack sem.integerbin.shr.64.s.stack 4 2\nintegercmp eq 64 s stack sem.integercmp.eq.64.s.stack 4 1\nintegercmp ne 64 s stack sem.integercmp.ne.64.s.stack 4 1\nintegercmp lt 64 s stack sem.integercmp.lt.64.s.stack 4 1\nintegercmp gt 64 s stack sem.integercmp.gt.64.s.stack 4 1\nintegercmp le 64 s stack sem.integercmp.le.64.s.stack 4 1\nintegercmp ge 64 s stack sem.integercmp.ge.64.s.stack 4 1\nintegerbin add 64 u stack sem.integerbin.add.64.u.stack 4 2\nintegerbin sub 64 u stack sem.integerbin.sub.64.u.stack 4 2\nintegerbin mul 64 u stack sem.integerbin.mul.64.u.stack 4 2\nintegerbin div 64 u stack sem.integerbin.div.64.u.stack 4 2\nintegerbin mod 64 u stack sem.integerbin.mod.64.u.stack 4 2\nintegerbin and 64 u stack sem.integerbin.and.64.u.stack 4 2\nintegerbin or 64 u stack sem.integerbin.or.64.u.stack 4 2\nintegerbin xor 64 u stack sem.integerbin.xor.64.u.stack 4 2\nintegerbin shl 64 u stack sem.integerbin.shl.64.u.stack 4 2\nintegerbin shr 64 u stack sem.integerbin.shr.64.u.stack 4 2\nintegercmp eq 64 u stack sem.integercmp.eq.64.u.stack 4 1\nintegercmp ne 64 u stack sem.integercmp.ne.64.u.stack 4 1\nintegercmp lt 64 u stack sem.integercmp.lt.64.u.stack 4 1\nintegercmp gt 64 u stack sem.integercmp.gt.64.u.stack 4 1\nintegercmp le 64 u stack sem.integercmp.le.64.u.stack 4 1\nintegercmp ge 64 u stack sem.integercmp.ge.64.u.stack 4 1\nfloatcmp eq 32 v soft sem.floatcmp.eq.32.v.soft 2 1\nfloatcmp eq 32 v hard sem.floatcmp.eq.32.v.hard 2 1\nfloatcmp ne 32 v soft sem.floatcmp.ne.32.v.soft 2 1\nfloatcmp ne 32 v hard sem.floatcmp.ne.32.v.hard 2 1\nfloatcmp lt 32 v soft sem.floatcmp.lt.32.v.soft 2 1\nfloatcmp lt 32 v hard sem.floatcmp.lt.32.v.hard 2 1\nfloatcmp gt 32 v soft sem.floatcmp.gt.32.v.soft 2 1\nfloatcmp gt 32 v hard sem.floatcmp.gt.32.v.hard 2 1\nfloatcmp le 32 v soft sem.floatcmp.le.32.v.soft 2 1\nfloatcmp le 32 v hard sem.floatcmp.le.32.v.hard 2 1\nfloatcmp ge 32 v soft sem.floatcmp.ge.32.v.soft 2 1\nfloatcmp ge 32 v hard sem.floatcmp.ge.32.v.hard 2 1\nfloatcmp eq 64 v soft sem.floatcmp.eq.64.v.soft 4 1\nfloatcmp eq 64 v hard sem.floatcmp.eq.64.v.hard 4 1\nfloatcmp ne 64 v soft sem.floatcmp.ne.64.v.soft 4 1\nfloatcmp ne 64 v hard sem.floatcmp.ne.64.v.hard 4 1\nfloatcmp lt 64 v soft sem.floatcmp.lt.64.v.soft 4 1\nfloatcmp lt 64 v hard sem.floatcmp.lt.64.v.hard 4 1\nfloatcmp gt 64 v soft sem.floatcmp.gt.64.v.soft 4 1\nfloatcmp gt 64 v hard sem.floatcmp.gt.64.v.hard 4 1\nfloatcmp le 64 v soft sem.floatcmp.le.64.v.soft 4 1\nfloatcmp le 64 v hard sem.floatcmp.le.64.v.hard 4 1\nfloatcmp ge 64 v soft sem.floatcmp.ge.64.v.soft 4 1\nfloatcmp ge 64 v hard sem.floatcmp.ge.64.v.hard 4 1\n
 end
 rule sem.cast.narrow.soft
 text     POP {r1}\n    POP {r0}\n    BL __aeabi_d2f\n    PUSH {r0}\n
@@ -1856,4 +1856,172 @@ text     POP {r0}\n    BL __aeabi_f2d\n    PUSH {r0}\n    PUSH {r1}\n
 end
 rule sem.cast.widen.hard
 text     POP {r0}\n    VMOV s0, r0\n    VCVT.F64.F32 d0, s0\n    VMOV r0, s0\n    VMOV r1, s1\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.add.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    ADDS r0, r0, r2\n    ADC r1, r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.sub.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    SUBS r0, r0, r2\n    SBC r1, r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.mul.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lmul\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.div.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ldivmod\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.mod.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ldivmod\n    MOV r0, r2\n    MOV r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.and.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    AND r0, r2\n    AND r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.or.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    ORR r0, r2\n    ORR r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.xor.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    EOR r0, r2\n    EOR r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.shl.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_llsl\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.shr.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lasr\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integercmp.eq.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lcmp\n    CMP r0, #0\n    ITE EQ\n    MOVEQ r0, #1\n    MOVNE r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.ne.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lcmp\n    CMP r0, #0\n    ITE NE\n    MOVNE r0, #1\n    MOVEQ r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.lt.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lcmp\n    CMP r0, #0\n    ITE LT\n    MOVLT r0, #1\n    MOVGE r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.gt.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lcmp\n    CMP r0, #0\n    ITE GT\n    MOVGT r0, #1\n    MOVLE r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.le.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lcmp\n    CMP r0, #0\n    ITE LE\n    MOVLE r0, #1\n    MOVGT r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.ge.64.s.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lcmp\n    CMP r0, #0\n    ITE GE\n    MOVGE r0, #1\n    MOVLT r0, #0\n    PUSH {r0}\n
+end
+rule sem.integerbin.add.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    ADDS r0, r0, r2\n    ADC r1, r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.sub.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    SUBS r0, r0, r2\n    SBC r1, r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.mul.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_lmul\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.div.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_uldivmod\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.mod.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_uldivmod\n    MOV r0, r2\n    MOV r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.and.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    AND r0, r2\n    AND r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.or.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    ORR r0, r2\n    ORR r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.xor.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    EOR r0, r2\n    EOR r1, r3\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.shl.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_llsl\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integerbin.shr.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_llsr\n    PUSH {r0}\n    PUSH {r1}\n
+end
+rule sem.integercmp.eq.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ulcmp\n    CMP r0, #0\n    ITE EQ\n    MOVEQ r0, #1\n    MOVNE r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.ne.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ulcmp\n    CMP r0, #0\n    ITE NE\n    MOVNE r0, #1\n    MOVEQ r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.lt.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ulcmp\n    CMP r0, #0\n    ITE LT\n    MOVLT r0, #1\n    MOVGE r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.gt.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ulcmp\n    CMP r0, #0\n    ITE GT\n    MOVGT r0, #1\n    MOVLE r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.le.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ulcmp\n    CMP r0, #0\n    ITE LE\n    MOVLE r0, #1\n    MOVGT r0, #0\n    PUSH {r0}\n
+end
+rule sem.integercmp.ge.64.u.stack
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_ulcmp\n    CMP r0, #0\n    ITE GE\n    MOVGE r0, #1\n    MOVLT r0, #0\n    PUSH {r0}\n
+end
+rule sem.floatcmp.eq.32.v.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fcmpeq\n    PUSH {r0}\n
+end
+rule sem.floatcmp.eq.32.v.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    MOV r0, #0\n    VCMP.F32 s0, s1\n    VMRS APSR_nzcv, FPSCR\n    IT EQ\n    MOVEQ r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ne.32.v.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fcmpeq\n    EOR r0, r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ne.32.v.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    MOV r0, #0\n    VCMP.F32 s0, s1\n    VMRS APSR_nzcv, FPSCR\n    IT NE\n    MOVNE r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.lt.32.v.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fcmplt\n    PUSH {r0}\n
+end
+rule sem.floatcmp.lt.32.v.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    MOV r0, #0\n    VCMP.F32 s0, s1\n    VMRS APSR_nzcv, FPSCR\n    IT LO\n    MOVLO r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.gt.32.v.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fcmpgt\n    PUSH {r0}\n
+end
+rule sem.floatcmp.gt.32.v.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    MOV r0, #0\n    VCMP.F32 s0, s1\n    VMRS APSR_nzcv, FPSCR\n    IT GT\n    MOVGT r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.le.32.v.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fcmple\n    PUSH {r0}\n
+end
+rule sem.floatcmp.le.32.v.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    MOV r0, #0\n    VCMP.F32 s0, s1\n    VMRS APSR_nzcv, FPSCR\n    IT LS\n    MOVLS r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ge.32.v.soft
+text     POP {r1}\n    POP {r0}\n    BL __aeabi_fcmpge\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ge.32.v.hard
+text     POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    MOV r0, #0\n    VCMP.F32 s0, s1\n    VMRS APSR_nzcv, FPSCR\n    IT GE\n    MOVGE r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.eq.64.v.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dcmpeq\n    PUSH {r0}\n
+end
+rule sem.floatcmp.eq.64.v.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    MOV r0, #0\n    VCMP.F64 d0, d1\n    VMRS APSR_nzcv, FPSCR\n    IT EQ\n    MOVEQ r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ne.64.v.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dcmpeq\n    EOR r0, r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ne.64.v.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    MOV r0, #0\n    VCMP.F64 d0, d1\n    VMRS APSR_nzcv, FPSCR\n    IT NE\n    MOVNE r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.lt.64.v.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dcmplt\n    PUSH {r0}\n
+end
+rule sem.floatcmp.lt.64.v.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    MOV r0, #0\n    VCMP.F64 d0, d1\n    VMRS APSR_nzcv, FPSCR\n    IT LO\n    MOVLO r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.gt.64.v.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dcmpgt\n    PUSH {r0}\n
+end
+rule sem.floatcmp.gt.64.v.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    MOV r0, #0\n    VCMP.F64 d0, d1\n    VMRS APSR_nzcv, FPSCR\n    IT GT\n    MOVGT r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.le.64.v.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dcmple\n    PUSH {r0}\n
+end
+rule sem.floatcmp.le.64.v.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    MOV r0, #0\n    VCMP.F64 d0, d1\n    VMRS APSR_nzcv, FPSCR\n    IT LS\n    MOVLS r0, #1\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ge.64.v.soft
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    BL __aeabi_dcmpge\n    PUSH {r0}\n
+end
+rule sem.floatcmp.ge.64.v.hard
+text     POP {r3}\n    POP {r2}\n    POP {r1}\n    POP {r0}\n    VMOV s0, r0\n    VMOV s1, r1\n    VMOV s2, r2\n    VMOV s3, r3\n    MOV r0, #0\n    VCMP.F64 d0, d1\n    VMRS APSR_nzcv, FPSCR\n    IT GE\n    MOVGE r0, #1\n    PUSH {r0}\n
 end

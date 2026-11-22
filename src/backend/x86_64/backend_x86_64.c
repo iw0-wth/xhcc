@@ -65,6 +65,13 @@ static void x86_fp_select(AsmBuffer *b,const char *family,const char *op,int wid
     asmbuf_puts(b,xh_x86_semantic(family,op,width,sign,form,pop,push,args,count));
 }
 
+static const char *x86_integer_operation(int op){
+ switch(op){case TOK_PLUS:return "add";case TOK_MINUS:return "sub";case TOK_MUL:return "mul";case TOK_DIV:return "div";case TOK_MOD:return "mod";case TOK_BAND:return "and";case TOK_BOR:return "or";case TOK_BXOR:return "xor";case TOK_SHL:return "shl";case TOK_SHR:return "shr";default:return x86_fp_compare(op);}
+}
+static void x86_integer64_select(AsmBuffer *b,int compare,int aux,const char *const *args,int count){
+ asmbuf_puts(b,xh_x86_semantic(compare?"compare":"binary",x86_integer_operation(aux&0xFF),64,(aux&0x100)?"unsigned":"signed","pair",4,compare?1:2,args,count));
+}
+
 /* cdecl has no integer-class argument registers; all args are on the stack. */
 static const char *arg_reg(int i, int abi) {
     (void)i; (void)abi;
@@ -1628,249 +1635,23 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                 /* IR_64BINARY: 64-bit binary op. aux = TOK_xxx | (0x100 if unsigned).
                  * On x86-32, 64-bit ops work on two dword pairs on the stack. */
                 case IR_64BINARY: {
-                    int op = I->aux & 0xFF;
-                    const char *bop = binop_x(op);
-                    int uns = (I->aux & 0x100) != 0;
-                    /* A 64-bit value sits on the IR stack with its HIGH dword on
-                     * top and `b` above `a`, so the pops are b_hi, b_lo, a_hi,
-                     * a_lo.  Every result is pushed back low-first to keep that
-                     * invariant. */
-                    if (bop) {
-                        int is_add = ark_streq(bop, "add");
-                        int is_sub = ark_streq(bop, "sub");
-                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
-                        asmbuf_puts(&buf, bop);
-                        asmbuf_puts(&buf, xh_x86_rule("text.2ce889bddde8feb8"));
-                        if (is_add) asmbuf_puts(&buf, xh_x86_rule("text.2825f4be58f40442"));
-                        else if (is_sub) asmbuf_puts(&buf, xh_x86_rule("text.0e56e366153b6e70"));
-                        else {
-                            asmbuf_puts(&buf, bop);
-                            asmbuf_puts(&buf, xh_x86_rule("text.44f2696d1d3f8e69"));
-                        }
-                        asmbuf_puts(&buf, xh_x86_rule("text.0dd72d509b10fd37"));
-                    } else if (op == (int)TOK_SHL || op == (int)TOK_SHR) {
-                        /* 64-bit shift.  shld/shrd only move bits across the
-                         * two dwords for a count below 32; the hardware masks
-                         * `cl` to 5 bits, so the n >= 32 half has to be a
-                         * separate path or 1ULL << 32 silently answers 1.
-                         *   n <  32:  hi = shld(hi,lo,n); lo = lo << n
-                         *   n >= 32:  hi = lo << (n-32); lo = 0
-                         * (and the mirror for right shifts; for n in 32..63,
-                         * n-32 == n & 31). */
-                        int is_shr = (op == (int)TOK_SHR);
-                        int lhi = ++lbl64, lend = ++lbl64;
-                        asmbuf_puts(&buf, xh_x86_rule("text.6406a1641d7fff65"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.679314bd2ff12b22"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.461f709172b494e2"));
-                        x86_elbl(&buf, f->name, "sh", lhi, 0);
-                        if (is_shr) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.820dbde7748ee897"));
-                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.054bf5894365747f") : xh_x86_rule("text.5c8ed08f641c8a16"));
-                        } else {
-                            asmbuf_puts(&buf, xh_x86_rule("text.821b71e39855d198"));
-                        }
-                        asmbuf_puts(&buf, xh_x86_rule("text.69256272f003017d"));
-                        x86_elbl(&buf, f->name, "sh", lend, 0);
-                        x86_elbl(&buf, f->name, "sh", lhi, 1);
-                        if (is_shr) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.dd90cd92b33d5573"));
-                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.6082778eecf4e8dd")
-                                                  : xh_x86_rule("text.2dfc378c712e8c2e"));
-                        } else {
-                            asmbuf_puts(&buf, xh_x86_rule("text.9f5ead3407b2d8f5"));
-                        }
-                        x86_elbl(&buf, f->name, "sh", lend, 1);
-                        asmbuf_puts(&buf, xh_x86_rule("text.0dd72d509b10fd37"));
-                    } else if (op == (int)TOK_MUL) {
-                        /* 64x64 -> low 64 bits:
-                         *   lo = lo(a_lo*b_lo)
-                         *   hi = hi32(a_lo*b_lo) + a_hi*b_lo + a_lo*b_hi */
-                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.c654558cc5c0ec8b"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.ff834093feaebb13"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.a60c6b789a6dfebd"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.6f6d010f0e5ab3c1"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.a7a351cdc205c8ef"));
-                    } else if (op == (int)TOK_DIV || op == (int)TOK_MOD) {
-                        /* Restoring shift-subtract, 64 rounds.  Registers:
-                         *   a=|a| in ebx:eax   d=|b| in [divtmp+4:divtmp+0]
-                         *   r in edx:ecx       q in esi:edi
-                         * sign bits in [divtmp+12]: bit0 = a<0, bit1 = b<0.
-                         * Six registers plus the divisor is all this needs, and
-                         * no shld is required -- the 128-bit (r:n) shift is an
-                         * add/adc chain.  A zero divisor is undefined in C; it
-                         * answers 0 here instead of looping or faulting. */
-                        int linit = ++lbl64, lloop = ++lbl64, lsub = ++lbl64;
-                        int lnosub = ++lbl64, lqpos = ++lbl64, lrpos = ++lbl64;
-                        int lend = ++lbl64;
-                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
-                        asmbuf_int(&buf, divtmp + 12);
-                        asmbuf_puts(&buf, xh_x86_rule("text.84ec6f047c3668dc"));
-                        if (!uns) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.95fe33ef378a8bb4"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
-                            asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, xh_x86_rule("text.47d93a4d497c04b5"));
-                            /* esi holds the 0/1 sign BIT here, not the
-                             * full high word: `sar esi, 31` on 1 gives 0, so
-                             * |a| was never taken and every signed 64-bit
-                             * divide with a negative dividend divided the
-                             * raw two's-complement pattern.  `neg` turns the
-                             * bit into the 0 / -1 mask the xor/sub pair
-                             * needs. */
-                            asmbuf_puts(&buf, xh_x86_rule("text.3808d8f36f7d5daa"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.4b9c82419f56eeb1"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.d5a384c1f1fdbf16"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.b2214e0a3ab8f00c"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.d1ddcffec890c328"));
-                            asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, xh_x86_rule("text.9360e8e3ce846e92"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
-                            asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, xh_x86_rule("text.2257aee5f583afe4"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.466239f8ebbb4beb"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.da0ba7457b56865b"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.e5389721d42955df"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.c1c3fdf0eab006ff"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.fc1d629ae8b91275"));
-                            asmbuf_int(&buf, divtmp);
-                            asmbuf_puts(&buf, xh_x86_rule("text.5b6b86a4905e6f09"));
-                            asmbuf_int(&buf, divtmp + 4);
-                            asmbuf_puts(&buf, xh_x86_rule("text.69b61f412b288a0a"));
-                        } else {
-                            asmbuf_puts(&buf, xh_x86_rule("text.fc1d629ae8b91275"));
-                            asmbuf_int(&buf, divtmp);
-                            asmbuf_puts(&buf, xh_x86_rule("text.8b3deb472083fd10"));
-                            asmbuf_int(&buf, divtmp + 4);
-                            asmbuf_puts(&buf, xh_x86_rule("text.69b61f412b288a0a"));
-                        }
-                        asmbuf_puts(&buf, xh_x86_rule("text.cb41f02a263e8616"));
-                        asmbuf_int(&buf, divtmp);
-                        asmbuf_puts(&buf, xh_x86_rule("text.2fa01da70f59e71a"));
-                        asmbuf_int(&buf, divtmp + 4);
-                        asmbuf_puts(&buf, xh_x86_rule("text.9dd9f2a58c42e6d8"));
-                        x86_elbl(&buf, f->name, "dv", linit, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.5bd3862d8a7849ba"));
-                        x86_elbl(&buf, f->name, "dv", lend, 0);
-                        x86_elbl(&buf, f->name, "dv", linit, 1);
-                        asmbuf_puts(&buf, xh_x86_rule("text.b627985a9623b001"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.8a70b7986310d9ec"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.fa32d915a294d9b9"));
-                        asmbuf_int(&buf, divtmp + 8);
-                        asmbuf_puts(&buf, xh_x86_rule("text.b3f3de66f4c956d4"));
-                        x86_elbl(&buf, f->name, "dv", lloop, 1);
-                        /* Shift the 128-bit (r:n) pair left by one the
-                         * way the restoring algorithm needs it: the bit
-                         * shifted out of n's top goes into r's bottom,
-                         * which is what adc (not add) does here.  With
-                         * `add` the dividend's high bits were dropped and
-                         * every 64-bit division answered 0. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.3c2ce573bc6f8bda"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.1ac27aeafa036104"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.617fb65c4da207c8"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.cd95285901a5a647"));
-                        asmbuf_int(&buf, divtmp + 4);
-                        asmbuf_puts(&buf, xh_x86_rule("text.0a9294436a104c5a"));
-                        x86_elbl(&buf, f->name, "dv", lnosub, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.a66f7e10984df850"));
-                        x86_elbl(&buf, f->name, "dv", lsub, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.596cabe39f20ca06"));
-                        asmbuf_int(&buf, divtmp);
-                        asmbuf_puts(&buf, xh_x86_rule("text.0a9294436a104c5a"));
-                        x86_elbl(&buf, f->name, "dv", lnosub, 0);
-                        x86_elbl(&buf, f->name, "dv", lsub, 1);
-                        asmbuf_puts(&buf, xh_x86_rule("text.667532ad6b467194"));
-                        asmbuf_int(&buf, divtmp);
-                        asmbuf_puts(&buf, xh_x86_rule("text.ca9cbd7b617c471b"));
-                        asmbuf_int(&buf, divtmp + 4);
-                        asmbuf_puts(&buf, xh_x86_rule("text.115bb8c5c2542394"));
-                        x86_elbl(&buf, f->name, "dv", lnosub, 1);
-                        asmbuf_puts(&buf, xh_x86_rule("text.26fc695c40f28fce"));
-                        asmbuf_int(&buf, divtmp + 8);
-                        asmbuf_puts(&buf, xh_x86_rule("text.ec8924392ea7f046"));
-                        x86_elbl(&buf, f->name, "dv", lloop, 0);
-                        if (!uns) {
-                            /* Quotient is negative iff exactly one operand was
-                             * (sign word 1 or 2); the remainder follows
-                             * dividend's sign (bit 0). */
-                            asmbuf_puts(&buf, xh_x86_rule("text.6eaf51aaec0d1d8a"));
-                            asmbuf_int(&buf, divtmp + 12);
-                            asmbuf_puts(&buf, xh_x86_rule("text.3b12671c027655a7"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.30dc593803195a56"));
-                            x86_elbl(&buf, f->name, "dv", lqpos, 0);
-                            asmbuf_puts(&buf, xh_x86_rule("text.800b436f470e1d12"));
-                            x86_elbl(&buf, f->name, "dv", lqpos, 0);
-                            asmbuf_puts(&buf, xh_x86_rule("text.fd89fd8a166f247a"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.0d62446613963db2"));
-                            x86_elbl(&buf, f->name, "dv", lqpos, 1);
-                            asmbuf_puts(&buf, xh_x86_rule("text.360586a4672c9c1f"));
-                            x86_elbl(&buf, f->name, "dv", lrpos, 0);
-                            asmbuf_puts(&buf, xh_x86_rule("text.f71fe4d2f1a5f9c1"));
-                            asmbuf_puts(&buf, xh_x86_rule("text.1a04608c358721c5"));
-                            x86_elbl(&buf, f->name, "dv", lrpos, 1);
-                        }
-                        if (op == (int)TOK_DIV)
-                            asmbuf_puts(&buf, xh_x86_rule("text.ea9aa9b6855ae4fa"));
-                        else
-                            asmbuf_puts(&buf, xh_x86_rule("text.8ad98fe039692ddc"));
-                        x86_elbl(&buf, f->name, "dv", lend, 1);
-                    } else {
-                        int uns2 = uns;
-                        const char *cc = 0;
-                        int ld = ++lbl64;
-                        switch (op) {
-                            case (int)TOK_EQ: cc = "sete";  break;
-                            case (int)TOK_NE: cc = "setne"; break;
-                            case (int)TOK_LT: cc = uns2 ? "setb" : "setl";  break;
-                            case (int)TOK_GT: cc = uns2 ? "seta" : "setg";  break;
-                            case (int)TOK_LE: cc = uns2 ? "setbe" : "setle"; break;
-                            case (int)TOK_GE: cc = uns2 ? "setae" : "setge"; break;
-                            default: cc = "sete"; break;
-                        }
-                        /* Two-word compare: the high dwords decide unless they
-                         * are equal, and then the low dwords decide with the
-                         * same condition code.  Comparing only the low words
-                         * (what this used to do) answered 0 for every ordering
-                         * question on 64-bit values. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.0cf03c3bc7f8e844"));
-                        x86_elbl(&buf, f->name, "cm", ld, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.9e89a698ecb49a06"));
-                        x86_elbl(&buf, f->name, "cm", ld, 1);
-                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
-                        asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, xh_x86_rule("text.8d145c1a3edd357d"));
-                    }
+                    char labels[7][160],offsets[4][24];const char *args[11];int k;
+                    /* Unique bounded labels and frame scratch offsets are data
+                     * parameters; all operation selection stays in the package. */
+                    for(k=0;k<7;k++){snprintf(labels[k],sizeof(labels[k]),".Li64_%d_%d_%d",fi,++lbl64,k);args[k]=labels[k];}
+                    for(k=0;k<4;k++){snprintf(offsets[k],sizeof(offsets[k]),"%d",divtmp+4*k);args[7+k]=offsets[k];}
+                    x86_integer64_select(&buf,0,I->aux,args,11);
                     break;
                 }
 
                 /* IR_64CMP: 64-bit compare. aux = TOK_xxx | (0x100 if unsigned). */
                 case IR_64CMP: {
-                    int op = I->aux & 0xFF;
-                    int uns = (I->aux & 0x100) != 0;
-                    const char *cc;
-                    int ld = ++lbl64;
-                    switch (op) {
-                        case (int)TOK_EQ: cc = "sete";  break;
-                        case (int)TOK_NE: cc = "setne"; break;
-                        case (int)TOK_LT: cc = uns ? "setb" : "setl";  break;
-                        case (int)TOK_GT: cc = uns ? "seta" : "setg";  break;
-                        case (int)TOK_LE: cc = uns ? "setbe" : "setle"; break;
-                        case (int)TOK_GE: cc = uns ? "setae" : "setge"; break;
-                        default: cc = "sete"; break;
-                    }
-                    /* High dwords first, then the low ones when they tie; the
-                     * condition code is the same for both halves. */
-                    asmbuf_puts(&buf, xh_x86_rule("text.c1281983882433d5"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.0cf03c3bc7f8e844"));
-                    x86_elbl(&buf, f->name, "cm", ld, 0);
-                    asmbuf_puts(&buf, xh_x86_rule("text.9e89a698ecb49a06"));
-                    x86_elbl(&buf, f->name, "cm", ld, 1);
-                    asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
-                    asmbuf_puts(&buf, cc);
-                    asmbuf_puts(&buf, xh_x86_rule("text.8d145c1a3edd357d"));
+                    char labels[7][160],offsets[4][24];const char *args[11];int k;
+                    /* Unique bounded labels and frame scratch offsets are data
+                     * parameters; all operation selection stays in the package. */
+                    for(k=0;k<7;k++){snprintf(labels[k],sizeof(labels[k]),".Li64_%d_%d_%d",fi,++lbl64,k);args[k]=labels[k];}
+                    for(k=0;k<4;k++){snprintf(offsets[k],sizeof(offsets[k]),"%d",divtmp+4*k);args[7+k]=offsets[k];}
+                    x86_integer64_select(&buf,1,I->aux,args,11);
                     break;
                 }
 
@@ -3316,50 +3097,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     break;
 
                 case IR_64BINARY: {
-                    int op = (int)(I->aux & 0xFF);
-                    int uns = (I->aux & 0x100) != 0;
-                    const char *bop = binop_x(op);
-                    amd_pop64(&buf, "rcx", "ecx");   /* b */
-                    amd_pop64(&buf, "rax", "eax");   /* a */
-                    if (bop) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.1a0f564ddc603945"));
-                        asmbuf_puts(&buf, bop);
-                        asmbuf_puts(&buf, xh_x86_rule("text.9bb2ec8aa477608c"));
-                        amd_push64(&buf, "rax", "eax");
-                    } else if (op == (int)TOK_MUL || op == (int)TOK_DIV ||
-                               op == (int)TOK_MOD || op == (int)TOK_SHL ||
-                               op == (int)TOK_SHR) {
-                        if (op == (int)TOK_MUL) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.dd74d87037e1c8a8"));
-                        } else if (op == (int)TOK_DIV || op == (int)TOK_MOD) {
-                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.8bda95a54d415775")
-                                                  : xh_x86_rule("text.bc370da3c4dbbf24"));
-                            if (op == (int)TOK_MOD)
-                                asmbuf_puts(&buf, xh_x86_rule("text.d729da48110992c8"));
-                        } else if (op == (int)TOK_SHL) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.3425d160c827d5dc"));
-                        } else {
-                            asmbuf_puts(&buf, uns ? xh_x86_rule("text.b0d97196713fb33b") : xh_x86_rule("text.b3ad277704da6177"));
-                        }
-                        amd_push64(&buf, "rax", "eax");
-                    } else {
-                        const char *cc = amd_cc(op, uns);
-                        asmbuf_puts(&buf, xh_x86_rule("text.5bd62f2b9392f0ab"));
-                        asmbuf_puts(&buf, cc);
-                        asmbuf_puts(&buf, xh_x86_rule("text.bd3376dd310a01b5"));
-                    }
+                    x86_integer64_select(&buf,0,I->aux,0,0);
                     break;
                 }
 
                 case IR_64CMP: {
-                    int op = (int)(I->aux & 0xFF);
-                    int uns = (I->aux & 0x100) != 0;
-                    const char *cc = amd_cc(op, uns);
-                    amd_pop64(&buf, "rcx", "ecx");
-                    amd_pop64(&buf, "rax", "eax");
-                    asmbuf_puts(&buf, xh_x86_rule("text.5bd62f2b9392f0ab"));
-                    asmbuf_puts(&buf, cc);
-                    asmbuf_puts(&buf, xh_x86_rule("text.bd3376dd310a01b5"));
+                    x86_integer64_select(&buf,1,I->aux,0,0);
                     break;
                 }
 

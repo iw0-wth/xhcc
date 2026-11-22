@@ -1590,22 +1590,9 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     }
                     if (I->val == 2) {
                         int op = I->aux & ~0x400;
-                        /* high word on top, low word below */
-                        xh_rv_rule(&buf,"emit.fixed.0186");
-                        if (op == (int)TOK_MINUS) {
-                            xh_rv_rule(&buf,"emit.fixed.0187");
-                        } else if (op == (int)TOK_BNOT) {
-                            xh_rv_rule(&buf,"emit.fixed.0188");
-                        } else if (op == (int)TOK_NOT) {
-                            xh_rv_rule(&buf,"emit.fixed.0189");
-                        } else {
-                            char b1[12];
-                            diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                      "the riscv32 backend does not implement the "
-                                      "64-bit unary operator %s (function '%s')",
-                                      diag_num(b1, op), f->name, 0,0,0,0);
-                        }
-                        xh_rv_rule(&buf,"emit.fixed.0190");
+                        const char*operation=op==TOK_MINUS?"neg":op==TOK_BNOT?"not":op==TOK_NOT?"lnot":0;
+                        if(!operation){diag_tool(DIAG_SEV_ERROR,"riscv32","unsupported normalized 64-bit unary operator",0,0,0,0,0,0);break;}
+                        xh_rv_semantic(&buf,"unary",operation,64,"v","stack",2,op==TOK_NOT?1:2,0,0);
                     } else if (I->val == 1) {
                         /* Floating-point negation.  `-x` on a float/double is a
                          * sign-bit flip, NOT an integer negate: the latter turns
@@ -1630,114 +1617,14 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     break;
                 }
                 case IR_64BINARY: {
-                    /* 0(sp) = b.high, 4 = b.low, 8 = a.high, 12 = a.low: the
-                     * IR stack keeps a 64-bit value with its high word on top.
-                     * Afterwards addi sp,sp,8 leaves a's two words in place as
-                     * the result slot (high at 0(sp), low at 4(sp)). */
-                    int op = I->aux & ~0x100;
-                    int uns = (I->aux & 0x100) != 0;
-                    xh_rv_rule(&buf,"emit.fixed.0192");
-                    if (op == (int)TOK_PLUS) {
-                        xh_rv_rule(&buf,"emit.fixed.0193");
-                    } else if (op == (int)TOK_MINUS) {
-                        xh_rv_rule(&buf,"emit.fixed.0194");
-                    } else if (op == (int)TOK_BAND) {
-                        xh_rv_rule(&buf,"emit.fixed.0195");
-                    } else if (op == (int)TOK_BOR) {
-                        xh_rv_rule(&buf,"emit.fixed.0196");
-                    } else if (op == (int)TOK_BXOR) {
-                        xh_rv_rule(&buf,"emit.fixed.0197");
-                    } else if (op == (int)TOK_MUL) {
-                        /* low: al*bl; high: mulhu(al,bl) + al*bh + ah*bl */
-                        xh_rv_rule(&buf,"emit.fixed.0198");
-                    } else if (op == (int)TOK_SHL) {
-                        xh_rv_rule(&buf,"emit.fixed.0199");
-                    } else if (op == (int)TOK_SHR) {
-                        /* signed >> is arithmetic, unsigned >> is logical */
-                        xh_rv_rule(&buf,"emit.fixed.0200");
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("emit.choice.0036") : xh_rv_rule_text("emit.choice.0037"));
-                        xh_rv_rule(&buf,"emit.fixed.0201");
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("emit.choice.0038") : xh_rv_rule_text("emit.choice.0039"));
-                        xh_rv_rule(&buf,"emit.fixed.0202");
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("emit.choice.0040")
-                                              : xh_rv_rule_text("emit.choice.0041"));
-                        xh_rv_rule(&buf,"emit.fixed.0203");
-                    } else if (op == (int)TOK_DIV || op == (int)TOK_MOD) {
-                        /* 64-bit divide, written out rather than calling
-                         * __divdi3: this backend is also used for images that
-                         * link no libgcc, so a helper the gate cannot resolve
-                         * would make the case unverifiable.  64 rounds of
-                         * shift-and-subtract; the callee-saved registers are
-                         * borrowed and put back.
-                         *   s0:s1 = |a|   s2:s3 = |b|   s4:s5 = quotient
-                         *   s6:s7 = remainder           t4/t5 = sign(a)/sign(b)
-                         *   t6 = counter */
-                        xh_rv_rule(&buf,"emit.fixed.0204");
-                        if (!uns) {
-                            xh_rv_rule(&buf,"emit.fixed.0205");
-                            xh_rv_rule(&buf,"emit.fixed.0206");
-                            xh_rv_rule(&buf,"emit.fixed.0207");
-                        }
-                        xh_rv_rule(&buf,"emit.fixed.0208");
-                        /* a <<= 1, keeping the shifted-out bit in t0 */
-                        xh_rv_rule(&buf,"emit.fixed.0209");
-                        /* r = (r << 1) | bit */
-                        xh_rv_rule(&buf,"emit.fixed.0210");
-                        /* if (r >= b) { r -= b; bit = 1 } else bit = 0 */
-                        xh_rv_rule(&buf,"emit.fixed.0211");
-                        /* q = (q << 1) | bit */
-                        xh_rv_rule(&buf,"emit.fixed.0212");
-                        if (op == (int)TOK_MOD)
-                            xh_rv_rule(&buf,"emit.fixed.0213");
-                        else
-                            xh_rv_rule(&buf,"emit.fixed.0214");
-                        if (!uns) {
-                            /* remainder takes the sign of a, quotient the xor */
-                            if (op == (int)TOK_MOD)
-                                xh_rv_rule(&buf,"emit.fixed.0215");
-                            else
-                                xh_rv_rule(&buf,"emit.fixed.0216");
-                            xh_rv_rule(&buf,"emit.fixed.0217");
-                        }
-                        xh_rv_rule(&buf,"emit.fixed.0218");
-                    } else {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "the riscv32 backend does not implement the "
-                                  "64-bit operator %s (function '%s')",
-                                  diag_num(b1, op), f->name, 0,0,0,0);
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0190");
-                    break;
+                    int op=I->aux&~0x100;const char*operation=op==TOK_PLUS?"add":op==TOK_MINUS?"sub":op==TOK_BAND?"and":op==TOK_BOR?"or":op==TOK_BXOR?"xor":op==TOK_MUL?"mul":op==TOK_SHL?"shl":op==TOK_SHR?"shr":op==TOK_DIV?"div":op==TOK_MOD?"mod":0;
+                    if(!operation){diag_tool(DIAG_SEV_ERROR,"riscv32","unsupported normalized 64-bit binary operator",0,0,0,0,0,0);break;}
+                    xh_rv_semantic(&buf,"integer64",operation,64,(I->aux&0x100)?"u":"s","stack",4,2,0,0);break;
                 }
                 case IR_64CMP: {
-                    int op = I->aux & ~0x100;
-                    int uns = (I->aux & 0x100) != 0;
-                    /* same layout as IR_64BINARY; the result is one word, so
-                     * the net effect is three words fewer on the IR stack */
-                    xh_rv_rule(&buf,"emit.fixed.0219");
-                    if (op == (int)TOK_EQ || op == (int)TOK_NE) {
-                        xh_rv_rule(&buf,"emit.fixed.0220");
-                        asmbuf_puts(&buf, op == (int)TOK_EQ ? xh_rv_rule_text("emit.choice.0042") : xh_rv_rule_text("emit.choice.0043"));
-                    } else if (op == (int)TOK_LT || op == (int)TOK_GE) {
-                        xh_rv_rule(&buf,"emit.fixed.0221");
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("emit.choice.0044") : xh_rv_rule_text("emit.choice.0045"));
-                        xh_rv_rule(&buf,"emit.fixed.0222");
-                        if (op == (int)TOK_GE) xh_rv_rule(&buf,"emit.fixed.0223");
-                    } else if (op == (int)TOK_GT || op == (int)TOK_LE) {
-                        xh_rv_rule(&buf,"emit.fixed.0224");
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("emit.choice.0046") : xh_rv_rule_text("emit.choice.0047"));
-                        xh_rv_rule(&buf,"emit.fixed.0225");
-                        if (op == (int)TOK_LE) xh_rv_rule(&buf,"emit.fixed.0223");
-                    } else {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "the riscv32 backend does not implement the "
-                                  "64-bit comparison %s (function '%s')",
-                                  diag_num(b1, op), f->name, 0,0,0,0);
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0152");
-                    break;
+                    int op=I->aux&~0x100;const char*operation=op==TOK_EQ?"eq":op==TOK_NE?"ne":op==TOK_LT?"lt":op==TOK_GT?"gt":op==TOK_LE?"le":op==TOK_GE?"ge":0;
+                    if(!operation){diag_tool(DIAG_SEV_ERROR,"riscv32","unsupported normalized 64-bit compare operator",0,0,0,0,0,0);break;}
+                    xh_rv_semantic(&buf,"compare64",operation,64,(I->aux&0x100)?"u":"s","stack",4,1,0,0);break;
                 }
                 case IR_LABEL:
                     xh_rv_rule(&buf,"emit.fixed.0226");

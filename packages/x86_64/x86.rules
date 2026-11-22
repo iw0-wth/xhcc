@@ -2964,3 +2964,102 @@ end
 rule semantic.fp
 text XHSEMANTIC 1\nbinary add 32 fp scalar fp.binary.add.32.fp.scalar 2 1\nbinary sub 32 fp scalar fp.binary.sub.32.fp.scalar 2 1\nbinary mul 32 fp scalar fp.binary.mul.32.fp.scalar 2 1\nbinary div 32 fp scalar fp.binary.div.32.fp.scalar 2 1\ncompare eq 32 fp scalar fp.compare.eq.32.fp.scalar 2 1\ncompare ne 32 fp scalar fp.compare.ne.32.fp.scalar 2 1\ncompare lt 32 fp scalar fp.compare.lt.32.fp.scalar 2 1\ncompare le 32 fp scalar fp.compare.le.32.fp.scalar 2 1\ncompare gt 32 fp scalar fp.compare.gt.32.fp.scalar 2 1\ncompare ge 32 fp scalar fp.compare.ge.32.fp.scalar 2 1\nconvert i2f 32 signed scalar fp.convert.i2f.32.signed.scalar 1 1\nconvert f2i 32 signed scalar fp.convert.f2i.32.signed.scalar 1 1\nconvert i2f 32 unsigned scalar fp.convert.i2f.32.unsigned.scalar 1 1\nconvert f2i 32 unsigned scalar fp.convert.f2i.32.unsigned.scalar 1 1\nbinary add 64 fp scalar fp.binary.add.64.fp.scalar 4 2\nbinary sub 64 fp scalar fp.binary.sub.64.fp.scalar 4 2\nbinary mul 64 fp scalar fp.binary.mul.64.fp.scalar 4 2\nbinary div 64 fp scalar fp.binary.div.64.fp.scalar 4 2\ncompare eq 64 fp scalar fp.compare.eq.64.fp.scalar 4 1\ncompare ne 64 fp scalar fp.compare.ne.64.fp.scalar 4 1\ncompare lt 64 fp scalar fp.compare.lt.64.fp.scalar 4 1\ncompare le 64 fp scalar fp.compare.le.64.fp.scalar 4 1\ncompare gt 64 fp scalar fp.compare.gt.64.fp.scalar 4 1\ncompare ge 64 fp scalar fp.compare.ge.64.fp.scalar 4 1\nconvert i2f 64 signed scalar fp.convert.i2f.64.signed.scalar 1 2\nconvert f2i 64 signed scalar fp.convert.f2i.64.signed.scalar 2 1\nconvert i2f 64 unsigned scalar fp.convert.i2f.64.unsigned.scalar 1 2\nconvert f2i 64 unsigned scalar fp.convert.f2i.64.unsigned.scalar 2 1\nconvert f2f 32 fp to64 fp.convert.f2f.32.fp.to64 1 2\nconvert f2f 64 fp to32 fp.convert.f2f.64.fp.to32 2 1\nconvert f2f 32 fp to32 fp.convert.f2f.32.fp.to32 1 1\nconvert f2f 64 fp to64 fp.convert.f2f.64.fp.to64 2 2\n
 end
+rule int64.binary.add.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    add rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.sub.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    sub rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.and.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    and rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.or.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    or rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.xor.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    xor rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.mul.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    imul rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.shl.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    shl rax, cl\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.shr.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    sar rax, cl\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.compare.eq.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.ne.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setne al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.lt.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setl al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.le.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setle al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.gt.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setg al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.ge.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setge al\n    movzx eax, al\n    push rax\n
+end
+rule int64.binary.div.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cqo\n    idiv rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.mod.signed
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cqo\n    idiv rcx\n    mov rax, rdx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.add.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    add rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.sub.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    sub rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.and.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    and rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.or.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    or rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.xor.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    xor rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.mul.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    imul rax, rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.shl.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    shl rax, cl\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.shr.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    shr rax, cl\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.compare.eq.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.ne.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setne al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.lt.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setb al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.le.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setbe al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.gt.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    seta al\n    movzx eax, al\n    push rax\n
+end
+rule int64.compare.ge.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cmp rax, rcx\n    setae al\n    movzx eax, al\n    push rax\n
+end
+rule int64.binary.div.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    xor edx, edx\n    div rcx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.binary.mod.unsigned
+text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    xor edx, edx\n    div rcx\n    mov rax, rdx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule semantic.integer64
+text XHSEMANTIC 1\nbinary add 64 signed pair int64.binary.add.signed 4 2\nbinary sub 64 signed pair int64.binary.sub.signed 4 2\nbinary and 64 signed pair int64.binary.and.signed 4 2\nbinary or 64 signed pair int64.binary.or.signed 4 2\nbinary xor 64 signed pair int64.binary.xor.signed 4 2\nbinary mul 64 signed pair int64.binary.mul.signed 4 2\nbinary shl 64 signed pair int64.binary.shl.signed 4 2\nbinary shr 64 signed pair int64.binary.shr.signed 4 2\ncompare eq 64 signed pair int64.compare.eq.signed 4 1\ncompare ne 64 signed pair int64.compare.ne.signed 4 1\ncompare lt 64 signed pair int64.compare.lt.signed 4 1\ncompare le 64 signed pair int64.compare.le.signed 4 1\ncompare gt 64 signed pair int64.compare.gt.signed 4 1\ncompare ge 64 signed pair int64.compare.ge.signed 4 1\nbinary div 64 signed pair int64.binary.div.signed 4 2\nbinary mod 64 signed pair int64.binary.mod.signed 4 2\nbinary add 64 unsigned pair int64.binary.add.unsigned 4 2\nbinary sub 64 unsigned pair int64.binary.sub.unsigned 4 2\nbinary and 64 unsigned pair int64.binary.and.unsigned 4 2\nbinary or 64 unsigned pair int64.binary.or.unsigned 4 2\nbinary xor 64 unsigned pair int64.binary.xor.unsigned 4 2\nbinary mul 64 unsigned pair int64.binary.mul.unsigned 4 2\nbinary shl 64 unsigned pair int64.binary.shl.unsigned 4 2\nbinary shr 64 unsigned pair int64.binary.shr.unsigned 4 2\ncompare eq 64 unsigned pair int64.compare.eq.unsigned 4 1\ncompare ne 64 unsigned pair int64.compare.ne.unsigned 4 1\ncompare lt 64 unsigned pair int64.compare.lt.unsigned 4 1\ncompare le 64 unsigned pair int64.compare.le.unsigned 4 1\ncompare gt 64 unsigned pair int64.compare.gt.unsigned 4 1\ncompare ge 64 unsigned pair int64.compare.ge.unsigned 4 1\nbinary div 64 unsigned pair int64.binary.div.unsigned 4 2\nbinary mod 64 unsigned pair int64.binary.mod.unsigned 4 2\n
+end

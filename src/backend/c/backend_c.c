@@ -25,6 +25,7 @@
 #include "xh_c_rules.h"
 #include <stdio.h>   /* snprintf used for float constant formatting */
 #include <string.h>
+#include <stdlib.h>
 
 #define MAX_CALL_ARGS (xh_c_abi()->max_call_args)
 
@@ -356,6 +357,7 @@ static int c_call(IrProgram *prog, IrInst *I, AsmBuffer *out, int *delta) {
         if(found){nargs=ark_streq(route,"printf")?MAX_CALL_ARGS:n;result="scalar";}
     }
     if(xh_c_call_effect(route,result,&pop,&push))return -1;
+    xh_c_effect_set(n*pop,push);
     *delta=push-n*pop;
     if(!out)return 1;
     snprintf(offset,sizeof offset,"%d",xh_c_abi()->struct_return_offset);
@@ -641,128 +643,74 @@ static int ir_stack_delta_ctx(IrProgram *prog,IrInst *I) {
 
 static int ir_stack_delta(IrInst *I) { return ir_stack_delta_ctx(0,I); }
 
-/* Compute the maximum stack depth (sp value) for an IR function.
- * Uses fixpoint iteration to correctly handle jumps: a forward jump may
- * skip over POP instructions, so the sp at a label reached via a jump can
- * be HIGHER than the sp at that label reached via the fall-through path.
- * The linear-only approach underestimates stk[] in such cases, causing
- * stack overflow at runtime in the generated C code. */
-/* Label table for the C backend's stack bookkeeping. Host 16384 / board 4096
- * (the C backend is trimmed on the board anyway), overridable. */
-#define MAX_LABELS_FOR_SP  ARK_C_MAX_LABELS
+/* Finite CFG mechanism. Target-selected records supply pop/push; this worklist
+ * accepts one exact depth per reachable instruction, never a guessed bound. */
+static int c_stack_effect(IrProgram *prog,IrFunc *f,IrInst *I,int *pop,int *push) {
+    int delta,selected=c_call(prog,I,0,&delta);
+    if(selected){if(selected<0)return -1;xh_c_effect_get(pop,push);return 0;}
+    selected=c_memory(I,f,prog,0,0,&delta);
+    if(!selected)selected=c_semantic(I,0,&delta);
+    if(selected){if(selected<0)return -1;xh_c_effect_get(pop,push);return 0;}
+    *pop=0;*push=0;
+    switch(I->op){
+        case IR_PUSH_INT:case IR_PUSH_FLOAT:case IR_PUSH_STR:case IR_PUSH_FUNC:case IR_64PUSH:*push=1;break;
+        case IR_F2I:case IR_I2F:case IR_64I2F:case IR_64F2I:case IR_F2F:case IR_SVC:case IR_LOAD_FLD:*pop=1;*push=1;break;
+        case IR_STORE_FLD:*pop=2;break;
+        case IR_SIMD_ADD16:case IR_SIMD_SUB16:case IR_SIMD_ADD8:case IR_SIMD_SUB8:*pop=2;*push=1;break;
+        case IR_FUNC_BEGIN:case IR_FUNC_END:case IR_ASM:break;
+        default:xh_c_rules_error("unsupported IR in C stack analysis");return -1;
+    }return 0;
+}
+static int c_depth_join(int node,int depth,int count,int *depths,int *queue,int *tail){
+    if(node==count)return 0;
+    if(node<0||node>count){xh_c_rules_error("invalid C CFG successor");return -1;}
+    if(depths[node]>=0){if(depths[node]!=depth){xh_c_rules_error("inconsistent C value-stack depth at CFG join or cycle");return -1;}return 0;}
+    depths[node]=depth;queue[(*tail)++]=node;return 0;
+}
 static int compute_max_sp(IrProgram *prog,IrFunc *f) {
-    /* Collect named labels and assign them indices after numeric labels. */
-    int named_count = 0;
-    const char *named_names[256];
-    int i;
-    int total_labels;
-    int label_sp_stack[MAX_LABELS_FOR_SP];
-    int *label_sp = label_sp_stack;
-    int max_sp = 1;
-    int iter;
-
-    for (i = 0; i < f->code_count && named_count < 256; i++) {
-        if (f->code[i].op == IR_LABEL_NAMED) {
-            const char *name = f->code[i].name;
-            int found = 0, j;
-            for (j = 0; j < named_count; j++) {
-                if (named_names[j] && name && ark_streq(named_names[j], name)) {
-                    found = 1; break;
-                }
-            }
-            if (!found) named_names[named_count++] = name;
+    int *state=0,*depths,*queue,*targets;
+    int count=f->code_count,head=0,tail=0,max_depth=0,i,j;
+    if(count<0||count>ARK_C_MAX_LABELS){xh_c_rules_error("C CFG instruction budget exceeded");return -1;}
+    if(!count)return 1;
+    state=(int*)malloc((size_t)count*3*sizeof(int));
+    if(!state){xh_c_rules_error("C CFG analysis allocation failed");return -1;}
+    depths=state;queue=state+count;targets=state+2*count;
+    for(i=0;i<count;i++){depths[i]=-1;targets[i]=-1;}
+    /* Validate labels and resolve all edges, including unreachable code. */
+    for(i=0;i<count;i++){
+        IrInst *I=&f->code[i];
+        if(I->op==IR_LABEL || I->op==IR_LABEL_NAMED){
+            if((I->op==IR_LABEL&&(I->val<0||I->val>2147483647LL)) ||
+               (I->op==IR_LABEL_NAMED&&(!I->name||!*I->name))){xh_c_rules_error("invalid C CFG label");goto fail;}
+            for(j=0;j<i;j++)if(f->code[j].op==I->op &&
+                (I->op==IR_LABEL?f->code[j].val==I->val:ark_streq(f->code[j].name,I->name))){xh_c_rules_error("duplicate C CFG label");goto fail;}
+        }
+        if(I->op==IR_JMP||I->op==IR_JZ||I->op==IR_JNZ||I->op==IR_CMP_JMP_EQ||I->op==IR_JMP_NAMED){
+            int named=I->op==IR_JMP_NAMED;long long id=I->op==IR_CMP_JMP_EQ?I->aux:I->val;
+            if((named&&(!I->name||!*I->name))||(!named&&(id<0||id>2147483647LL))){xh_c_rules_error("invalid C CFG branch target");goto fail;}
+            for(j=0;j<count;j++)if(named?(f->code[j].op==IR_LABEL_NAMED&&ark_streq(f->code[j].name,I->name)):(f->code[j].op==IR_LABEL&&f->code[j].val==id)){targets[i]=j;break;}
+            if(targets[i]<0){xh_c_rules_error("unresolved C CFG branch target");goto fail;}
         }
     }
-
-    total_labels = f->label_count + named_count;
-    if (total_labels < 1) total_labels = 1;
-    /* If too many labels, fall back to linear scan (overestimate is safe). */
-    if (total_labels > MAX_LABELS_FOR_SP) {
-        int sp = 0;
-        max_sp = 1;
-        for (i = 0; i < f->code_count; i++) {
-            int delta = ir_stack_delta_ctx(prog,&f->code[i]);
-            sp += delta;
-            if (sp > max_sp) max_sp = sp;
-            if (sp < 0) sp = 0;
+    depths[0]=0;queue[tail++]=0;
+    while(head<tail){
+        int node=queue[head++],pop,push,depth=depths[node],after;
+        IrInst *I=&f->code[node];
+        if(c_stack_effect(prog,f,I,&pop,&push))goto fail;
+        if(depth<pop || (I->op==IR_CMP_JMP_EQ&&depth<1)){xh_c_rules_error("C value-stack underflow in reachable IR");goto fail;}
+        after=depth-pop+push;
+        if(after>65536){xh_c_rules_error("C value-stack depth budget exceeded");goto fail;}
+        if(after>max_depth)max_depth=after;
+        if(I->op==IR_RETURN)continue;
+        if(I->op==IR_JMP||I->op==IR_JMP_NAMED){if(c_depth_join(targets[node],after,count,depths,queue,&tail))goto fail;continue;}
+        if(I->op==IR_JZ||I->op==IR_JNZ||I->op==IR_CMP_JMP_EQ){
+            int branch=I->op==IR_CMP_JMP_EQ?after-1:after;
+            if(c_depth_join(targets[node],branch,count,depths,queue,&tail))goto fail;
         }
-        return max_sp;
+        if(c_depth_join(node+1,after,count,depths,queue,&tail))goto fail;
     }
-    for (i = 0; i < total_labels; i++) label_sp[i] = -1;
-
-    /* Fixpoint iteration: repeat until sp at labels stabilizes. */
-    for (iter = 0; iter < 32; iter++) {
-        int sp = 0;
-        int changed = 0;
-        max_sp = 1;
-
-        for (i = 0; i < f->code_count; i++) {
-            IrInst *I = &f->code[i];
-            int delta = ir_stack_delta_ctx(prog,I);
-            int jmp_tgt = -1;
-            int jmp_sp = 0;
-
-            switch (I->op) {
-                case IR_LABEL:
-                    if (label_sp[(int)I->val] > sp) sp = label_sp[(int)I->val];
-                    break;
-                case IR_LABEL_NAMED: {
-                    int j;
-                    for (j = 0; j < named_count; j++) {
-                        if (named_names[j] && I->name &&
-                            ark_streq(named_names[j], I->name)) {
-                            int idx = f->label_count + j;
-                            if (label_sp[idx] > sp) sp = label_sp[idx];
-                            break;
-                        }
-                    }
-                    break;
-                }
-                case IR_JMP:
-                    jmp_tgt = (int)I->val;
-                    jmp_sp = sp; /* JMP does not pop */
-                    break;
-                case IR_JMP_NAMED: {
-                    int j;
-                    for (j = 0; j < named_count; j++) {
-                        if (named_names[j] && I->name &&
-                            ark_streq(named_names[j], I->name)) {
-                            jmp_tgt = f->label_count + j;
-                            jmp_sp = sp;
-                            break;
-                        }
-                    }
-                    break;
-                }
-                case IR_JZ:
-                case IR_JNZ:
-                    /* JZ/JNZ pop the condition, then jump with sp-1. */
-                    jmp_tgt = (int)I->val;
-                    jmp_sp = sp - 1;
-                    break;
-                case IR_CMP_JMP_EQ:
-                    /* On match, peeks then pops 1 and jumps. Conservatively
-                     * assume the jump path has sp-1. */
-                    jmp_tgt = I->aux;
-                    jmp_sp = sp - 1;
-                    break;
-                default:
-                    break;
-            }
-
-            if (jmp_tgt >= 0 && jmp_tgt < total_labels && jmp_sp > label_sp[jmp_tgt]) {
-                label_sp[jmp_tgt] = jmp_sp;
-                changed = 1;
-            }
-
-            sp += delta;
-            if (sp > max_sp) max_sp = sp;
-            if (sp < 0) sp = 0;
-        }
-
-        if (!changed) break;
-    }
-    return max_sp;
+    free(state);return max_depth>0?max_depth:1;
+fail:free(state);return -1;
 }
 
 /* Compute the frame size needed for a function. The frame must accommodate:
@@ -1206,6 +1154,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         {
             int frame_sz = compute_frame_size(f);
             int stk_sz = compute_max_sp(prog,f);
+            if(stk_sz<0){if(cap>0)out[0]=0;return -1;}
             /* Add safety margin to stk to account for any simulation imprecision */
             stk_sz += xh_c_abi()->stack_margin;
             if (stk_sz < xh_c_abi()->stack_min) stk_sz = xh_c_abi()->stack_min;

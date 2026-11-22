@@ -78,7 +78,7 @@ const char *xh_x86_expand(const char *key,const char *const *args,int count) {
 const char *xh_x86_semantic(const char *family,const char *operation,int width,const char *sign,const char *form,int pop,int push,const char *const *args,int count){
     XhSemanticInput input;XhSemanticResult result;
     input.family=family;input.operation=operation;input.width=width;input.sign=sign;input.form=form;
-    if(xh_semantic_select(target,"semantic.fp",&input,&result)!=1 || result.pop!=pop || result.push!=push){failed=1;diag_tool(DIAG_SEV_ERROR,target,"missing or incompatible floating semantic rule",0,0,0,0,0,0);return "";}
+    if(xh_semantic_select(target,(!strcmp(form,"pair"))?"semantic.integer64":"semantic.fp",&input,&result)!=1 || result.pop!=pop || result.push!=push){failed=1;diag_tool(DIAG_SEV_ERROR,target,"missing or incompatible floating semantic rule",0,0,0,0,0,0);return "";}
     return xh_x86_expand(result.template_key,args,count);
 }
 int xh_x86_number(const char *key) {

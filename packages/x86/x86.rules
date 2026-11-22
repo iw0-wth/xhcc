@@ -2724,3 +2724,102 @@ end
 rule semantic.fp
 text XHSEMANTIC 1\nbinary add 32 fp scalar fp.binary.add.32.fp.scalar 2 1\nbinary sub 32 fp scalar fp.binary.sub.32.fp.scalar 2 1\nbinary mul 32 fp scalar fp.binary.mul.32.fp.scalar 2 1\nbinary div 32 fp scalar fp.binary.div.32.fp.scalar 2 1\ncompare eq 32 fp scalar fp.compare.eq.32.fp.scalar 2 1\ncompare ne 32 fp scalar fp.compare.ne.32.fp.scalar 2 1\ncompare lt 32 fp scalar fp.compare.lt.32.fp.scalar 2 1\ncompare le 32 fp scalar fp.compare.le.32.fp.scalar 2 1\ncompare gt 32 fp scalar fp.compare.gt.32.fp.scalar 2 1\ncompare ge 32 fp scalar fp.compare.ge.32.fp.scalar 2 1\nconvert i2f 32 signed scalar fp.convert.i2f.32.signed.scalar 1 1\nconvert f2i 32 signed scalar fp.convert.f2i.32.signed.scalar 1 1\nconvert i2f 32 unsigned scalar fp.convert.i2f.32.unsigned.scalar 1 1\nconvert f2i 32 unsigned scalar fp.convert.f2i.32.unsigned.scalar 1 1\nbinary add 64 fp scalar fp.binary.add.64.fp.scalar 4 2\nbinary sub 64 fp scalar fp.binary.sub.64.fp.scalar 4 2\nbinary mul 64 fp scalar fp.binary.mul.64.fp.scalar 4 2\nbinary div 64 fp scalar fp.binary.div.64.fp.scalar 4 2\ncompare eq 64 fp scalar fp.compare.eq.64.fp.scalar 4 1\ncompare ne 64 fp scalar fp.compare.ne.64.fp.scalar 4 1\ncompare lt 64 fp scalar fp.compare.lt.64.fp.scalar 4 1\ncompare le 64 fp scalar fp.compare.le.64.fp.scalar 4 1\ncompare gt 64 fp scalar fp.compare.gt.64.fp.scalar 4 1\ncompare ge 64 fp scalar fp.compare.ge.64.fp.scalar 4 1\nconvert i2f 64 signed scalar fp.convert.i2f.64.signed.scalar 1 2\nconvert f2i 64 signed scalar fp.convert.f2i.64.signed.scalar 2 1\nconvert i2f 64 unsigned scalar fp.convert.i2f.64.unsigned.scalar 1 2\nconvert f2i 64 unsigned scalar fp.convert.f2i.64.unsigned.scalar 2 1\nconvert f2f 32 fp to64 fp.convert.f2f.32.fp.to64 1 2\nconvert f2f 64 fp to32 fp.convert.f2f.64.fp.to32 2 1\nconvert f2f 32 fp to32 fp.convert.f2f.32.fp.to32 1 1\nconvert f2f 64 fp to64 fp.convert.f2f.64.fp.to64 2 2\n
 end
+rule int64.binary.add.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    add eax, ecx\n    adc ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.sub.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    sub eax, ecx\n    sbb ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.and.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    and eax, ecx\n    and ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.or.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    or eax, ecx\n    or ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.xor.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    xor eax, ecx\n    xor ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.mul.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    mov esi, edx\n    mov edi, eax\n    mul ecx\n    imul ebx, ecx\n    add edx, ebx\n    imul edi, esi\n    add edx, edi\n    push eax\n    push edx\n
+end
+rule int64.binary.shl.signed
+text     pop ecx\n    pop esi\n    pop ebx\n    pop eax\n    mov edx, esi\n    mov ecx, esi\n    and ecx, 31\n    cmp edx, 32\n    jae ${0}\n    shld ebx, eax, cl\n    shl eax, cl\n    jmp ${1}\n${0}:\n    shl eax, cl\n    mov ebx, eax\n    xor eax, eax\n${1}:\n    push eax\n    push ebx\n
+end
+rule int64.binary.shr.signed
+text     pop ecx\n    pop esi\n    pop ebx\n    pop eax\n    mov edx, esi\n    mov ecx, esi\n    and ecx, 31\n    cmp edx, 32\n    jae ${0}\n    shrd eax, ebx, cl\n    sar ebx, cl\n    jmp ${1}\n${0}:\n    mov eax, ebx\n    sar eax, cl\n    sar ebx, 31\n${1}:\n    push eax\n    push ebx\n
+end
+rule int64.compare.eq.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    sete al\n    jmp ${1}\n${0}:\n    sete al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.ne.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setne al\n    jmp ${1}\n${0}:\n    setne al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.lt.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setb al\n    jmp ${1}\n${0}:\n    setl al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.le.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setbe al\n    jmp ${1}\n${0}:\n    setle al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.gt.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    seta al\n    jmp ${1}\n${0}:\n    setg al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.ge.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setae al\n    jmp ${1}\n${0}:\n    setge al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.binary.add.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    add eax, ecx\n    adc ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.sub.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    sub eax, ecx\n    sbb ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.and.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    and eax, ecx\n    and ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.or.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    or eax, ecx\n    or ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.xor.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    xor eax, ecx\n    xor ebx, edx\n    push eax\n    push ebx\n
+end
+rule int64.binary.mul.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    mov esi, edx\n    mov edi, eax\n    mul ecx\n    imul ebx, ecx\n    add edx, ebx\n    imul edi, esi\n    add edx, edi\n    push eax\n    push edx\n
+end
+rule int64.binary.shl.unsigned
+text     pop ecx\n    pop esi\n    pop ebx\n    pop eax\n    mov edx, esi\n    mov ecx, esi\n    and ecx, 31\n    cmp edx, 32\n    jae ${0}\n    shld ebx, eax, cl\n    shl eax, cl\n    jmp ${1}\n${0}:\n    shl eax, cl\n    mov ebx, eax\n    xor eax, eax\n${1}:\n    push eax\n    push ebx\n
+end
+rule int64.binary.shr.unsigned
+text     pop ecx\n    pop esi\n    pop ebx\n    pop eax\n    mov edx, esi\n    mov ecx, esi\n    and ecx, 31\n    cmp edx, 32\n    jae ${0}\n    shrd eax, ebx, cl\n    shr ebx, cl\n    jmp ${1}\n${0}:\n    mov eax, ebx\n    shr eax, cl\n    xor ebx, ebx\n${1}:\n    push eax\n    push ebx\n
+end
+rule int64.compare.eq.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    sete al\n    jmp ${1}\n${0}:\n    sete al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.ne.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setne al\n    jmp ${1}\n${0}:\n    setne al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.lt.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setb al\n    jmp ${1}\n${0}:\n    setb al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.le.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setbe al\n    jmp ${1}\n${0}:\n    setbe al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.gt.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    seta al\n    jmp ${1}\n${0}:\n    seta al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule int64.compare.ge.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    cmp ebx, edx\n    jne ${0}\n    cmp eax, ecx\n    setae al\n    jmp ${1}\n${0}:\n    setae al\n${1}:\n    movzx eax, al\n    push eax\n
+end
+rule semantic.integer64
+text XHSEMANTIC 1\nbinary add 64 signed pair int64.binary.add.signed 4 2\nbinary sub 64 signed pair int64.binary.sub.signed 4 2\nbinary and 64 signed pair int64.binary.and.signed 4 2\nbinary or 64 signed pair int64.binary.or.signed 4 2\nbinary xor 64 signed pair int64.binary.xor.signed 4 2\nbinary mul 64 signed pair int64.binary.mul.signed 4 2\nbinary shl 64 signed pair int64.binary.shl.signed 4 2\nbinary shr 64 signed pair int64.binary.shr.signed 4 2\ncompare eq 64 signed pair int64.compare.eq.signed 4 1\ncompare ne 64 signed pair int64.compare.ne.signed 4 1\ncompare lt 64 signed pair int64.compare.lt.signed 4 1\ncompare le 64 signed pair int64.compare.le.signed 4 1\ncompare gt 64 signed pair int64.compare.gt.signed 4 1\ncompare ge 64 signed pair int64.compare.ge.signed 4 1\nbinary add 64 unsigned pair int64.binary.add.unsigned 4 2\nbinary sub 64 unsigned pair int64.binary.sub.unsigned 4 2\nbinary and 64 unsigned pair int64.binary.and.unsigned 4 2\nbinary or 64 unsigned pair int64.binary.or.unsigned 4 2\nbinary xor 64 unsigned pair int64.binary.xor.unsigned 4 2\nbinary mul 64 unsigned pair int64.binary.mul.unsigned 4 2\nbinary shl 64 unsigned pair int64.binary.shl.unsigned 4 2\nbinary shr 64 unsigned pair int64.binary.shr.unsigned 4 2\ncompare eq 64 unsigned pair int64.compare.eq.unsigned 4 1\ncompare ne 64 unsigned pair int64.compare.ne.unsigned 4 1\ncompare lt 64 unsigned pair int64.compare.lt.unsigned 4 1\ncompare le 64 unsigned pair int64.compare.le.unsigned 4 1\ncompare gt 64 unsigned pair int64.compare.gt.unsigned 4 1\ncompare ge 64 unsigned pair int64.compare.ge.unsigned 4 1\nbinary div 64 signed pair int64.binary.div.signed 4 2\nbinary mod 64 signed pair int64.binary.mod.signed 4 2\nbinary div 64 unsigned pair int64.binary.div.unsigned 4 2\nbinary mod 64 unsigned pair int64.binary.mod.unsigned 4 2\n
+end
+rule int64.binary.div.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    mov dword ptr [ebp-${10}], 0\n    mov esi, ebx\n    shr esi, 31\n    mov dword ptr [ebp-${10}], esi\n    neg esi\n    xor eax, esi\n    xor ebx, esi\n    sub eax, esi\n    sbb ebx, esi\n    mov esi, edx\n    shr esi, 31\n    add esi, esi\n    mov edi, [ebp-${10}]\n    or edi, esi\n    mov dword ptr [ebp-${10}], edi\n    mov esi, edx\n    sar esi, 31\n    mov edi, ecx\n    xor edi, esi\n    xor edx, esi\n    sub edi, esi\n    sbb edx, esi\n    mov [ebp-${7}], edi\n    mov [ebp-${8}], edx\n    mov esi, [ebp-${7}]\n    or esi, [ebp-${8}]\n    jnz ${0}\n    push 0\n    push 0\n    jmp ${6}\n${0}:\n    xor esi, esi\n    xor edi, edi\n    xor ecx, ecx\n    xor edx, edx\n    mov dword ptr [ebp-${9}], 64\n${1}:\n    add eax, eax\n    adc ebx, ebx\n    adc ecx, ecx\n    adc edx, edx\n    add edi, edi\n    adc esi, esi\n    cmp edx, [ebp-${8}]\n    jb ${3}\n    ja ${2}\n    cmp ecx, [ebp-${7}]\n    jb ${3}\n${2}:\n    sub ecx, [ebp-${7}]\n    sbb edx, [ebp-${8}]\n    or edi, 1\n${3}:\n    sub dword ptr [ebp-${9}], 1\n    jnz ${1}\n    mov eax, [ebp-${10}]\n    mov ebx, eax\n    and ebx, 1\n    cmp eax, 0\n    je ${4}\n    cmp eax, 3\n    je ${4}\n    not edi\n    not esi\n    add edi, 1\n    adc esi, 0\n${4}:\n    test ebx, ebx\n    jz ${5}\n    not ecx\n    not edx\n    add ecx, 1\n    adc edx, 0\n${5}:\n    push edi\n    push esi\n${6}:\n
+end
+rule int64.binary.mod.signed
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    mov dword ptr [ebp-${10}], 0\n    mov esi, ebx\n    shr esi, 31\n    mov dword ptr [ebp-${10}], esi\n    neg esi\n    xor eax, esi\n    xor ebx, esi\n    sub eax, esi\n    sbb ebx, esi\n    mov esi, edx\n    shr esi, 31\n    add esi, esi\n    mov edi, [ebp-${10}]\n    or edi, esi\n    mov dword ptr [ebp-${10}], edi\n    mov esi, edx\n    sar esi, 31\n    mov edi, ecx\n    xor edi, esi\n    xor edx, esi\n    sub edi, esi\n    sbb edx, esi\n    mov [ebp-${7}], edi\n    mov [ebp-${8}], edx\n    mov esi, [ebp-${7}]\n    or esi, [ebp-${8}]\n    jnz ${0}\n    push 0\n    push 0\n    jmp ${6}\n${0}:\n    xor esi, esi\n    xor edi, edi\n    xor ecx, ecx\n    xor edx, edx\n    mov dword ptr [ebp-${9}], 64\n${1}:\n    add eax, eax\n    adc ebx, ebx\n    adc ecx, ecx\n    adc edx, edx\n    add edi, edi\n    adc esi, esi\n    cmp edx, [ebp-${8}]\n    jb ${3}\n    ja ${2}\n    cmp ecx, [ebp-${7}]\n    jb ${3}\n${2}:\n    sub ecx, [ebp-${7}]\n    sbb edx, [ebp-${8}]\n    or edi, 1\n${3}:\n    sub dword ptr [ebp-${9}], 1\n    jnz ${1}\n    mov eax, [ebp-${10}]\n    mov ebx, eax\n    and ebx, 1\n    cmp eax, 0\n    je ${4}\n    cmp eax, 3\n    je ${4}\n    not edi\n    not esi\n    add edi, 1\n    adc esi, 0\n${4}:\n    test ebx, ebx\n    jz ${5}\n    not ecx\n    not edx\n    add ecx, 1\n    adc edx, 0\n${5}:\n    push ecx\n    push edx\n${6}:\n
+end
+rule int64.binary.div.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    mov dword ptr [ebp-${10}], 0\n    mov [ebp-${7}], ecx\n    mov [ebp-${8}], edx\n    mov esi, [ebp-${7}]\n    or esi, [ebp-${8}]\n    jnz ${0}\n    push 0\n    push 0\n    jmp ${6}\n${0}:\n    xor esi, esi\n    xor edi, edi\n    xor ecx, ecx\n    xor edx, edx\n    mov dword ptr [ebp-${9}], 64\n${1}:\n    add eax, eax\n    adc ebx, ebx\n    adc ecx, ecx\n    adc edx, edx\n    add edi, edi\n    adc esi, esi\n    cmp edx, [ebp-${8}]\n    jb ${3}\n    ja ${2}\n    cmp ecx, [ebp-${7}]\n    jb ${3}\n${2}:\n    sub ecx, [ebp-${7}]\n    sbb edx, [ebp-${8}]\n    or edi, 1\n${3}:\n    sub dword ptr [ebp-${9}], 1\n    jnz ${1}\n    push edi\n    push esi\n${6}:\n
+end
+rule int64.binary.mod.unsigned
+text     pop edx\n    pop ecx\n    pop ebx\n    pop eax\n    mov dword ptr [ebp-${10}], 0\n    mov [ebp-${7}], ecx\n    mov [ebp-${8}], edx\n    mov esi, [ebp-${7}]\n    or esi, [ebp-${8}]\n    jnz ${0}\n    push 0\n    push 0\n    jmp ${6}\n${0}:\n    xor esi, esi\n    xor edi, edi\n    xor ecx, ecx\n    xor edx, edx\n    mov dword ptr [ebp-${9}], 64\n${1}:\n    add eax, eax\n    adc ebx, ebx\n    adc ecx, ecx\n    adc edx, edx\n    add edi, edi\n    adc esi, esi\n    cmp edx, [ebp-${8}]\n    jb ${3}\n    ja ${2}\n    cmp ecx, [ebp-${7}]\n    jb ${3}\n${2}:\n    sub ecx, [ebp-${7}]\n    sbb edx, [ebp-${8}]\n    or edi, 1\n${3}:\n    sub dword ptr [ebp-${9}], 1\n    jnz ${1}\n    push ecx\n    push edx\n${6}:\n
+end

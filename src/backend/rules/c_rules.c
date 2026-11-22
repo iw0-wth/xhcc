@@ -8,6 +8,9 @@
 #include <string.h>
 
 static int c_failed;
+static int selected_pop, selected_push;
+void xh_c_effect_set(int pop,int push) { selected_pop=pop;selected_push=push; }
+void xh_c_effect_get(int *pop,int *push) { *pop=selected_pop;*push=selected_push; }
 static XhCAbi abi;
 const XhCAbi *xh_c_abi(void) { return &abi; }
 static int abi_number(const char *key, int min, int max, int *out) {
@@ -464,6 +467,7 @@ int xh_c_semantic_bind(const char *family,const char *operation,int width,const 
     if (semantic_effect(family,ark_streq(family,"call")?sign:operation,result.pop,result.push)) {
         xh_c_rules_error("invalid C semantic lowering stack effects");return -1;
     }
+    xh_c_effect_set(result.pop,result.push);
     *delta=result.push-result.pop;
     if (!output) return 0;
     if (bindings) return xh_c_rule_emit(output,result.template_key,bindings,count);

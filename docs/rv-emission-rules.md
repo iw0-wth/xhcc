@@ -60,8 +60,15 @@ sequences: float/double ADD/SUB/MUL/DIV, six comparisons at both widths,
 signed/unsigned int32/int64 conversions in both directions, and float/double
 narrow/widen. Native code normalizes the IR operation and type flags; helper
 names, argument pop/shuffle, result pushes and comparison-to-boolean sequences
-come from selected package templates. Complex arithmetic and the general
-64-bit integer operator state machine remain native-control paths this round.
+come from selected package templates. Complex arithmetic retains native-control paths this round. A subsequent
+64-bit integer selector externalizes complete existing pure-RV sequences for
+ADD/SUB/MUL/AND/OR/XOR/SHL/SHR/DIV/MOD, six comparisons and three unary
+operations (35 signed/unsigned records). Division/modulo retain the existing
+64-round shift/subtract implementation rather than inventing a runtime helper.
+The native adapter only normalizes IR operation/sign and checks stack effects;
+the selected full sequence determines instruction behavior. Tests use direct
+64-bit register arguments/results and integer oracles, including carry/borrow,
+negative values, wide products, shifts across the 32-bit boundary and division.
 
 Soft-float ABI tests provide integer helper fixtures that return observable
 floating-point bit patterns, so they validate helper choice and register/stack

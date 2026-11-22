@@ -175,6 +175,22 @@ class CRules(unittest.TestCase):
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
 
+    def test_discarded_wide_values_execute_balanced_loop(self):
+        original = self.source.read_text(encoding='utf-8')
+        try:
+            self.source.write_text('long long wide(void) { return 4294967297LL; } '
+                                   'double real_value(void) { return 1.5; } '
+                                   'void no_result(void) { } '
+                                   'int main(void) { int i; for(i=0;i<5;i++) { '
+                                   'wide(); real_value(); no_result(); '
+                                   '(void)wide(); (void)real_value(); (void)no_result(); '
+                                   '(void)4294967297LL; (void)1.5; } return i+70; }\n', encoding='utf-8')
+            output = self.compile(self.original, 'discard_loop')
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            self.assertEqual(self.run_arm_generated_c(arm, output), 75)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
     def test_external_call_argument_cast_changes_execution_same_sha(self):
         original = self.source.read_text(encoding='utf-8')
         before = hashlib.sha256(COMPILER.read_bytes()).digest()
@@ -262,6 +278,35 @@ int main(int argc,char**argv){
  IrProgram prog={0};IrFunc f={0};IrFunc*funcs[1]={&f};IrInst inst={0};static char out[100000];int n;
  prog.funcs=funcs;prog.func_count=1;f.name="entry";f.code=&inst;f.code_count=1;
  inst.op=IR_PUSH_INT;inst.val=7;
+ if(!strcmp(argv[1],"manylabels")){
+  IrInst *code=calloc(601,sizeof(*code));char names[300][16];int j,maxdepth;
+  if(xh_c_rules_begin())return 2;
+  for(j=0;j<300;j++){snprintf(names[j],sizeof names[j],"node%d",j);code[j*2].op=IR_JMP_NAMED;code[j*2].name=names[j];code[j*2+1].op=IR_LABEL_NAMED;code[j*2+1].name=names[j];}
+  code[600].op=IR_FUNC_END;f.code=code;f.code_count=601;maxdepth=compute_max_sp(&prog,&f);free(code);printf("%d\n",maxdepth);return 0;
+ }
+ if(!strncmp(argv[1],"cfg_",4)){
+  IrInst code[8]={{0}};int count=0,maxdepth;
+  if(xh_c_rules_begin())return 2;
+  if(!strcmp(argv[1],"cfg_balanced")){
+   code[0].op=IR_PUSH_INT;code[1].op=IR_JZ;code[1].val=1;
+   code[2].op=IR_JMP;code[2].val=2;code[3].op=IR_LABEL;code[3].val=1;
+   code[4].op=IR_LABEL;code[4].val=2;code[5].op=IR_PUSH_INT;code[6].op=IR_RETURN;count=7;
+  }else if(!strcmp(argv[1],"cfg_loop")){
+   code[0].op=IR_LABEL;code[0].val=0;code[1].op=IR_PUSH_INT;code[2].op=IR_JZ;code[2].val=1;
+   code[3].op=IR_JMP;code[3].val=0;code[4].op=IR_LABEL;code[4].val=1;count=5;
+  }else if(!strcmp(argv[1],"cfg_underflow")){code[0].op=IR_POP;count=1;}
+  else if(!strcmp(argv[1],"cfg_join")){
+   code[0].op=IR_PUSH_INT;code[1].op=IR_JZ;code[1].val=1;code[2].op=IR_PUSH_INT;code[3].op=IR_LABEL;code[3].val=1;count=4;
+  }else if(!strcmp(argv[1],"cfg_cycle")){
+   code[0].op=IR_LABEL;code[0].val=1;code[1].op=IR_PUSH_INT;code[2].op=IR_JMP;code[2].val=1;count=3;
+  }else if(!strcmp(argv[1],"cfg_missing")){code[0].op=IR_JMP;code[0].val=99;count=1;}
+  else if(!strcmp(argv[1],"cfg_named")){
+   code[0].op=IR_JMP_NAMED;code[0].name="end";code[1].op=IR_POP;code[2].op=IR_LABEL_NAMED;code[2].name="end";count=3;
+  }else if(!strcmp(argv[1],"cfg_peek")){code[0].op=IR_CMP_JMP_EQ;code[0].aux=1;code[1].op=IR_LABEL;code[1].val=1;count=2;}
+  else if(!strcmp(argv[1],"cfg_duplicate")){code[0].op=IR_LABEL;code[0].val=0;code[1].op=IR_LABEL;code[1].val=0;count=2;}
+  else return 3;
+  f.code=code;f.code_count=count;maxdepth=compute_max_sp(&prog,&f);printf("%d\n",maxdepth);return 0;
+ }
  if(!strcmp(argv[1],"calls")){
   int a,b,c,d,e,g;Type rt={0};if(xh_c_rules_begin())return 2;
   inst.op=IR_CALL;inst.name="entry";inst.val=3;rt.kind=TYPE_VOID;f.ret_type=&rt;
@@ -327,6 +372,18 @@ class CBackendRejections(unittest.TestCase):
                                 cwd=ROOT, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.strip(), '0 -1 0 0')
+
+    def test_cfg_worklist_rejects_bad_depths_and_resolves_labels(self):
+        expected = {'manylabels': 1, 'cfg_balanced': 1, 'cfg_named': 1, 'cfg_loop': 1, 'cfg_underflow': -1, 'cfg_join': -1,
+                    'cfg_cycle': -1, 'cfg_missing': -1, 'cfg_peek': -1, 'cfg_duplicate': -1}
+        for mode, depth in expected.items():
+            with self.subTest(mode=mode):
+                result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
+                                        cwd=ROOT, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.stdout.strip(), str(depth))
+                if depth < 0:
+                    self.assertIn('c backend:', result.stderr)
 
     def test_dynamic_call_stack_effects_use_real_return_shape(self):
         result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), 'calls'],
