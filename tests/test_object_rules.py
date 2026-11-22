@@ -35,4 +35,12 @@ class ObjectRules(unittest.TestCase):
    root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/x86',pkg);text=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if s.startswith('id=') else 'tools=variant-gcc' if s.startswith('tools=') else s for s in text.splitlines())+'\n')
    rules=(pkg/'object.rules').read_text();(pkg/'object.rules').write_text(rules.replace('flags 0\n','flags 0x1234\n'));source=OUT/'flags.c';source.write_text('int flags_entry(void){return 1;}\n');output=OUT/'flags.o';p=self.compile(root,source,output);self.assertEqual(p.returncode,0,p.stderr)
    with output.open('rb') as f:self.assertEqual(ELFFile(f)['e_flags'],0x1234)
+ def test_embedded_nul_and_duplicate_attributes_are_rejected(self):
+  with tempfile.TemporaryDirectory(prefix='xh-object-invalid-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+   manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if s.startswith('id=') else 'tools=variant-gcc' if s.startswith('tools=') else s for s in manifest.splitlines())+'\n')
+   source=OUT/'invalid.c';source.write_text('int entry(void){return 3;}\n');output=OUT/'invalid.o';rules=(pkg/'object.rules').read_bytes()
+   for contents in [rules+b'\x00ignored trailing data',rules+b'attributes '+b'41'*128+b'\n']:
+    (pkg/'object.rules').write_bytes(contents);output.unlink(missing_ok=True)
+    result=self.compile(root,source,output);self.assertNotEqual(result.returncode,0,result.stderr);self.assertFalse(output.exists())
 if __name__=='__main__':unittest.main()

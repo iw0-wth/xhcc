@@ -10,6 +10,8 @@ typedef struct {
 } XhCAbi;
 const XhCAbi *xh_c_abi(void);
 int xh_c_rules_begin(void);
+int xh_c_semantic_bind(const char *family,const char *operation,int width,const char *sign,
+                       AsmBuffer *output,int *delta,const char *const *bindings,int count);
 int xh_c_semantic_select(const char *family, const char *operation, int width,
                          const char *sign, AsmBuffer *output, int *delta);
 const char *xh_c_rule_text(const char *key);

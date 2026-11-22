@@ -175,6 +175,22 @@ class CRules(unittest.TestCase):
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
 
+    def test_memory_selector_changes_signed_load_execution_same_sha(self):
+        original = self.source.read_text(encoding='utf-8')
+        before = hashlib.sha256(COMPILER.read_bytes()).digest()
+        try:
+            self.source.write_text('int main(void) { int a = -1; return a < 0 ? 41 : 9; }\n', encoding='utf-8')
+            base = self.compile(self.original, 'memory_signed')
+            variant = self.original.replace('frame LOAD 4 s seq.frame.LOAD.4.s 0 1',
+                                            'frame LOAD 4 s seq.frame.LOAD.4.u 0 1', 1)
+            self.assertNotEqual(variant, self.original)
+            changed = self.compile(variant, 'memory_unsigned')
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            self.assertEqual([self.run_arm_generated_c(arm, output) for output in [base, changed]], [41, 9])
+            self.assertEqual(hashlib.sha256(COMPILER.read_bytes()).digest(), before)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
     def test_semantic_selector_records_reject_invalid_and_missing(self):
         row = 'binary ADD 32 s seq.binary.ADD.32.s 2 1'
         variants = [
@@ -269,7 +285,7 @@ class CBackendRejections(unittest.TestCase):
         env['PATH'] = os.pathsep.join([str(python_dir), str(python_dir / 'Library/bin'), r'D:\miniconda3\Library\bin', env.get('PATH', '')])
         process = subprocess.run([str(sdk / 'bin/clang.exe'), '--target=wasm32-wasip1', '-O1',
                                   '-I.', '-Iinclude', '-Iconfig', '-include', 'include/xh_small.h', '-Wl,-z,stack-size=262144',
-                                  str(harness), 'src/backend/rules/c_rules.c', 'src/backend/rules/template.c',
+                                  str(harness), 'src/backend/rules/c_rules.c', 'src/backend/rules/template.c', 'src/backend/rules/semantic.c',
                                   '-o', str(cls.wasm)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
         if process.returncode:
             raise AssertionError(process.stderr)

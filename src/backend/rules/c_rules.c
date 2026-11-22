@@ -1,6 +1,7 @@
 /* C adapter; parsing, bounds and expansion belong to the shared template VM. */
 #include "xh_c_rules.h"
 #include "xh_template.h"
+#include "xh_semantic.h"
 #include "common.h"
 #include "diag.h"
 #include <stdio.h>
@@ -404,12 +405,8 @@ static const char *const required[] = {
     "ir_simd_sub8_3",
     "ir_simd_sub8_4",
 };
-/* Bounded semantic record table. Records describe lowering selection, complete
- * sequence reference and actual C-slot effect, not fragments of operator text. */
-#define C_SELECT_LIMIT 192
-typedef struct { char family[12], op[12], sign[12], key[96]; int width, pop, push; } CSelect;
-static CSelect selectors[C_SELECT_LIMIT];
-static int selector_count;
+/* Selection parsing, limits, duplicate detection and cache ownership live in
+ * the shared semantic VM. C retains its schema-specific operand/effect contract. */
 static char operands[6][32];
 static int semantic_word(const char **cursor, char *out, int cap) {
     const char *p = *cursor; int n = 0;
@@ -420,53 +417,12 @@ static int semantic_word(const char **cursor, char *out, int cap) {
     }
     out[n] = 0; *cursor = p; return n;
 }
-static int semantic_number(const char *p, int max, int *out) {
-    int n = 0;
-    if (!*p) return -1;
-    while (*p) { if (*p < '0' || *p > '9' || n > max) return -1; n = n*10 + *p++-'0'; }
-    if (n > max) return -1; *out = n; return 0;
-}
 static int semantic_load(void) {
-    const char *p = xh_template_get("c", "semantic.selectors");
-    const char *args; int i;
-    selector_count = 0;
-    if (!p || strncmp(p, "CSELECT 1\n", 10)) goto invalid;
-    p += 10;
-    while (*p) {
-        CSelect *record; char width[8], pop[8], push[8], extra[2];
-        if (selector_count >= C_SELECT_LIMIT || *p == '\n') goto invalid;
-        record = &selectors[selector_count];
-        if (semantic_word(&p,record->family,sizeof(record->family)) < 1 ||
-            semantic_word(&p,record->op,sizeof(record->op)) < 1 ||
-            semantic_word(&p,width,sizeof(width)) < 1 ||
-            semantic_word(&p,record->sign,sizeof(record->sign)) < 1 ||
-            semantic_word(&p,record->key,sizeof(record->key)) < 1 ||
-            semantic_word(&p,pop,sizeof(pop)) < 1 ||
-            semantic_word(&p,push,sizeof(push)) < 1 ||
-            semantic_word(&p,extra,sizeof(extra)) != 0 ||
-            semantic_number(width,128,&record->width) ||
-            semantic_number(pop,2,&record->pop) || semantic_number(push,1,&record->push)) goto invalid;
-        if ((record->width != 32 && record->width != 64 && record->width != 128) ||
-            (!ark_streq(record->family,"binary") && !ark_streq(record->family,"compare") &&
-             !ark_streq(record->family,"unary") && !ark_streq(record->family,"float") && !ark_streq(record->family,"direct")) ||
-            (!ark_streq(record->sign,"s") && !ark_streq(record->sign,"u") &&
-             !ark_streq(record->sign,"real") && !ark_streq(record->sign,"complex"))) goto invalid;
-        {
-            static const char *const known[] = {"ADD","SUB","MUL","DIV","MOD","BAND","BOR","BXOR","SHL","SHR","EQ","NE","LT","GT","LE","GE","NEG","BNOT","NOT","CONJ","EXP"};
-            int found = 0, j;
-            for (j=0;j<(int)(sizeof(known)/sizeof(known[0]));j++) if (ark_streq(record->op,known[j])) found = 1;
-            if (!found) goto invalid;
-        }
-        if (record->push != 1 || record->pop != (ark_streq(record->family,"unary") || ark_streq(record->op,"EXP") ? 1 : 2)) goto invalid;
-        for (i=0;i<selector_count;i++) if (record->width == selectors[i].width &&
-            ark_streq(record->family,selectors[i].family) && ark_streq(record->op,selectors[i].op) && ark_streq(record->sign,selectors[i].sign)) goto invalid;
-        if (!xh_template_get("c",record->key)) goto invalid;
-        selector_count++;
-        if (*p == '\n') p++; else if (*p) goto invalid;
-    }
-    if (!selector_count) goto invalid;
-    args = xh_template_get("c","semantic.operands");
-    if (!args) goto invalid;
+    const char *args = xh_template_get("c","semantic.operands");
+    XhSemanticInput probe = {"binary","ADD","s","-",32};
+    XhSemanticResult result;
+    int i;
+    if (!args || xh_semantic_select("c","semantic.selectors",&probe,&result) != 1) goto invalid;
     for (i=0;i<6;i++) {
         int j;
         if (semantic_word(&args,operands[i],sizeof(operands[i])) < 1) goto invalid;
@@ -477,23 +433,42 @@ static int semantic_load(void) {
     { char extra[2]; if (semantic_word(&args,extra,sizeof(extra)) != 0) goto invalid; }
     return 0;
 invalid:
-    xh_c_rules_error("invalid C semantic selector records or stack effects");
+    xh_c_rules_error("invalid C semantic selector records or operands");
     return -1;
 }
-int xh_c_semantic_select(const char *family,const char *operation,int width,const char *sign,AsmBuffer *output,int *delta) {
-    int i;
-    for (i=0;i<selector_count;i++) {
-        CSelect *r = &selectors[i];
-        if (r->width == width && ark_streq(r->family,family) && ark_streq(r->op,operation) && ark_streq(r->sign,sign)) {
-            const char *args[6]; int j;
-            *delta = r->push-r->pop;
-            if (!output) return 0;
-            for (j=0;j<6;j++) args[j] = operands[j];
-            return xh_c_rule_emit(output,r->key,args,6);
-        }
+static int semantic_effect(const char *family,const char *operation,int pop,int push) {
+    int wanted_pop=0,wanted_push=0;
+    if (ark_streq(family,"binary") || ark_streq(family,"compare") || ark_streq(family,"unary") ||
+        ark_streq(family,"float") || ark_streq(family,"direct")) {
+        wanted_pop=ark_streq(family,"unary")||ark_streq(operation,"EXP")?1:2;wanted_push=1;
+    } else if (ark_streq(family,"frame") || ark_streq(family,"global")) {
+        wanted_pop=ark_streq(operation,"STORE");wanted_push=!wanted_pop;
+    } else if (ark_streq(family,"index")) { wanted_pop=2;wanted_push=1; }
+    else if (ark_streq(family,"convert")) { wanted_pop=1;wanted_push=1; }
+    else if (ark_streq(family,"stack")) {
+        wanted_pop=ark_streq(operation,"SWAP")||ark_streq(operation,"MEMCPY")?2:1;
+        wanted_push=ark_streq(operation,"DUP")||ark_streq(operation,"SWAP")?2:ark_streq(operation,"ALLOCA")?1:0;
+    } else if (ark_streq(family,"control")) wanted_pop=ark_streq(operation,"JZ")||ark_streq(operation,"JNZ")||ark_streq(operation,"RETURN");
+    else if (!ark_streq(family,"arg")) return -1;
+    return pop==wanted_pop && push==wanted_push?0:-1;
+}
+int xh_c_semantic_bind(const char *family,const char *operation,int width,const char *sign,AsmBuffer *output,int *delta,const char *const *bindings,int count) {
+    XhSemanticInput input = {family,operation,sign,"-",width};
+    XhSemanticResult result;
+    const char *args[6]; int j;
+    int selected=xh_semantic_select("c","semantic.selectors",&input,&result);
+    if (selected != 1) { xh_c_rules_error("required C semantic lowering selection is missing or invalid"); return -1; }
+    if (semantic_effect(family,operation,result.pop,result.push)) {
+        xh_c_rules_error("invalid C semantic lowering stack effects");return -1;
     }
-    xh_c_rules_error("required C semantic lowering selection is missing");
-    return -1;
+    *delta=result.push-result.pop;
+    if (!output) return 0;
+    if (bindings) return xh_c_rule_emit(output,result.template_key,bindings,count);
+    for(j=0;j<6;j++)args[j]=operands[j];
+    return xh_c_rule_emit(output,result.template_key,args,6);
+}
+int xh_c_semantic_select(const char *family,const char *operation,int width,const char *sign,AsmBuffer *output,int *delta) {
+    return xh_c_semantic_bind(family,operation,width,sign,output,delta,0,0);
 }
 
 int xh_c_rules_begin(void) {

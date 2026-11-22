@@ -182,6 +182,29 @@ class ArmRules(unittest.TestCase):
                 self.assertIn('AAPCS',p.stderr);self.assertFalse(obj.exists())
         self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
 
+    def test_memory_policy_forms_gnu_bytes_and_safe_same_sha_variant(self):
+        cases=[('wordlo','ldr r3,[r4,#124]',2),('wordwide','ldr r3,[r4,#128]',4),('byte','strb r3,[r4,#31]',2),('bytewide','strb r3,[r4,#32]',4),('half','ldrh r3,[r4,#62]',2),('halfwide','ldrh r3,[r4,#64]',4),('signedb','ldrsb r3,[r4,#255]',4),('signedh','ldrsh r3,[r4,#4095]',4),('negative','ldr r3,[r4,#-255]',4),('sp','str r3,[sp,#1020]',2),('pc','ldr r3,[pc,#1020]',2),('reglo','ldr r3,[r4,r5]',2),('regwide','ldr r8,[r9,r10,lsl #3]',4),('writeback','strh r3,[r4,#-255]!',4)]
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-memory-policy-') as tmp:
+            work=Path(tmp);source=work/'cases.c';gas=work/'cases.s';obj=work/'xh.o';ref=work/'gnu.o'
+            source.write_text(''.join('__asm int case_'+name+'(void){\n'+asm+'\nBX lr\n}\n' for name,asm,_ in cases));gas.write_text('.syntax unified\n.thumb\n'+''.join('.global case_'+name+'\n.thumb_func\ncase_'+name+':\n'+asm+'\nbx lr\n' for name,asm,_ in cases))
+            self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT));self.command(GNU/'arm-none-eabi-as.exe','-mcpu=cortex-m3','-mthumb',gas,'-o',ref)
+            def code(path):
+                with path.open('rb') as f:
+                    elf=ELFFile(f);out={}
+                    for name,_,size in cases:
+                        sym=elf.get_section_by_name('.symtab').get_symbol_by_name('case_'+name)[0];sec=elf.get_section(sym['st_shndx']);start=(sym['st_value']&~1)-sec['sh_addr'];out[name]=sec.data()[start:start+size]
+                    return out
+            actual=code(obj);expected=code(ref)
+            for name,asm,_ in cases:self.assertEqual(actual[name],expected[name],asm)
+            packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg);manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source.write_text('int entry(void){int x=41;return x+1;}\n');path=pkg/'arm.rules';base=path.read_text();compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest();images=[];values=[]
+            # Prefer wide positive offsets by deleting only the IMM16 candidate.
+            variant=base.replace('4 0 7 0 1 0 0 0 124 4\\n','',2);self.assertNotEqual(base,variant)
+            for i,text in enumerate([base,variant]):
+                path.write_text(text);elf=self.compile_link(work,source,packages,'policy'+str(i));images.append(elf.read_bytes());values.append(self.execute(elf))
+            self.assertEqual(values,[42,42]);self.assertNotEqual(images[0],images[1]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+            path.write_text(base.replace('rule mem.policy.L.W\n','rule missing.mem.policy.L.W\n',1));self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',(work/'bad.o').relative_to(ROOT),ok=False)
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

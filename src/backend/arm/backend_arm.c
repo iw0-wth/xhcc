@@ -10754,27 +10754,14 @@ static void parse_memop_a(ArmAsm *a, const char **p, ArmMemOp *m, int quiet) {
 }
 
 /* 2 or 4 bytes. Both passes must get the same answer. */
-static int ldr_str_size2_a(int kind, int rt, const ArmMemOp *m) {
-    int low = (rt >= 0 && rt <= 7 && m->rn >= 0 && m->rn <= 7);
-    if (m->rm >= 0) {
-        if (low && m->rm <= 7 && m->shift == 0 && !m->wb) return 2;
-        return 4;
-    }
-    if (m->wb) return 4;
-    if (kind == 0 && rt >= 0 && rt <= 7 && m->imm >= 0 && m->imm <= 1020 &&
-        (m->imm & 3) == 0 && (m->rn == 13 || m->rn == 15))
-        return 2;                            /* SP-relative / literal pool */
-    switch (kind) {
-    case 1:  return (low && m->imm >= 0 && m->imm <= 31) ? 2 : 4;
-    case 2:  return (low && m->imm >= 0 && m->imm <= 62 && (m->imm & 1) == 0) ? 2 : 4;
-    case 0:  return (low && m->imm >= 0 && m->imm <= 124 && (m->imm & 3) == 0) ? 2 : 4;
-    default: return 4;                       /* LDRSB/LDRSH: no imm16 form */
-    }
+static int ldr_str_size2_a(int kind,int is_load,int rt,const ArmMemOp*m){
+    int form=xh_arm_mem_form(kind,is_load,rt,m->rn,m->rm,m->imm,m->wb,m->shift);
+    return form>=1&&form<=4?2:4;
 }
 
 static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
                            const ArmMemOp *m) {
-    int sz;char key[32];const char *op;
+    int sz,form;char key[32];const char *op;ArmMemOp mm;
     static const char *names[5][2]={{"STR","LDR"},{"STRB","LDRB"},{"STRH","LDRH"},{"invalid","LDRSB"},{"invalid","LDRSH"}};
 
     if (!is_load && (kind == 3 || kind == 4)) {
@@ -10812,25 +10799,27 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
     /* A writeback with a register index is unencodable: fall back to the plain
      * register-offset form so the object still has the right size. */
     {
-        ArmMemOp mm = *m;
+        mm = *m;
         if (mm.wb && mm.rm >= 0) mm.wb = 0;
-        sz = ldr_str_size2_a(kind, rt, &mm);
+        form=xh_arm_mem_form(kind,is_load,rt,mm.rn,mm.rm,mm.imm,mm.wb,mm.shift);
+        sz=form>=1&&form<=4?2:4;
+        if(form<0){a->hard_errors++;a->error_count++;return;}
         m = &mm;
     }
     op=names[kind][is_load?1:0];
 
     if (sz == 2) {
-        if (m->rm < 0 && m->rn == 13) {
+        if (form == 2) {
             /* SP-relative T1: 1001 L imm8 | Rt | imm8/4 (word only). */
             arm_encode16(a,is_load?"LDR_SP":"STR_SP",rt,(m->imm>>2)&255,0,0,2);
             return;
         }
-        if (m->rm < 0 && m->rn == 15) {
+        if (form == 3) {
             /* PC-relative literal load, 01001 Rt imm8 (loads only). */
             arm_encode16(a,"LDR_PC",rt,(m->imm>>2)&255,0,0,2);
             return;
         }
-        if (m->rm >= 0) {
+        if (form == 1) {
             snprintf(key,sizeof key,"%s_REG16",op);arm_encode16(a,key,rt,m->rn,m->rm,0,3);
         } else {
             unsigned imm5;
@@ -10843,12 +10832,12 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
     }
 
     /* 32-bit forms. */
-    if (m->rm >= 0) {
+    if (form == 5) {
         /* Register offset: same header as the writeback form. */
         snprintf(key,sizeof key,"%s_REG32",op);arm_encode32(a,key,rt,m->rn,m->rm,m->shift&3,4);
         return;
     }
-    if (m->wb) {
+    if (form == 6) {
         int pre = !m->post;
         int neg = (m->imm < 0);
         int mag = neg ? -m->imm : m->imm;
@@ -10861,7 +10850,7 @@ static void emit_ldr_str_a(ArmAsm *a, int kind, int is_load, int rt,
         snprintf(key,sizeof key,"%s_WB32",op);arm_encode32(a,key,rt,m->rn,mag,(pre?2:0)|(neg?0:1),4);
         return;
     }
-    if (m->imm >= 0) {
+    if (form == 7) {
         int off = m->imm;
         if (off > 4095) {
             diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -11078,7 +11067,7 @@ static void pass1_a(ArmAsm *a) {
                 } else {
                     ArmMemOp m1;
                     parse_memop_a(a, &p, &m1, 1);
-                    pc += ldr_str_size2_a(kind1, rt1, &m1);
+                    pc += ldr_str_size2_a(kind1, is_load1, rt1, &m1);
                 }
             } else if (strieq_a(first, "MOV")) {
                 /* Same rule as pass 2: the 16-bit form only covers r0-r7 with

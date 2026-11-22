@@ -73,7 +73,7 @@ static const char *arg_reg_r(int i) {
  * extra instruction per access, and it is what makes the output assemble at
  * all for frames bigger than 2 KB. */
 static void rv_s0_slot(AsmBuffer *b, int off) {
-    xh_rv_rule_int(b,off<0?"address.frame.negative":"address.frame.positive",off<0?-off:off);
+    {char number[32];const char*args[1];snprintf(number,sizeof(number),"%d",off<0?-off:off);args[0]=number;xh_rv_semantic(b,"address","frame",32,off<0?"negative":"positive","local",0,0,args,1);}
 }
 
 /* sp += delta, for deltas past the 12-bit immediate range. */
@@ -1074,14 +1074,8 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     } else if (width == 8) {
                         /* low word first, so the high word ends up on top */
                         xh_rv_rule(&buf,"emit.fixed.0089");
-                    } else if (width == 1) {
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("memory.load.u8") : xh_rv_rule_text("memory.load.s8"));
-                        xh_rv_rule(&buf,"emit.fixed.0036");
-                    } else if (width == 2) {
-                        asmbuf_puts(&buf, uns ? xh_rv_rule_text("memory.load.u16") : xh_rv_rule_text("memory.load.s16"));
-                        xh_rv_rule(&buf,"emit.fixed.0036");
                     } else {
-                        xh_rv_rule(&buf,"emit.fixed.0090");
+                        xh_rv_semantic(&buf,"memory","load",width?width*8:32,uns?"u":"s","local",0,1,0,0);
                     }
                     break;
                 }
@@ -1090,7 +1084,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     xh_rv_rule(&buf,"emit.fixed.0091");
                     break;
                 case IR_TRUNC:
-                    xh_rv_rule(&buf,I->val==8?(I->aux?"cast.trunc.u8":"cast.trunc.s8"):I->val==16?(I->aux?"cast.trunc.u16":"cast.trunc.s16"):"cast.trunc.32");
+                    xh_rv_semantic(&buf,"cast","trunc",(int)I->val,I->aux?"u":"s","stack",1,1,0,0);
                     break;
                 case IR_PUSH_FUNC:
                     xh_rv_rule(&buf,"emit.fixed.0092");
@@ -1266,9 +1260,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     } else {
                         xh_rv_rule(&buf,"emit.fixed.0121");
                         rv_s0_slot(&buf, (int)I->val - fsize);
-                        if (sw == 1)      xh_rv_rule(&buf,"emit.fixed.0122");
-                        else if (sw == 2) xh_rv_rule(&buf,"emit.fixed.0123");
-                        else              xh_rv_rule(&buf,"emit.fixed.0124");
+                        xh_rv_semantic(&buf,"memory","store",sw*8,"v","local",0,0,0,0);
                     }
                     break;
                 }
@@ -1307,14 +1299,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * s.c from base+1).  es==1 needs no scaling, and every
                      * other producer of IR_LOAD_IDX pushes index 0, so the
                      * added shift leaves those cases untouched. */
-                    if (es == 2)
-                        xh_rv_rule(&buf,"emit.fixed.0126");
-                    else if (es == 4)
-                        xh_rv_rule(&buf,"emit.fixed.0127");
-                    else if (es == 8)
-                        xh_rv_rule(&buf,"emit.fixed.0128");
-                    else if (es == 16)
-                        xh_rv_rule(&buf,"emit.fixed.0129");
+                    if(es!=1)xh_rv_semantic(&buf,"address","scale",es*8,"v","index",0,0,0,0);
                     xh_rv_rule(&buf,"emit.fixed.0130");
                     if (es == 8 && (I->aux & IR_AUX_COMPLEX)) {
                         /* _Complex float element: t0 is the element address,
@@ -1330,12 +1315,6 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                          * is re_lo, re_hi, im_lo, im_hi and the IR stack wants
                          * im_lo, im_hi, re_lo, re_hi with re_hi on top. */
                         xh_rv_rule(&buf,"emit.fixed.0133");
-                    } else if (packed && es == 2) {
-                        xh_rv_rule(&buf,"emit.fixed.0134");
-                        xh_rv_rule(&buf,"emit.fixed.0036");
-                    } else if (packed && es == 4) {
-                        xh_rv_rule(&buf,"emit.fixed.0135");
-                        xh_rv_rule(&buf,"emit.fixed.0036");
                     } else if (es == 8 && packed) {
                         /* 8-byte __packed load: assemble both words from bytes.
                          * Same push order as the aligned path below (low word
@@ -1346,10 +1325,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     } else if (es == 8) {
                         xh_rv_rule(&buf,"emit.fixed.0139");
                     } else {
-                        asmbuf_puts(&buf, es == 1 ? xh_rv_rule_text("memory.index.load.s8") :
-                                           (es == 2 ? xh_rv_rule_text("memory.index.load.s16") :
-                                                      xh_rv_rule_text("memory.index.load.32")));
-                        xh_rv_rule(&buf,"emit.fixed.0036");
+                        xh_rv_semantic(&buf,"memory","load",es*8,"s",packed?"index_packed":"index_aligned",0,1,0,0);
                     }
                     break;
                 }
@@ -1404,15 +1380,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                         xh_rv_rule(&buf,"emit.fixed.0143");
                     } else if (es == 1 || es == 2 || es == 4) {
                         xh_rv_rule(&buf,"emit.fixed.0119");
-                        if (packed && es == 2) {
-                            xh_rv_rule(&buf,"emit.fixed.0149");
-                        } else if (packed && es == 4) {
-                            xh_rv_rule(&buf,"emit.fixed.0150");
-                        } else {
-                            asmbuf_puts(&buf, es == 1 ? xh_rv_rule_text("memory.index.store.8") :
-                                               (es == 2 ? xh_rv_rule_text("memory.index.store.16") :
-                                                          xh_rv_rule_text("memory.index.store.32")));
-                        }
+                        xh_rv_semantic(&buf,"memory","store",es*8,"v",packed?"index_packed":"index_aligned",0,0,0,0);
                         xh_rv_rule(&buf,"emit.fixed.0036");
                     } else {
                         char b1[12];
@@ -1756,7 +1724,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                             xh_rv_rule(&buf,"emit.fixed.0191");
                         }
                     } else {
-                        xh_rv_rule(&buf,I->aux==TOK_MINUS?"unary.neg.i32":I->aux==TOK_BNOT?"unary.not.i32":I->aux==TOK_NOT?"unary.lnot.i32":"unary.identity.i32");
+                        xh_rv_semantic(&buf,"unary",I->aux==TOK_MINUS?"neg":I->aux==TOK_BNOT?"not":I->aux==TOK_NOT?"lnot":"identity",32,"v","stack",1,1,0,0);
                     }
                     break;
                 }

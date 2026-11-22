@@ -10,10 +10,10 @@
 
 ## 已迁出
 
-- ARM：551条发射模板，覆盖固定发射片段、完整标量binary/compare/unary、常量、SP调整、frame/label/load/store/branch/call参数模板。227条编码规则覆盖多种Thumb16、MOVW/MOVT、ADDW/SUBW、division、memory、logic、system/位操作、短宽分支、ADR/CBZ/CBNZ占位、MRS/MSR和VFP算术/转换/单多寄存器存取，以及LDM/STM、table branch、double memory、long multiply等asm-extra；同操作数形状的一部分指令到编码规则的映射也由模板键决定。ARM caller/callee共享外部AAPCS参数字数、寄存器对齐和frame基准描述，并严格校验现有前端契约。
-- RV32：R/I/S/B/U/J编码布局；23条scalar32序列规则覆盖算术、位运算、移位、比较、signed/unsigned DIV/MOD，最多8步，兼容v1。另有347条共享模板规则，包括完整unary32、8/16位截断与符号扩展、访存宽度/符号选择和大frame地址序列，其余固定发射片段也已迁出。调用寄存器数、字宽、栈对齐、参数字数分类和frame几何由必需ABI规则消费，允许经过边界校验的额外frame padding。
+- ARM：551条发射模板，覆盖固定发射片段、完整标量binary/compare/unary、常量、SP调整、frame/label/load/store/branch/call参数模板。227条编码规则覆盖多种Thumb16、MOVW/MOVT、ADDW/SUBW、division、memory、logic、system/位操作、短宽分支、ADR/CBZ/CBNZ占位、MRS/MSR和VFP算术/转换/单多寄存器存取，以及LDM/STM、table branch、double memory、long multiply等asm-extra；同操作数形状的一部分指令到编码规则的映射也由模板键决定；访存形式由外部有序条件记录决定REG16/SP16/PC16/IMM16/REG32/WB32/POS32/NEG32，汇编两遍共用选择器。ARM caller/callee共享外部AAPCS参数字数、寄存器对齐和frame基准描述，并严格校验现有前端契约。
+- RV32：R/I/S/B/U/J编码布局；23条scalar32序列规则覆盖算术、位运算、移位、比较、signed/unsigned DIV/MOD，最多8步，兼容v1。另有347条共享模板规则，包括完整unary32、8/16位截断与符号扩展、访存宽度/符号选择和大frame地址序列，其余固定发射片段也已迁出。37条共享语义记录实际决定一元、转换、局部及索引访存和地址scale模板；调用寄存器数、字宽、栈对齐、参数字数分类和frame几何由必需ABI规则消费，允许经过边界校验的额外frame padding。
 - i386/AMD64：固定发射模板、scalar32/AMD64slot64整段运算、寄存器名称/编码/宽度、ABI寄存器表、ALU/SSE/shift/group3/condition选择、固定opcode/prefix、REP表、ModRM/SIB/REX/寄存器opcode字段布局、word-pair转换模板。18条有界first-match参数/返回值分类记录驱动寄存器bank、字数、宽度、间接传递等选择；ABI计数、frame/varargs/sret布局和聚合wire分类由必需数据描述并消费，与现有前端契约不匹配时拒绝。这仅覆盖既有xhcc聚合传参wire，并不证明完整SysV eightbyte聚合ABI与GCC互操作。
-- C：102条完整运算语义选择记录及对应整条序列模板，binary/unary/float/compare族由语义输入查表，栈效果共用所选记录；TRUNC栈效果修正为0。原固定模板、runtime前缀、operator/type拼写、6类libc映射、结构返回类型映射；12条ABI和帧/栈政策数据。ABI值严格对齐当前前端，政策值在合法范围可变。
+- C：163条语义选择记录及对应整条序列模板，包含原102条运算和61条访存、转换、参数、global与控制规则；由共享语义选择器查表，发射和栈效果共用所选记录；TRUNC栈效果修正为0。原固定模板、runtime前缀、operator/type拼写、6类libc映射、结构返回类型映射；12条ABI和帧/栈政策数据。ABI值严格对齐当前前端，政策值在合法范围可变。
 
 - 对象输出：ARM/RV32/i386/AMD64的ELF machine/class/endian/flags/ARM attributes和历史内部重定位键到标准R_*类型的映射来自object.rules；布局仍是共享C机制。XHRELOC1有限规则VM已接入legacy绝对/PC相对补丁、RV32 AUIPC成对补丁及ARM MOVW/MOVT与宽分支补丁；提供ABS64/PC64规则，最多16临时值、128操作、8字节scratch，按实际规则数分配，全部断言成功后原子提交。标准ELF外部符号仍交GNU/LLVM链接器处理。
 

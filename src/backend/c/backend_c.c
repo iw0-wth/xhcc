@@ -127,6 +127,90 @@ static int c_semantic(IrInst *I, AsmBuffer *out, int *delta) {
     return xh_c_semantic_select(family, op, width, sign, out, delta) ? -1 : 1;
 }
 
+/* Schema normalization supplies bounded values; selectors own whole sequences. */
+static int c_memory(IrInst *I, IrFunc *f, IrProgram *prog, int *param_idx, AsmBuffer *out, int *delta) {
+    const char *family, *op, *sign = "s";
+    int width = 64, size;
+    char val[32], aux[32], extra[32], buffer[32];
+    const char *args[6];
+    snprintf(val,sizeof val,"%lld",I->val);
+    snprintf(aux,sizeof aux,"%d",I->aux);
+    extra[0]='0';extra[1]=0;
+    snprintf(buffer,sizeof buffer,"%d",xh_c_abi()->return_buffer_bytes);
+    args[0]=val;args[1]=aux;args[2]=extra;args[3]="";args[4]=I->name?I->name:"";args[5]=buffer;
+    switch (I->op) {
+        case IR_GETARG:
+            family="arg";op="LOAD";
+            size=(I->aux>>8)&0xffffff;
+            if (out && !param_idx) {xh_c_rules_error("missing C parameter binding");return -1;}
+            if (I->val>=xh_c_abi()->varargs_offset) size=0;
+            if (size>xh_c_abi()->slot_bytes) sign="aggregate";
+            snprintf(aux,sizeof aux,"%d",I->val>=xh_c_abi()->varargs_offset?I->aux&0xff:param_idx?*param_idx:0);
+            snprintf(extra,sizeof extra,"%d",size);
+            snprintf(buffer,sizeof buffer,"%d",xh_c_abi()->slot_bytes);
+            if (out && I->val<xh_c_abi()->varargs_offset) (*param_idx)++;
+            break;
+        case IR_PUSH_GLOBAL:
+            family="global";op="LOAD";
+            if (prog) {
+                int gi;
+                for(gi=0;gi<prog->global_count;gi++) if(prog->globals[gi]->name&&ark_streq(prog->globals[gi]->name,I->name)) {
+                    Type *t=prog->globals[gi]->type;
+                    if(t&&(t->kind==TYPE_ARRAY||t->kind==TYPE_STRUCT||t->kind==TYPE_UNION))sign="aggregate";
+                    else if(t&&(t->kind==TYPE_FLOAT||t->kind==TYPE_DOUBLE))sign="real";
+                    break;
+                }
+            }
+            break;
+        case IR_PUSH_GLOBAL_ADDR: family="global";op="ADDR";break;
+        case IR_STORE_GLOBAL: family="global";op="STORE";break;
+        case IR_PUSH_VAR:
+            family="frame";op="LOAD";width=I->aux&0xff;
+            if (!width)width=xh_c_abi()->slot_bytes;
+            sign=width==16?"complex":I->aux&0x100?"u":"s";break;
+        case IR_STORE:
+            family="frame";op="STORE";width=I->aux&~IR_AUX_VOLATILE;
+            if (!width)width=xh_c_abi()->slot_bytes;
+            sign=width==16?"complex":"s";break;
+        case IR_PUSH_ADDR: family="frame";op="ADDR";width=8;break;
+        case IR_LOAD_IDX: case IR_STORE_IDX:
+            family="index";op=I->op==IR_LOAD_IDX?"LOAD":"STORE";
+            width=(int)I->val;
+            if (width < 1) { xh_c_rules_error("invalid C indexed access stride"); return -1; }
+            /* IR stride may be an aggregate size; the historical indexed
+             * fallback accesses an int while retaining that byte stride. */
+            if (width!=1 && width!=2 && width!=8) width=4;
+            sign=I->aux&IR_AUX_VOLATILE?"v":"s";break;
+        case IR_TRUNC:
+            family="convert";op="TRUNC";width=(int)I->val;sign=I->aux?"u":"s";break;
+        case IR_SEXT: family="convert";op="SEXT";break;
+        case IR_ZEXT: family="convert";op="ZEXT";break;
+        case IR_CDECL64: family="convert";op="CDECL64";break;
+        case IR_POP: family="stack";op="POP";break;
+        case IR_DUP: family="stack";op="DUP";break;
+        case IR_SWAP: family="stack";op="SWAP";break;
+        case IR_ALLOCA: family="stack";op="ALLOCA";break;
+        case IR_MEMCPY: family="stack";op="MEMCPY";break;
+        case IR_LABEL: family="control";op="LABEL";break;
+        case IR_LABEL_NAMED: family="control";op="LABEL";sign="named";break;
+        case IR_JMP: family="control";op="JMP";break;
+        case IR_JMP_NAMED: family="control";op="JMP";sign="named";break;
+        case IR_JZ: family="control";op="JZ";break;
+        case IR_JNZ: family="control";op="JNZ";break;
+        case IR_CMP_JMP_EQ: family="control";op="CMP_EQ";break;
+        case IR_RETURN:
+            family="control";op="RETURN";
+            if (f && f->ret_type && (f->ret_type->kind==TYPE_STRUCT || f->ret_type->kind==TYPE_UNION) &&
+                (size=type_size(f->ret_type))>xh_c_abi()->slot_bytes) {
+                if(size>xh_c_abi()->return_buffer_bytes){xh_c_rules_error("C aggregate return exceeds buffer capacity");return -1;}
+                sign="aggregate";snprintf(extra,sizeof extra,"%d",size);
+            }
+            break;
+        default:return 0;
+    }
+    return xh_c_semantic_bind(family,op,width,sign,out,delta,args,6)?-1:1;
+}
+
 static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
     int i;
     /* Emit only the prototype; static linkage keeps it file-local.
@@ -396,7 +480,9 @@ static int c_type_is_aggregate(Type *t) {
 /* Compute the stack-effect delta of a single IR instruction.
  * Positive = pushes, negative = pops, zero = no net change. */
 static int ir_stack_delta(IrInst *I) {
-    int delta, selected = c_semantic(I, 0, &delta);
+    int delta, selected = c_memory(I, 0, 0, 0, 0, &delta);
+    if (selected) return selected > 0 ? delta : 0;
+    selected = c_semantic(I, 0, &delta);
     if (selected) return selected > 0 ? delta : 0;
     switch (I->op) {
         case IR_PUSH_INT:
@@ -1056,7 +1142,8 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
             IrInst *I = &f->code[i];
             asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_69"));
             {
-                int delta, selected = c_semantic(I, &buf, &delta);
+                int delta, selected = c_memory(I, f, prog, &param_idx, &buf, &delta);
+                if (!selected) selected = c_semantic(I, &buf, &delta);
                 if (selected < 0) { if (cap > 0) out[0] = 0; return -1; }
                 if (selected) { asmbuf_putc(&buf, '\n'); continue; }
             }
@@ -1065,37 +1152,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                 case IR_FUNC_END:
                     asmbuf_puts(&buf, xh_c_rule_text("ir_func_end"));
                     break;
-                case IR_GETARG: {
-                    /* aux 低 8 位 = x86 cdecl 的 4 字节 slot 索引；
-                     * aux>>8 = 参数类型大小（字节数）。
-                     * C 后端函数签名为 long long a0..a15，每个参数 8 字节。
-                     * 用 param_idx 追踪真实参数顺序（而非 x86 slot 索引）。
-                     * - st_sz > 8：struct 按值传递，a<param_idx> 是指向源 struct
-                     *   的指针（由调用者 irgen_lvalue_addr 压入），用 memcpy 拷贝。
-                     * - st_sz <= 8：标量/指针/小 struct，直接存储 a<param_idx>。
-                     * - val >= 8000：变参区域，aux 低 8 位直接是 a0..a7 索引。 */
-                    int arg_idx = I->aux & 0xFF;
-                    int st_sz   = (I->aux >> 8) & 0xFFFFFF;
-                    if (I->val >= xh_c_abi()->varargs_offset) {
-                        /* 变参区域：a<arg_idx> 直接存储到 frame[val] */
-                        xh_c_rule_ints(&buf, "ir_getarg_value", I->val, 0);
-                        asmbuf_int(&buf, arg_idx);
-                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                    } else if (st_sz > xh_c_abi()->slot_bytes) {
-                        /* struct 按值传递（>8 字节）：a<param_idx> 是源指针 */
-                        xh_c_rule_ints(&buf, "ir_getarg_value_2", I->val, 0);
-                        asmbuf_int(&buf, param_idx);
-                        xh_c_rule_ints(&buf, "ir_getarg_value_3", st_sz, 0);
-                        param_idx++;
-                    } else {
-                        /* 标量/指针/小 struct（<=8 字节）：直接存储 */
-                        xh_c_rule_ints(&buf, "ir_getarg_value", I->val, 0);
-                        asmbuf_int(&buf, param_idx);
-                        asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                        param_idx++;
-                    }
-                    break;
-                }
                 case IR_PUSH_INT:
                     xh_c_rule_ints(&buf, "ir_push_int_value", I->val, 0);
                     break;
@@ -1121,85 +1177,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     asmbuf_putc(&buf, ';');
                     break;
                 }
-                case IR_ALLOCA:
-                    /* B3: VLA allocation; replace top-of-stack with alloca(size) pointer. */
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_alloca"));
-                    break;
-                case IR_PUSH_VAR: {
-                    /* aux encodes load size and sign:
-                     * Low 8 bits = element size (1/2/4/8/16); bit8 (0x100) = unsigned.
-                     * For signed integers, sign-extend into a long long slot to
-                     * preserve negative values when re-stored as a narrower type.
-                     * Sign-extending before comparison avoids mixing 0xFFFFFFFF
-                     * (unsigned) with -1 (signed) semantics.
-                     * sz==16 means _Complex double; use the .c member to push. */
-                    int sz = I->aux & 0xFF;
-                    int is_unsigned = I->aux & 0x100;
-                    if (sz == 0) sz = 8;
-                    if (sz == 16) {
-                        xh_c_rule_ints(&buf, "ir_push_var_value", I->val, 0);
-                        break;
-                    }
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_push_var"));
-                    asmbuf_int(&buf, I->val);
-                    if (sz == 1)
-                        asmbuf_puts(&buf, is_unsigned ? xh_c_rule_text("ir_push_var_2") : xh_c_rule_text("ir_push_var_3"));
-                    else if (sz == 2)
-                        asmbuf_puts(&buf, is_unsigned ? xh_c_rule_text("ir_push_var_4") : xh_c_rule_text("ir_push_var_5"));
-                    else if (sz == 4)
-                        asmbuf_puts(&buf, is_unsigned ? xh_c_rule_text("ir_push_var_6") : xh_c_rule_text("ir_push_var_7"));
-                    else
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_var_8"));
-                    break;
-                }
-                case IR_PUSH_ADDR:
-                    xh_c_rule_ints(&buf, "ir_push_addr_value", I->val, 0);
-                    break;
-                case IR_PUSH_GLOBAL: {
-                    /* Look up the global by name to determine its category
-                     * (aggregate vs. scalar vs. float/double). Aggregates use
-                     * address-of to push a pointer; floats push via .f member
-                     * to avoid bit-pattern loss via (long long) cast.
-                     * We scan prog->globals each time because the IR does not
-                     * tag globals by category. */
-                    int is_agg = 0;
-                    int is_flt = 0;
-                    int gi;
-                    for (gi = 0; gi < prog->global_count; gi++) {
-                        if (prog->globals[gi]->name &&
-                            ark_streq(prog->globals[gi]->name, I->name)) {
-                            Type *gt = prog->globals[gi]->type;
-                            is_agg = c_type_is_aggregate(gt);
-                            is_flt = gt && (gt->kind == TYPE_FLOAT || gt->kind == TYPE_DOUBLE);
-                            break;
-                        }
-                    }
-                    if (is_agg) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_global"));
-                        asmbuf_puts(&buf, I->name);
-                        asmbuf_putc(&buf, ';');
-                    } else if (is_flt) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_global_2"));
-                        asmbuf_puts(&buf, I->name);
-                        asmbuf_putc(&buf, ';');
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_push_global_3"));
-                        asmbuf_puts(&buf, I->name);
-                        asmbuf_putc(&buf, ';');
-                    }
-                    break;
-                }
-                case IR_TRUNC: {
-                    /* val = target width, aux = 1 zero-extend (unsigned). */
-                    const char *cty = xh_c_rule_text("ir_trunc");
-                    if (I->val == 8)       cty = I->aux ? xh_c_rule_text("ir_trunc_2") : xh_c_rule_text("ir_trunc_3");
-                    else if (I->val == 16) cty = I->aux ? xh_c_rule_text("ir_trunc_4") : xh_c_rule_text("ir_trunc_5");
-                    else                    cty = I->aux ? xh_c_rule_text("ir_trunc_6") : xh_c_rule_text("ir_trunc");
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_trunc_7"));
-                    asmbuf_puts(&buf, cty);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_trunc_8"));
-                    break;
-                }
                 case IR_PUSH_FUNC:
                     /* Function designator in value position: push the address
                      * of the generated C function. Host libc entries have no
@@ -1214,92 +1191,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     }
                     asmbuf_putc(&buf, ';');
                     break;
-                case IR_PUSH_GLOBAL_ADDR:
-                    /* Always push the address of the global (regardless of category). */
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_push_global"));
-                    asmbuf_puts(&buf, I->name);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_STORE_GLOBAL:
-                    asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_global"));
-                    break;
-                case IR_POP:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_pop"));
-                    break;
-                case IR_DUP:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_dup"));
-                    break;
-                case IR_SWAP:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_swap"));
-                    break;
-                case IR_SEXT:
-                case IR_ZEXT:
-                case IR_CDECL64:
-                    /* No-op in C backend: virtual stack uses 8-byte long long
-                     * slots, so int->long long promotion and 64-bit word-order
-                     * conversion are unnecessary (each value occupies one slot). */
-                    break;
-                case IR_STORE: {
-                    /* aux encodes the store size: 1/2/4/8/16. Narrow values
-                     * are stored through the corresponding pointer type so that
-                     * the high bits of an int are not written past the slot.
-                     * sz==16 means _Complex double; store via the .c member.
-                     * N1 FIX: mask off IR_AUX_VOLATILE (0x10000) bit. */
-                    int sz = I->aux & ~IR_AUX_VOLATILE;
-                    if (sz == 0) sz = 8;
-                    if (sz == 16) {
-                        xh_c_rule_ints(&buf, "ir_store_value", I->val, 0);
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_store"));
-                        asmbuf_int(&buf, I->val);
-                        if (sz == 1)      asmbuf_puts(&buf, xh_c_rule_text("ir_store_2"));
-                        else if (sz == 2) asmbuf_puts(&buf, xh_c_rule_text("ir_store_3"));
-                        else if (sz == 4) asmbuf_puts(&buf, xh_c_rule_text("ir_store_4"));
-                        else              asmbuf_puts(&buf, xh_c_rule_text("ir_store_5"));
-                    }
-                    break;
-                }
-                case IR_LOAD_IDX: {
-                    /* Bug-I5 FIX: When IR_AUX_VOLATILE is set, emit volatile-qualified
-                     * loads so the host C compiler does not merge or eliminate the
-                     * read-modify-write of volatile lvalues. */
-                    int is_vol = (I->aux & IR_AUX_VOLATILE) != 0;
-                    const char *vol = is_vol ? xh_c_rule_text("abi_tok_ge_36") : xh_c_rule_text("type_ptr_4");
-                    xh_c_rule_ints(&buf, "ir_load_idx_value", I->val, 0);
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_2"));
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_3"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_4"));
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_5"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_6"));
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_idx_7"));
-                    break;
-                }
-                case IR_STORE_IDX: {
-                    /* Bug-I5 FIX: When IR_AUX_VOLATILE is set, emit volatile-qualified
-                     * stores so the host C compiler preserves the write. */
-                    int is_vol = (I->aux & IR_AUX_VOLATILE) != 0;
-                    const char *vol = is_vol ? xh_c_rule_text("abi_tok_ge_36") : xh_c_rule_text("type_ptr_4");
-                    xh_c_rule_ints(&buf, "ir_store_idx_value", I->val, 0);
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_2"));
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_3"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_4"));
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_5"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_6"));
-                    if (is_vol) asmbuf_puts(&buf, vol);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_7"));
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_8"));
-                    break;
-                }
                 case IR_F2I:
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* Complex -> double extractions. aux & 0x300 selects:
@@ -1387,39 +1278,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         }
                         asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     }
-                    break;
-                case IR_LABEL:
-                    xh_c_rule_ints(&buf, "ir_label_value", I->val, 0);
-                    break;
-                case IR_LABEL_NAMED:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_label_named"));
-                    asmbuf_puts(&buf, I->name);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_label_named_2"));
-                    break;
-                case IR_JMP:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_jmp"));
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_JMP_NAMED:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_jmp_named"));
-                    asmbuf_puts(&buf, I->name);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_JZ:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_jz"));
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_JNZ:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_jnz"));
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_CMP_JMP_EQ:
-                    xh_c_rule_ints(&buf, "module_ir_cmp_jmp_eq_value_10", I->val, 0);
-                    asmbuf_int(&buf, I->aux);
-                    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_70"));
                     break;
                 case IR_CALL: {
                     int n = I->val;
@@ -1632,9 +1490,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     asmbuf_puts(&buf, xh_c_rule_text("ir_64push"));
                     break;
                 /* === Stack-based memcpy: pop order = dst, then src === */
-                case IR_MEMCPY:
-                    xh_c_rule_ints(&buf, "ir_memcpy_value", I->val, 0);
-                    break;
                 /* === Bitfield store/load: val=bit offset, aux=bit width === */
                 case IR_STORE_FLD:
                     /* aux = bit width. Use unsigned long long arithmetic so a
@@ -1668,34 +1523,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_3"));
                     }
                     asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_4"));
-                    break;
-                }
-                case IR_RETURN: {
-                    /* Struct/union return by value (> 8 bytes): the stack top
-                     * is a pointer to the struct. Copy the struct to a *static*
-                     * ret buffer and return its address so the caller can memcpy.
-                     * We use static (not `frame + 8176`) because `frame` is a
-                     * local stack array; returning its address is UB: after
-                     * the callee returns, the stack frame is destroyed and the
-                     * caller's memcpy reads garbage. This was the root cause of
-                     * the bootstrap crash when Token (40 bytes) was returned
-                     * by lexer_peek/next. Single-threaded compiler use makes
-                     * the static buffer safe (no re-entrancy).
-                     * Small structs (<= 8 bytes) are returned as a value
-                     * directly; callers must use IR_STORE (not IR_MEMCPY) for
-                     * them, since the result is an rvalue, not a pointer. */
-                    Type *rt = f->ret_type;
-                    if (rt && (rt->kind == TYPE_STRUCT || rt->kind == TYPE_UNION) &&
-                        type_size(rt) > xh_c_abi()->slot_bytes) {
-                        int rsz = type_size(rt);
-                        if (rsz > xh_c_abi()->return_buffer_bytes) {
-                            if (cap > 0) out[0] = 0;
-                            return -1;
-                        }
-                        xh_c_rule_ints(&buf, "ir_return_value", rsz, xh_c_abi()->return_buffer_bytes);
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_return"));
-                    }
                     break;
                 }
                 /* === 0.7.0+ SIMD emulation: arithmetic on packed lanes ===

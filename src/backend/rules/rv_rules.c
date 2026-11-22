@@ -1,6 +1,7 @@
 /* RV32 adapter for the shared external finite template VM. */
 #include "xh_rv_rules.h"
 #include "xh_template.h"
+#include "xh_semantic.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@ int xh_rv_align_stack(int bytes){return(bytes+policy.stack_alignment-1)&~(policy
 void xh_rv_rules_reset(void){failed=0;}
 const char*xh_rv_rule_text(const char*key){const char*s=xh_template_get("riscv32",key);if(!s){failed=1;return "";}return s;}
 int xh_rv_rules_failed(void){return failed;}
+int xh_rv_semantic(AsmBuffer*b,const char*family,const char*op,int width,const char*sign,const char*form,int pop,int push,const char*const*args,int argc){XhSemanticInput input={family,op,sign,form,width};XhSemanticResult result;int n=xh_semantic_select("riscv32","semantic.records",&input,&result);if(n!=1||result.pop!=pop||result.push!=push){failed=1;diag_tool(DIAG_SEV_ERROR,"riscv32 semantic","missing record or incompatible stack effect",0,0,0,0,0,0);return -1;}xh_rv_rule_args(b,result.template_key,args,argc);return failed?-1:0;}
 void xh_rv_rule_args(AsmBuffer*b,const char*key,const char*const*args,int count){char text[4096];int n;if(failed)return;n=xh_template_emit("riscv32",key,args,count,text,sizeof(text));if(n<0){failed=1;return;}asmbuf_puts(b,text);}
 void xh_rv_rule(AsmBuffer*b,const char*key){xh_rv_rule_args(b,key,0,0);}
 void xh_rv_rule_int(AsmBuffer*b,const char*key,int value){char number[32];const char*args[1];snprintf(number,sizeof(number),"%d",value);args[0]=number;xh_rv_rule_args(b,key,args,1);}

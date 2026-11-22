@@ -1224,6 +1224,67 @@ text direct DIV 32 s seq.direct.DIV.32.s 2 1\n
 text direct DIV 32 u seq.direct.DIV.32.u 2 1\n
 text direct MOD 32 s seq.direct.MOD.32.s 2 1\n
 text direct MOD 32 u seq.direct.MOD.32.u 2 1\n
+text frame LOAD 1 s seq.frame.LOAD.1.s 0 1\n
+text frame LOAD 1 u seq.frame.LOAD.1.u 0 1\n
+text frame STORE 1 s seq.frame.STORE.1.s 1 0\n
+text frame LOAD 2 s seq.frame.LOAD.2.s 0 1\n
+text frame LOAD 2 u seq.frame.LOAD.2.u 0 1\n
+text frame STORE 2 s seq.frame.STORE.2.s 1 0\n
+text frame LOAD 4 s seq.frame.LOAD.4.s 0 1\n
+text frame LOAD 4 u seq.frame.LOAD.4.u 0 1\n
+text frame STORE 4 s seq.frame.STORE.4.s 1 0\n
+text frame LOAD 8 s seq.frame.LOAD.8.s 0 1\n
+text frame LOAD 8 u seq.frame.LOAD.8.u 0 1\n
+text frame STORE 8 s seq.frame.STORE.8.s 1 0\n
+text frame LOAD 16 complex seq.frame.LOAD.16.complex 0 1\n
+text frame STORE 16 complex seq.frame.STORE.16.complex 1 0\n
+text frame ADDR 8 s seq.frame.ADDR.8.s 0 1\n
+text index LOAD 1 s seq.index.LOAD.1.s 2 1\n
+text index STORE 1 s seq.index.STORE.1.s 2 1\n
+text index LOAD 1 v seq.index.LOAD.1.v 2 1\n
+text index STORE 1 v seq.index.STORE.1.v 2 1\n
+text index LOAD 2 s seq.index.LOAD.2.s 2 1\n
+text index STORE 2 s seq.index.STORE.2.s 2 1\n
+text index LOAD 2 v seq.index.LOAD.2.v 2 1\n
+text index STORE 2 v seq.index.STORE.2.v 2 1\n
+text index LOAD 4 s seq.index.LOAD.4.s 2 1\n
+text index STORE 4 s seq.index.STORE.4.s 2 1\n
+text index LOAD 4 v seq.index.LOAD.4.v 2 1\n
+text index STORE 4 v seq.index.STORE.4.v 2 1\n
+text index LOAD 8 s seq.index.LOAD.8.s 2 1\n
+text index STORE 8 s seq.index.STORE.8.s 2 1\n
+text index LOAD 8 v seq.index.LOAD.8.v 2 1\n
+text index STORE 8 v seq.index.STORE.8.v 2 1\n
+text convert TRUNC 8 s seq.convert.TRUNC.8.s 1 1\n
+text convert TRUNC 8 u seq.convert.TRUNC.8.u 1 1\n
+text convert TRUNC 16 s seq.convert.TRUNC.16.s 1 1\n
+text convert TRUNC 16 u seq.convert.TRUNC.16.u 1 1\n
+text convert TRUNC 32 s seq.convert.TRUNC.32.s 1 1\n
+text convert TRUNC 32 u seq.convert.TRUNC.32.u 1 1\n
+text convert SEXT 64 s seq.convert.SEXT.64.s 1 1\n
+text convert ZEXT 64 s seq.convert.ZEXT.64.s 1 1\n
+text convert CDECL64 64 s seq.convert.CDECL64.64.s 1 1\n
+text stack POP 64 s seq.stack.POP.64.s 1 0\n
+text stack DUP 64 s seq.stack.DUP.64.s 1 2\n
+text stack SWAP 64 s seq.stack.SWAP.64.s 2 2\n
+text stack ALLOCA 64 s seq.stack.ALLOCA.64.s 1 1\n
+text stack MEMCPY 64 s seq.stack.MEMCPY.64.s 2 0\n
+text control LABEL 64 s seq.control.LABEL.64.s 0 0\n
+text control JMP 64 s seq.control.JMP.64.s 0 0\n
+text control JZ 64 s seq.control.JZ.64.s 1 0\n
+text control JNZ 64 s seq.control.JNZ.64.s 1 0\n
+text control CMP_EQ 64 s seq.control.CMP_EQ.64.s 0 0\n
+text control LABEL 64 named seq.control.LABEL.64.named 0 0\n
+text control JMP 64 named seq.control.JMP.64.named 0 0\n
+text control RETURN 64 s seq.control.RETURN.64.s 1 0\n
+text control RETURN 64 aggregate seq.control.RETURN.64.aggregate 1 0\n
+text global LOAD 64 s seq.global.LOAD.64.s 0 1\n
+text global LOAD 64 real seq.global.LOAD.64.real 0 1\n
+text global LOAD 64 aggregate seq.global.LOAD.64.aggregate 0 1\n
+text global ADDR 64 s seq.global.ADDR.64.s 0 1\n
+text global STORE 64 s seq.global.STORE.64.s 1 0\n
+text arg LOAD 64 s seq.arg.LOAD.64.s 0 0\n
+text arg LOAD 64 aggregate seq.arg.LOAD.64.aggregate 0 0\n
 end
 rule semantic.operands
 text ark_a ark_c ark_fa ark_fc ark_ca ark_cc
@@ -1533,4 +1594,248 @@ text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} % ${1});
 end
 rule seq.direct.MOD.32.u
 text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = ((unsigned)${0} % (unsigned)${1});
+end
+
+rule seq.frame.LOAD.1.s
+text stk[sp++].i = ark_fld(frame, ${0}, 1, 0);
+end
+
+rule seq.frame.LOAD.1.u
+text stk[sp++].i = ark_fld(frame, ${0}, 1, 1);
+end
+
+rule seq.frame.STORE.1.s
+text ark_fst(frame, ${0}, 1, stk[--sp].i);
+end
+
+rule seq.frame.LOAD.2.s
+text stk[sp++].i = ark_fld(frame, ${0}, 2, 0);
+end
+
+rule seq.frame.LOAD.2.u
+text stk[sp++].i = ark_fld(frame, ${0}, 2, 1);
+end
+
+rule seq.frame.STORE.2.s
+text ark_fst(frame, ${0}, 2, stk[--sp].i);
+end
+
+rule seq.frame.LOAD.4.s
+text stk[sp++].i = ark_fld(frame, ${0}, 4, 0);
+end
+
+rule seq.frame.LOAD.4.u
+text stk[sp++].i = ark_fld(frame, ${0}, 4, 1);
+end
+
+rule seq.frame.STORE.4.s
+text ark_fst(frame, ${0}, 4, stk[--sp].i);
+end
+
+rule seq.frame.LOAD.8.s
+text stk[sp++].i = ark_fld(frame, ${0}, 8, 0);
+end
+
+rule seq.frame.LOAD.8.u
+text stk[sp++].i = ark_fld(frame, ${0}, 8, 0);
+end
+
+rule seq.frame.STORE.8.s
+text ark_fst(frame, ${0}, 8, stk[--sp].i);
+end
+
+rule seq.frame.LOAD.16.complex
+text stk[sp++].c = ark_fldc(frame, ${0});
+end
+
+rule seq.frame.STORE.16.complex
+text ark_fstc(frame, ${0}, stk[--sp].c);
+end
+
+rule seq.frame.ADDR.8.s
+text stk[sp++].i = (long long)(intptr_t)(frame + ${0});
+end
+
+rule seq.index.LOAD.1.s
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(signed char*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.1.s
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(signed char*)(intptr_t)ad = (signed char)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.1.v
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(volatile signed char*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.1.v
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(volatile signed char*)(intptr_t)ad = (signed char)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.2.s
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(short*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.2.s
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(short*)(intptr_t)ad = (short)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.2.v
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(volatile short*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.2.v
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(volatile short*)(intptr_t)ad = (short)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.4.s
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(int*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.4.s
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(int*)(intptr_t)ad = (int)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.4.v
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(volatile int*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.4.v
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(volatile int*)(intptr_t)ad = (int)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.8.s
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(long long*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.8.s
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(long long*)(intptr_t)ad = (long long)va; stk[sp++].i = va; }
+end
+
+rule seq.index.LOAD.8.v
+text { long long ix = stk[--sp].i; long long ad = stk[--sp].i; stk[sp++].i = *(volatile long long*)(intptr_t)(ad + ix*${0}); }
+end
+
+rule seq.index.STORE.8.v
+text { long long va = stk[--sp].i; long long ad = stk[--sp].i; *(volatile long long*)(intptr_t)ad = (long long)va; stk[sp++].i = va; }
+end
+
+rule seq.convert.TRUNC.8.s
+text stk[sp-1].i = (long long)(signed char)stk[sp-1].i;
+end
+
+rule seq.convert.TRUNC.8.u
+text stk[sp-1].i = (long long)(unsigned char)stk[sp-1].i;
+end
+
+rule seq.convert.TRUNC.16.s
+text stk[sp-1].i = (long long)(short)stk[sp-1].i;
+end
+
+rule seq.convert.TRUNC.16.u
+text stk[sp-1].i = (long long)(unsigned short)stk[sp-1].i;
+end
+
+rule seq.convert.TRUNC.32.s
+text stk[sp-1].i = (long long)(int)stk[sp-1].i;
+end
+
+rule seq.convert.TRUNC.32.u
+text stk[sp-1].i = (long long)(unsigned int)stk[sp-1].i;
+end
+
+rule seq.convert.SEXT.64.s
+text
+end
+
+rule seq.convert.ZEXT.64.s
+text
+end
+
+rule seq.convert.CDECL64.64.s
+text
+end
+
+rule seq.stack.POP.64.s
+text if (sp>0) --sp;
+end
+
+rule seq.stack.DUP.64.s
+text if (sp>0) { stk[sp] = stk[sp-1]; sp++; }
+end
+
+rule seq.stack.SWAP.64.s
+text if (sp>=2) { long long _t = stk[sp-1].i; stk[sp-1].i = stk[sp-2].i; stk[sp-2].i = _t; }
+end
+
+rule seq.stack.ALLOCA.64.s
+text stk[sp-1].i = (long long)(intptr_t)alloca((size_t)stk[sp-1].i);
+end
+
+rule seq.stack.MEMCPY.64.s
+text { long long _dst = stk[--sp].i; long long _src = stk[--sp].i; memcpy((void*)(intptr_t)_dst, (void*)(intptr_t)_src, (size_t)${0}); }
+end
+
+rule seq.control.LABEL.64.s
+text L_${0}: ;
+end
+
+rule seq.control.JMP.64.s
+text goto L_${0};
+end
+
+rule seq.control.JZ.64.s
+text ark_a = stk[--sp].i; if (!ark_a) goto L_${0};
+end
+
+rule seq.control.JNZ.64.s
+text ark_a = stk[--sp].i; if (ark_a) goto L_${0};
+end
+
+rule seq.control.CMP_EQ.64.s
+text ark_a = stk[sp-1].i; if (ark_a == ${0}) { --sp; goto L_${1}; }
+end
+
+rule seq.control.LABEL.64.named
+text LN_${4}: ;
+end
+
+rule seq.control.JMP.64.named
+text goto LN_${4};
+end
+
+rule seq.control.RETURN.64.s
+text return (long long)stk[--sp].i;
+end
+
+rule seq.control.RETURN.64.aggregate
+text { static char _ark_ret_buf[${5}]; long long _ret_addr = stk[--sp].i; memcpy(_ark_ret_buf, (void*)(intptr_t)_ret_addr, ${2}); return (long long)(intptr_t)_ark_ret_buf; }
+end
+
+rule seq.global.LOAD.64.s
+text stk[sp++].i = (long long)${4};
+end
+
+rule seq.global.LOAD.64.real
+text stk[sp++].f = (double)${4};
+end
+
+rule seq.global.LOAD.64.aggregate
+text stk[sp++].i = (long long)(intptr_t)&${4};
+end
+
+rule seq.global.ADDR.64.s
+text stk[sp++].i = (long long)(intptr_t)&${4};
+end
+
+rule seq.global.STORE.64.s
+text ${4} = (long long)stk[--sp].i;
+end
+
+rule seq.arg.LOAD.64.s
+text ark_fst(frame, ${0}, ${5}, a${1});
+end
+
+rule seq.arg.LOAD.64.aggregate
+text memcpy(frame + ${0}, (void*)(intptr_t)a${1}, (size_t)${2});
 end

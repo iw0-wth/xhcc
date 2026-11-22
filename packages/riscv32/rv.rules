@@ -1080,3 +1080,69 @@ end
 rule classify.indirect_words
 text 1
 end
+rule semantic.load.s8
+text     lb t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.load.u8
+text     lbu t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.load.s16
+text     lh t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.load.u16
+text     lhu t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.load.s32
+text     lw t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.load.u32
+text     lw t0, 0(t2)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.store.8
+text     sb t0, 0(t2)\n
+end
+rule semantic.store.16
+text     sh t0, 0(t2)\n
+end
+rule semantic.store.32
+text     sw t0, 0(t2)\n
+end
+rule semantic.index.load.8.0
+text     lb t0, 0(t0)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.index.store.8.0
+text     sb t0, 0(t1)\n
+end
+rule semantic.index.load.8.1
+text     lb t0, 0(t0)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.index.store.8.1
+text     sb t0, 0(t1)\n
+end
+rule semantic.index.load.16.0
+text     lh t0, 0(t0)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.index.store.16.0
+text     sh t0, 0(t1)\n
+end
+rule semantic.index.load.16.1
+text     lbu t1, 0(t0)\n    lbu t2, 1(t0)\n    slli t2, t2, 8\n    or t0, t1, t2\n    slli t0, t0, 16\n    srai t0, t0, 16\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.index.store.16.1
+text     sb t0, 0(t1)\n    srli t2, t0, 8\n    sb t2, 1(t1)\n
+end
+rule semantic.index.load.32.0
+text     lw t0, 0(t0)\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.index.store.32.0
+text     sw t0, 0(t1)\n
+end
+rule semantic.index.load.32.1
+text     lbu t1, 0(t0)\n    lbu t2, 1(t0)\n    slli t2, t2, 8\n    or t1, t1, t2\n    lbu t2, 2(t0)\n    slli t2, t2, 16\n    or t1, t1, t2\n    lbu t2, 3(t0)\n    slli t2, t2, 24\n    or t0, t1, t2\n    addi sp, sp, -4\n    sw t0, 0(sp)\n
+end
+rule semantic.index.store.32.1
+text     sb t0, 0(t1)\n    srli t2, t0, 8\n    sb t2, 1(t1)\n    srli t2, t0, 16\n    sb t2, 2(t1)\n    srli t2, t0, 24\n    sb t2, 3(t1)\n
+end
+rule semantic.records
+text XHSEMANTIC 1\nmemory load 8 s index_aligned semantic.index.load.8.0 0 1\nmemory store 8 v index_aligned semantic.index.store.8.0 0 0\nmemory load 8 s index_packed semantic.index.load.8.1 0 1\nmemory store 8 v index_packed semantic.index.store.8.1 0 0\nmemory load 16 s index_aligned semantic.index.load.16.0 0 1\nmemory store 16 v index_aligned semantic.index.store.16.0 0 0\nmemory load 16 s index_packed semantic.index.load.16.1 0 1\nmemory store 16 v index_packed semantic.index.store.16.1 0 0\nmemory load 32 s index_aligned semantic.index.load.32.0 0 1\nmemory store 32 v index_aligned semantic.index.store.32.0 0 0\nmemory load 32 s index_packed semantic.index.load.32.1 0 1\nmemory store 32 v index_packed semantic.index.store.32.1 0 0\naddress scale 16 v index emit.fixed.0126 0 0\naddress scale 32 v index emit.fixed.0127 0 0\naddress scale 64 v index emit.fixed.0128 0 0\naddress scale 128 v index emit.fixed.0129 0 0\nunary neg 32 v stack unary.neg.i32 1 1\nunary not 32 v stack unary.not.i32 1 1\nunary lnot 32 v stack unary.lnot.i32 1 1\nunary identity 32 v stack unary.identity.i32 1 1\ncast trunc 8 s stack cast.trunc.s8 1 1\ncast trunc 8 u stack cast.trunc.u8 1 1\ncast trunc 16 s stack cast.trunc.s16 1 1\ncast trunc 16 u stack cast.trunc.u16 1 1\ncast trunc 32 s stack cast.trunc.32 1 1\ncast trunc 32 u stack cast.trunc.32 1 1\naddress frame 32 negative local address.frame.negative 0 0\naddress frame 32 positive local address.frame.positive 0 0\nmemory load 8 s local semantic.load.s8 0 1\nmemory load 8 u local semantic.load.u8 0 1\nmemory load 16 s local semantic.load.s16 0 1\nmemory load 16 u local semantic.load.u16 0 1\nmemory load 32 s local semantic.load.s32 0 1\nmemory load 32 u local semantic.load.u32 0 1\nmemory store 8 v local semantic.store.8 0 0\nmemory store 16 v local semantic.store.16 0 0\nmemory store 32 v local semantic.store.32 0 0\n
+end

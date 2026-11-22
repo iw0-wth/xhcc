@@ -11,8 +11,10 @@ typedef struct {char target[32],path[512];} Location;
 static Location locations[8];static int location_count;
 static Entry *entries;static int entry_count;
 static char *storage;static char loaded_target[32],loaded_path[512];
+static unsigned generation=1;
+unsigned xh_template_generation(void){return generation;}
 static int error(const char *path,const char *msg){diag_tool(DIAG_SEV_ERROR,path?path:"xhcc templates",msg,0,0,0,0,0,0);return -1;}
-void xh_template_release(void){free(entries);free(storage);entries=0;storage=0;entry_count=0;loaded_target[0]=0;loaded_path[0]=0;}
+void xh_template_release(void){generation++;if(!generation)generation=1;free(entries);free(storage);entries=0;storage=0;entry_count=0;loaded_target[0]=0;loaded_path[0]=0;}
 static int identifier(const char *s,int max){int n=0;if(!s||!*s)return 0;for(;*s;s++,n++)if(!((*s>='a'&&*s<='z')||(*s>='A'&&*s<='Z')||(*s>='0'&&*s<='9')||*s=='_'||*s=='.'||*s=='-'))return 0;return n<max;}
 int xh_template_set_path(const char *target,const char *path){int i;size_t n=path?strlen(path):0;if(!identifier(target,32)||n>=512)return error("xhcc templates","invalid target or template path");for(i=0;i<location_count;i++)if(!strcmp(target,locations[i].target))break;if(i==location_count){if(i==8)return error("xhcc templates","too many target template locations");strcpy(locations[i].target,target);location_count++;}if(strcmp(locations[i].path,path?path:"")&&!strcmp(loaded_target,target))xh_template_release();if(n)memcpy(locations[i].path,path,n);locations[i].path[n]=0;return 0;}
 static const char *path_for(const char *target,char *fallback,size_t cap){int i;for(i=0;i<location_count;i++)if(!strcmp(target,locations[i].target)&&locations[i].path[0])return locations[i].path;if(!strcmp(target,"arm"))return "packages/arm/arm.rules";if(!strcmp(target,"x86")||!strcmp(target,"x86_64")){snprintf(fallback,cap,"packages/%s/x86.rules",target);return fallback;}if(!strcmp(target,"c"))return "packages/c/c.rules";if(!strcmp(target,"riscv32"))return "packages/riscv32/rv.rules";return 0;}

@@ -36,6 +36,16 @@ int ten(int a,int b,int c,int d,int e,int f,int g,int h,int i,int j){return a+b+
    for old,new in [('rule abi.arg_registers\ntext 8\n','rule abi.arg_registers\ntext 4\n'),('rule frame.extra_padding\ntext 0\n','rule frame.extra_padding\ntext 7\n'),('rule classify.wide_words\ntext 2\n','rule classify.wide_words\ntext 1\n')]:
     rules.write_text(original.replace(old,new));path=OUT/'invalidabi.c';path.write_text('int entry(void){return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'invalidabi.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('external policy',p.stderr)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_semantic_selection_and_effect_validation(self):
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-semantic-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();source='int entry(int x){return -x;}'
+   baseline=self.compile(source,'semantic0',root);self.assertEqual(self.execute(baseline,a=7),0xfffffff9)
+   rules.write_text(original.replace('unary neg 32 v stack unary.neg.i32 1 1','unary neg 32 v stack unary.not.i32 1 1'));changed=self.compile(source,'semantic1',root);self.assertEqual(self.execute(changed,a=7),0xfffffff8)
+   source='int entry(int x){return (signed char)x;}';rules.write_text(original.replace('cast trunc 8 s stack cast.trunc.s8 1 1','cast trunc 8 s stack cast.trunc.u8 1 1'));changed=self.compile(source,'semantic_cast',root);self.assertEqual(self.execute(changed,a=255),255)
+   for bad in [original.replace('unary neg 32 v stack unary.neg.i32 1 1','unary neg 32 v stack unary.neg.i32 0 1'),original.replace('unary neg 32 v stack unary.neg.i32 1 1','unary neg 32 v stack unary.neg.i32 1 1\\nunary neg 32 v stack unary.not.i32 1 1')]:
+    rules.write_text(bad);path=OUT/'semantic_bad.c';path.write_text('int entry(int x){return -x;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'semantic_bad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

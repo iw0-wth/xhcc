@@ -6,6 +6,7 @@ int xh_rv_abi_load(void);
 const XhRvAbi *xh_rv_abi(void);
 int xh_rv_argument_words(int bytes,int aggregate);
 int xh_rv_align_stack(int bytes);
+int xh_rv_semantic(AsmBuffer *buffer,const char *family,const char *operation,int width,const char *sign,const char *form,int expected_pop,int expected_push,const char *const *args,int argc);
 void xh_rv_rules_reset(void);
 const char *xh_rv_rule_text(const char *key);
 int xh_rv_rules_failed(void);
