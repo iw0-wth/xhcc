@@ -10,16 +10,16 @@
 
 ## 已迁出
 
-- ARM：551条发射模板，覆盖固定发射片段、完整标量binary/compare/unary、常量、SP调整、frame/label/load/store/branch/call参数模板。166条编码规则覆盖多种Thumb16、MOVW/MOVT、ADDW/SUBW、division、memory、logic、system/位操作和VFP算术/转换/存取。
+- ARM：551条发射模板，覆盖固定发射片段、完整标量binary/compare/unary、常量、SP调整、frame/label/load/store/branch/call参数模板。191条编码规则覆盖多种Thumb16、MOVW/MOVT、ADDW/SUBW、division、memory、logic、system/位操作、短宽分支、MRS/MSR和VFP算术/转换/单多寄存器存取。
 - RV32：R/I/S/B/U/J编码布局；23条scalar32序列规则覆盖算术、位运算、移位、比较、signed/unsigned DIV/MOD，最多8步，兼容v1。
-- i386/AMD64：固定发射模板、scalar32/AMD64slot64整段运算、寄存器名称/编码/宽度、ABI寄存器表、ALU/SSE/shift/group3/condition选择、固定opcode/prefix、REP表、REX位描述、word-pair转换模板。ABI计数、frame/varargs/sret布局和聚合wire分类由必需数据描述并消费，与现有前端契约不匹配时拒绝。这仅覆盖既有xhcc聚合传参wire，并不证明完整SysV eightbyte聚合ABI与GCC互操作。
+- i386/AMD64：固定发射模板、scalar32/AMD64slot64整段运算、寄存器名称/编码/宽度、ABI寄存器表、ALU/SSE/shift/group3/condition选择、固定opcode/prefix、REP表、ModRM/SIB/REX/寄存器opcode字段布局、word-pair转换模板。ABI计数、frame/varargs/sret布局和聚合wire分类由必需数据描述并消费，与现有前端契约不匹配时拒绝。这仅覆盖既有xhcc聚合传参wire，并不证明完整SysV eightbyte聚合ABI与GCC互操作。
 - C：357条模板（含40条参数化）、runtime前缀、operator/type拼写、6类libc映射、结构返回类型映射；12条ABI和帧/栈政策数据。ABI值严格对齐当前前端，政策值在合法范围可变。
 
-- 对象输出：ARM/RV32/i386/AMD64的ELF machine/class/endian/flags/ARM attributes和历史内部重定位键到标准R_*类型的映射来自object.rules；布局与实际patch算法仍是共享C机制。
+- 对象输出：ARM/RV32/i386/AMD64的ELF machine/class/endian/flags/ARM attributes和历史内部重定位键到标准R_*类型的映射来自object.rules；布局仍是共享C机制。XHRELOC1有限规则VM已接入legacy绝对/PC相对32位补丁，并提供ABS64/PC64规则；最多16临时值、32操作、8字节scratch，全部断言成功后原子提交。标准ELF外部符号仍交GNU/LLVM链接器处理。
 
 ## 尚未完全迁出
 
-ARM优化器、复杂IR/ABI/数据布局选择、branch/VFP多寄存器和部分asm-extra编码及重定位；RV32其余IR/ABI/汇编调度与重定位；x86聚合八字节class算法及部分frame/varargs/sret计算（描述已外置但通用计算仍C）、ModRM/SIB机制；C的IR控制调度、类型递归、栈深分析。标准对象布局和重定位补丁算法仍C；已写明下一阶段有限补丁VM方案。
+ARM优化器、复杂IR/ABI/数据布局选择、分支偏移/J位非线性预计算、部分asm-extra编码及复杂重定位；RV32其余IR/ABI/汇编调度与重定位；x86聚合八字节class算法及部分frame/varargs/sret计算（描述已外置但通用计算仍C）、地址模式选择算法（ModRM/SIB/REX字段已外置）；C的IR控制调度、类型递归、栈深分析。标准对象布局及RV成对、ARM分裂立即数/分支等复杂重定位公式仍C，简单绝对/PC相对补丁已由有限VM执行。
 
 因此目前所有后端均已有真实外部规则路径，但不能说所有后端算法已完全外置，也不能说任意新ISA仅靠现有规则即可加入。下一阶段需提取剩余目标描述和ABI，优先共享机制而非包专用主程序分支。
 

@@ -10188,6 +10188,12 @@ static void arm_encode32(ArmAsm *a,const char *key,int x,int y,int z,int t,int c
     unsigned word=arm_encoding(a,key,x,y,z,t,count);out16(a,word>>16);out16(a,word&65535u);
 }
 
+static void arm_encode32_args(ArmAsm *a,const char *key,const int *args,int count){
+    unsigned word=0;
+    if(xh_encoding_encode("arm",key,args,count,&word)){a->hard_errors++;a->error_count++;}
+    out16(a,word>>16);out16(a,word&65535u);
+}
+
 static void add_label_a(ArmAsm *a, const char *name, int addr) {
     if (a->label_count >= a->label_cap) {
         int nc = a->label_cap == 0 ? 32 : a->label_cap * 2;
@@ -10349,7 +10355,7 @@ static void emit_b16_a(ArmAsm *a, int cond, int target) {
             arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             return;
         }
-        out16(a, 0xE000u | (unsigned)((off >> 1) & 0x7FF));
+        arm_encode16(a,"B_T1",(off>>1)&2047,0,0,0,1);
     } else {
         if (off < -256 || off > 254 || (off & 1)) {
             diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -10359,8 +10365,7 @@ static void emit_b16_a(ArmAsm *a, int cond, int target) {
             arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
             return;
         }
-        out16(a, 0xD000u | (unsigned)((cond & 0xF) << 8) |
-                   (unsigned)((off >> 1) & 0xFF));
+        arm_encode16(a,"BCC_T1",(off>>1)&255,cond,0,0,2);
     }
 }
 #endif
@@ -11363,76 +11368,25 @@ static void check_no_index_writeback_a(ArmAsm *a, const char **p) {
     }
 }
 
-static void emit_bl_a(ArmAsm *a, int target) {
-    int offset = target - a->pc - 4;
-    int off2 = offset >> 1;
-    int s = (off2 >> 23) & 1;
-    int i1 = (off2 >> 22) & 1;
-    int i2 = (off2 >> 21) & 1;
-    int imm10 = (off2 >> 11) & 0x3FF;
-    int imm11 = off2 & 0x7FF;
-    int j1 = (~(i1 ^ s)) & 1;
-    int j2 = (~(i2 ^ s)) & 1;
-    unsigned hi = 0xF000u | (unsigned)(s << 10) | (unsigned)imm10;
-    unsigned lo = 0xD000u | (unsigned)(j1 << 13) | (unsigned)(j2 << 11) | (unsigned)imm11;
-    out16(a, hi);
-    out16(a, lo);
+static void emit_bl_a(ArmAsm *a,int target){
+    int off2=(target-a->pc-4)>>1;
+    int sign=(off2>>23)&1;
+    int j1=(~(((off2>>22)&1)^sign))&1;
+    int j2=(~(((off2>>21)&1)^sign))&1;
+    arm_encode32(a,"BL_T1",off2&0xffffff,j1,j2,0,3);
 }
 
-/* 32-bit unconditional B.W (T4 encoding) - range +-16MB.
- * hi: 0xF000 | (S<<10) | imm10
- * lo: 10 J1 1 J2 imm11  (bits[15:14]=10, bit12=1 for T4)
- *     BL T1 has bits[15:14]=11 (0xD000 base) - distinct from B.W
- * imm32 = SignExtend(S:I1:I2:imm10:imm11:0, 25)
- * NOTE: lo base MUST be 0x9000 (bit14=0, bit12=1). Using 0xD000
- * (bit14=1) encodes BL T1, which still branches but corrupts LR. */
-static void emit_b_w_a(ArmAsm *a, int target) {
-    int offset = target - a->pc - 4;
-    int off2 = offset >> 1;
-    int s = (off2 >> 23) & 1;
-    int i1 = (off2 >> 22) & 1;
-    int i2 = (off2 >> 21) & 1;
-    int imm10 = (off2 >> 11) & 0x3FF;
-    int imm11 = off2 & 0x7FF;
-    int j1 = (~(i1 ^ s)) & 1;
-    int j2 = (~(i2 ^ s)) & 1;
-    unsigned hi = 0xF000u | (unsigned)(s << 10) | (unsigned)imm10;
-    unsigned lo = 0x9000u | (unsigned)(j1 << 13) | (unsigned)(j2 << 11) | (unsigned)imm11;
-    out16(a, hi);
-    out16(a, lo);
+static void emit_b_w_a(ArmAsm *a,int target){
+    int off2=(target-a->pc-4)>>1;
+    int sign=(off2>>23)&1;
+    int j1=(~(((off2>>22)&1)^sign))&1;
+    int j2=(~(((off2>>21)&1)^sign))&1;
+    arm_encode32(a,"B_T4",off2&0xffffff,j1,j2,0,3);
 }
 
-/* 32-bit conditional B<cond>.W (T3 encoding) - range +-1MB.
- * hi: 0xF000 | (S<<10) | (cond<<6) | imm6
- * lo: 1 0 J1 0 J2 imm11[10:0]  (bit15=1, bit14=0, bit12=0 for T3)
- *     T4 B.W has lo bit12=1 (0x9000 base) — distinguishes from T3.
- *     BL T1  has lo bit14=1,bit12=1 (0xD000 base) — also different.
- * imm32 = SignExtend(S:I1:I2:imm6:imm11, 20) << 1
- * NOTE: T3 and T4 share the same hw2 bit layout (J1 at bit13, J2 at bit11,
- *       imm11 at bits[10:0]), but DIFFERENT J1/J2 decoding:
- *       - T4/BL: I1 = NOT(J1 EOR S)  (inverted)
- *       - T3:    I1 = J1             (direct copy, NO inversion)
- *       Verified empirically via MDK armasm:
- *         MDK forward BEQ.W = 0xF000 0x8046 (J1=0, J2=0) for offset +0x8C.
- *         With T4 formula that would give offset 0x18008C (wrong).
- *         With T3 formula (I1=J1) it gives offset 0x8C (correct).
- *       Using the T4 formula for T3 causes forward conditional branches to
- *       jump ~786KB forward (outside flash) → HardFault. */
-static void emit_bcond_w_a(ArmAsm *a, int cond, int target) {
-    int offset = target - a->pc - 4;
-    int off2 = offset >> 1;
-    int s = (off2 >> 19) & 1;
-    int i1 = (off2 >> 18) & 1;
-    int i2 = (off2 >> 17) & 1;
-    int imm6 = (off2 >> 11) & 0x3F;
-    int imm11 = off2 & 0x7FF;
-    int j1 = i1;
-    int j2 = i2;
-    unsigned hi = 0xF000u | (unsigned)(s << 10) | (unsigned)(cond << 6) | (unsigned)imm6;
-    /* T3 lo word: bit15=1, bit14=0, bit13=J1, bit12=0, bit11=J2, bits[10:0]=imm11 */
-    unsigned lo = 0x8000u | (unsigned)(j1 << 13) | (unsigned)(j2 << 11) | (unsigned)imm11;
-    out16(a, hi);
-    out16(a, lo);
+static void emit_bcond_w_a(ArmAsm *a,int cond,int target){
+    int off2=(target-a->pc-4)>>1;
+    arm_encode32(a,"BCC_T3",off2&0xfffff,cond,0,0,2);
 }
 
 static int read_label_name_a(const char **p, char *buf, int cap) {
@@ -11691,8 +11645,7 @@ static ArmVfpList parse_vfplist_a(ArmAsm *a, const char **p, int quiet) {
 
 static void emit_vfp_ldstm_a(ArmAsm *a, int is_load, int is_db, int wb, int rn,
                              const ArmVfpList *l) {
-    unsigned hw1, hw2;
-    int vd, dbit, words;
+    int args[6];
     if (!l->ok || rn < 0 || rn > 15) {
         diag_tool(DIAG_SEV_ERROR, "arkcc",
                   "VLDM/VSTM needs a base register and a register list", 0,0,0,0,0,0);
@@ -11700,22 +11653,9 @@ static void emit_vfp_ldstm_a(ArmAsm *a, int is_load, int is_db, int wb, int rn,
         arm_encode16(a,"FIXED_BF00",0,0,0,0,0); arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
         return;
     }
-    if (l->is_double) {
-        vd = l->first & 0xF;
-        dbit = (l->first >> 4) & 1;
-        words = l->count * 2;
-    } else {
-        vd = l->first >> 1;
-        dbit = l->first & 1;
-        words = l->count;
-    }
-    hw1 = 0xEC00u | (unsigned)(is_db ? 0x100 : 0) | (unsigned)(is_db ? 0 : 0x80) |
-          (unsigned)(dbit << 6) | (unsigned)(wb ? 0x20 : 0) |
-          (unsigned)(is_load ? 0x10 : 0) | (unsigned)(rn & 0xF);
-    hw2 = ((unsigned)(vd & 0xF) << 12) |
-          (unsigned)(l->is_double ? 0x0B00 : 0x0A00) | (unsigned)(words & 0xFF);
-    out16(a, hw1);
-    out16(a, hw2);
+    args[0]=l->first;args[1]=rn;args[2]=l->count;
+    args[3]=is_db;args[4]=wb;args[5]=is_load;
+    arm_encode32_args(a,l->is_double?(is_db?"VFP_MULTI_D_DB":"VFP_MULTI_D_IA"):(is_db?"VFP_MULTI_S_DB":"VFP_MULTI_S_IA"),args,6);
 }
 
 #endif /* ARKCC_FEATURE_ASM_VFP_LDSTM */
@@ -12428,7 +12368,7 @@ static void pass2_a(ArmAsm *a) {
              *       refusing. */
             int is_mrs = strieq_a(first, "MRS");
             char sp1[32], sp2[32];
-            int sysm = -1;
+            const char *key=0;
             int rd, rn;
             if (is_mrs) {
                 rd = parse_reg_a(&p);
@@ -12442,27 +12382,21 @@ static void pass2_a(ArmAsm *a) {
             }
             {
                 const char *nm = is_mrs ? sp1 : sp2;
-                if (strieq_a(nm, "MSP"))            sysm = 8;
-                else if (strieq_a(nm, "PSP"))       sysm = 9;
-                else if (strieq_a(nm, "PRIMASK"))   sysm = 16;
-                else if (strieq_a(nm, "FAULTMASK")) sysm = 17;
-                else if (strieq_a(nm, "BASEPRI"))   sysm = 19;
-                else if (strieq_a(nm, "CONTROL"))   sysm = 20;
+                if (strieq_a(nm,"MSP")) key=is_mrs?"MRS_MSP":"MSR_MSP";
+                else if(strieq_a(nm,"PSP")) key=is_mrs?"MRS_PSP":"MSR_PSP";
+                else if(strieq_a(nm,"PRIMASK")) key=is_mrs?"MRS_PRIMASK":"MSR_PRIMASK";
+                else if(strieq_a(nm,"FAULTMASK")) key=is_mrs?"MRS_FAULTMASK":"MSR_FAULTMASK";
+                else if(strieq_a(nm,"BASEPRI")) key=is_mrs?"MRS_BASEPRI":"MSR_BASEPRI";
+                else if(strieq_a(nm,"CONTROL")) key=is_mrs?"MRS_CONTROL":"MSR_CONTROL";
             }
-            if (sysm < 0) {
+            if (!key) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "MRS/MSR supports MSP, PSP, PRIMASK, FAULTMASK, "
                           "BASEPRI and CONTROL only", 0,0,0,0,0,0);
                 a->hard_errors++;
-                sysm = 16;
+                key=is_mrs?"MRS_PRIMASK":"MSR_PRIMASK";
             }
-            if (is_mrs) {
-                arm_encode16(a,"FIXED_F3EF",0,0,0,0,0);
-                out16(a, 0x8000u | (unsigned)((rd & 0xF) << 8) | (unsigned)sysm);
-            } else {
-                out16(a, 0xF380u | (unsigned)(rd & 0xF));
-                out16(a, 0x8800u | (unsigned)sysm);
-            }
+            arm_encode32(a,key,rd,0,0,0,1);
         }
 #if ARKCC_FEATURE_ASM_EXTRA
         else if (!ark_asm_extra_on() && ark_asm_extra_name(first)) {
@@ -13161,8 +13095,7 @@ static void pass2_a(ArmAsm *a) {
                         /* 32-bit B<cond>.W (T3) forward ref: type=3, 4-byte placeholder.
                          * cond encoded in hi word bits[9:6] for resolve_refs_a. */
                         add_ref_a(a, a->pc, name, 3);
-                        out16(a, 0xF000u | (unsigned)(cond << 6));
-                        arm_encode16(a,"FIXED_8000",0,0,0,0,0);
+                        arm_encode32(a,"BCC_PLACEHOLDER",cond,0,0,0,1);
                     }
                 }
 #if ARKCC_FEATURE_OPT_BRANCH
@@ -13581,8 +13514,7 @@ static void pass2_a(ArmAsm *a) {
             if (rn >= 0 && rn <= 7 && rm >= 0 && rm <= 7) {
                 arm_encode16(a,"TST_REG",rn,rm,0,0,2);
             } else if (rn >= 0 && rm >= 0) {
-                out16(a, 0xEA10 | (rn & 0xF));
-                out16(a, 0x0F00 | (rm & 0xF));
+                arm_encode32(a,"TST_W",rn,rm,0,0,2);
             } else {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for TST", 0,0,0,0,0,0);
@@ -13598,8 +13530,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
             if (rd >= 0 && rm >= 0) {
-                out16(a, 0xFAB0 | (rm & 0xF));
-                out16(a, 0xF080 | ((rd & 0xF) << 8) | (rm & 0xF));
+                arm_encode32(a,"CLZ",rd,rm,0,0,2);
             } else {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for CLZ", 0,0,0,0,0,0);
@@ -13618,8 +13549,7 @@ static void pass2_a(ArmAsm *a) {
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
             if (rd >= 0 && rm >= 0) {
-                out16(a, 0xFA90 | (rm & 0xF));
-                out16(a, 0xF0A0 | ((rd & 0xF) << 8) | (rm & 0xF));
+                arm_encode32(a,"RBIT",rd,rm,0,0,2);
             } else {
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "bad register operand for RBIT", 0,0,0,0,0,0);

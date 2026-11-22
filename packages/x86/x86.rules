@@ -2504,3 +2504,66 @@ end
 rule abi.frame.multiword_scratch_base
 text 24
 end
+rule encoding.mod.register
+text 3
+end
+rule encoding.mod.indirect
+text 0
+end
+rule encoding.mod.disp8
+text 1
+end
+rule encoding.mod.disp32
+text 2
+end
+rule encoding.address.index_mask
+text 7
+end
+rule encoding.address.sib_rm
+text 4
+end
+rule encoding.address.no_base
+text 5
+end
+rule encoding.address.no_index
+text 4
+end
+rule encoding.displacement.short_min
+text -128
+end
+rule encoding.displacement.short_max
+text 127
+end
+rule encoding.scale.two
+text 2
+end
+rule encoding.scale.four
+text 4
+end
+rule encoding.scale.eight
+text 8
+end
+rule encoding.scale.code_one
+text 0
+end
+rule encoding.scale.code_two
+text 1
+end
+rule encoding.scale.code_four
+text 2
+end
+rule encoding.scale.code_eight
+text 3
+end
+rule encoding.register_opcode.b0
+text 176
+end
+rule encoding.register_opcode.b8
+text 184
+end
+rule encoding.register_opcode.50
+text 80
+end
+rule encoding.register_opcode.58
+text 88
+end

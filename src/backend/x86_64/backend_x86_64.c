@@ -27,6 +27,7 @@
 #include "diag.h"
 #include "agginit.h"
 #include "xh_x86_rules.h"
+#include "xh_rules.h"
 #include <stdio.h>
 /* On host, <stdlib.h> provides getenv() for the ARKCC_DUMP_SYMS symbol map
  * (see x86_assemble_mode); on STM32 getenv() does not exist. */
@@ -3981,17 +3982,18 @@ static void xa_emit64(X86Asm *a, long long v) {
     xa_emit32(a, (int)((v >> 32) & 0xFFFFFFFFLL));
 }
 
-/* Emit a REX prefix when needed.  In 32-bit mode this is a no-op, so the
- * i386 output stays byte-for-byte identical.  w = REX.W (64-bit operand),
- * regf = ModR/M.reg register code, base/index = rm operand register codes. */
-static void xa_rex(X86Asm *a, int w, int regf, int base, int index) {
-    int r, x, b;
-    if (!a->mode64) return;
-    r = (regf >= xh_x86_number("encoding.rex.extended_start"));
-    x = (index >= xh_x86_number("encoding.rex.extended_start"));
-    b = (base >= xh_x86_number("encoding.rex.extended_start"));
-    if (!w && !r && !x && !b) return;
-    xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.40") | (w ? xh_x86_number("encoding.rex.w") : 0) | (r ? xh_x86_number("encoding.rex.r") : 0) | (x ? xh_x86_number("encoding.rex.x") : 0) | (b ? xh_x86_number("encoding.rex.b") : 0)));
+/* Shared bounded encoder supplies every x86 instruction field layout. */
+static void xa_field_byte(X86Asm *a,const char *rule,int a0,int a1,int a2,int a3,int count){
+    int args[4];unsigned byte;
+    args[0]=a0;args[1]=a1;args[2]=a2;args[3]=a3;
+    if(xh_encoding_encode(a->mode64?"x86_64":"x86",rule,args,count,&byte) || byte>255){a->error_count++;return;}
+    xa_emit(a,(unsigned char)byte);
+}
+static void xa_rex(X86Asm *a,int w,int regf,int base,int index){
+    int extended=xh_x86_number("encoding.rex.extended_start");
+    if(!a->mode64)return;
+    if(!w && regf<extended && base<extended && index<extended)return;
+    xa_field_byte(a,"REX",w,regf<0?0:regf,base<0?0:base,index<0?0:index,4);
 }
 /* REX for an instruction whose rm operand is a memory operand (or a reg). */
 static void xa_rex_rm(X86Asm *a, int w, int regf, X86Operand *rm) {
@@ -4267,7 +4269,7 @@ static int xa_parse_operand(const char **p, X86Operand *op) {
 /* --- ModR/M encoding --- */
 /* Emit ModR/M for reg-reg (mod=11). */
 static void xa_modrm_reg(X86Asm *a, int reg, int rm) {
-    xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.c0") | ((reg & 7) << 3) | (rm & 7)));
+    xa_field_byte(a,"MODRM",xh_x86_number("encoding.mod.register"),reg,rm,0,3);
 }
 
 /* Emit ModR/M + optional SIB + displacement for a memory operand.
@@ -4277,7 +4279,7 @@ static void xa_modrm_mem(X86Asm *a, int reg_field, X86Operand *mem) {
     int index = mem->index;
     int disp = mem->disp;
     /* rsp/r12 as base, or rbp/r13 as base with mod==0, need the (base&7) test. */
-    int needs_sib = (base >= 0 && (base & 7) == 4) || (index >= 0);
+    int needs_sib = (base >= 0 && (base & xh_x86_number("encoding.address.index_mask")) == xh_x86_number("encoding.address.sib_rm")) || (index >= 0);
 
     /* [symbol] with no base/index: mod=00, rm=101, disp32 = symbol addr.
      * In 32-bit mode that encoding is an absolute address, so `+disp` is a
@@ -4298,50 +4300,63 @@ static void xa_modrm_mem(X86Asm *a, int reg_field, X86Operand *mem) {
          * starts out holding the addend: resolve_refs folds it in when the
          * label is local (byte-identical for addend 0), and types 8/9 tell
          * the linker to add it for a cross-object symbol. */
-        xa_emit(a, (unsigned char)(((reg_field & 7) << 3) | 5));
+        xa_field_byte(a,"MODRM",xh_x86_number("encoding.mod.indirect"),reg_field,xh_x86_number("encoding.address.no_base"),0,3);
         xa_add_ref_a(a, a->pc, mem->sym, rtype, disp);
         xa_emit32(a, disp);
         return;
     }
     /* [symbol + base]: symbol contributes to disp32 (absolute reloc). */
     if (mem->has_sym && base >= 0) {
-        xa_emit(a, (unsigned char)((xh_x86_number("encoding.constant.02") << 6) | ((reg_field & 7) << 3) | (needs_sib ? 4 : (base & 7))));
+        xa_field_byte(a,"MODRM",xh_x86_number("encoding.mod.disp32"),reg_field,needs_sib?xh_x86_number("encoding.address.sib_rm"):base,0,3);
         if (needs_sib) {
-            int sb = (base >= 0) ? base : 5;
-            int si = (index >= 0) ? index : 4;
-            int sc = (mem->scale == 2) ? 1 : (mem->scale == 4) ? 2 : (mem->scale == 8) ? 3 : 0;
-            xa_emit(a, (unsigned char)((sc << 6) | ((si & 7) << 3) | (sb & 7)));
+            int sb = (base >= 0) ? base : xh_x86_number("encoding.address.no_base");
+            int si = (index >= 0) ? index : xh_x86_number("encoding.address.no_index");
+            int sc = (mem->scale == xh_x86_number("encoding.scale.two")) ? xh_x86_number("encoding.scale.code_two") : (mem->scale == xh_x86_number("encoding.scale.four")) ? xh_x86_number("encoding.scale.code_four") : (mem->scale == xh_x86_number("encoding.scale.eight")) ? xh_x86_number("encoding.scale.code_eight") : xh_x86_number("encoding.scale.code_one");
+            xa_field_byte(a,"SIB",sc,si,sb,0,3);
         }
         xa_add_ref(a, a->pc, mem->sym, 4);
         xa_emit32(a, disp);
         return;
     }
 
+    /* No base means a mandatory disp32. In AMD64 a plain rm=5 would
+     * mean RIP-relative, so an absolute numeric address uses a no-base SIB.
+     * The same SIB form handles an index-only address in both modes. */
+    if(base<0){
+        int sc=(mem->scale==xh_x86_number("encoding.scale.two"))?xh_x86_number("encoding.scale.code_two"):
+               (mem->scale==xh_x86_number("encoding.scale.four"))?xh_x86_number("encoding.scale.code_four"):
+               (mem->scale==xh_x86_number("encoding.scale.eight"))?xh_x86_number("encoding.scale.code_eight"):xh_x86_number("encoding.scale.code_one");
+        xa_field_byte(a,"MODRM",xh_x86_number("encoding.mod.indirect"),reg_field,xh_x86_number("encoding.address.sib_rm"),0,3);
+        xa_field_byte(a,"SIB",sc,index<0?xh_x86_number("encoding.address.no_index"):index,xh_x86_number("encoding.address.no_base"),0,3);
+        if(mem->has_sym)xa_add_ref(a,a->pc,mem->sym,4);
+        xa_emit32(a,disp);
+        return;
+    }
     /* Determine mod field */
     {
         int mod;
-        if (disp == 0 && !(base >= 0 && (base & 7) == 5)) {
-            mod = 0;
-        } else if (disp >= -128 && disp <= 127) {
-            mod = 1;
+        if (disp == 0 && !(base >= 0 && (base & xh_x86_number("encoding.address.index_mask")) == xh_x86_number("encoding.address.no_base"))) {
+            mod = xh_x86_number("encoding.mod.indirect");
+        } else if (disp >= xh_x86_number("encoding.displacement.short_min") && disp <= xh_x86_number("encoding.displacement.short_max")) {
+            mod = xh_x86_number("encoding.mod.disp8");
         } else {
-            mod = 2;
+            mod = xh_x86_number("encoding.mod.disp32");
         }
-        /* ebp/r13 (base&7 == 5) needs at least mod=01 (mod=00 rm=101 = [disp32]) */
-        if (base >= 0 && (base & 7) == 5 && mod == 0) mod = 1;
+        /* ebp/r13 as base needs at least mod=01 (mod=00 rm=101 = [disp32]) */
+        if (base >= 0 && (base & xh_x86_number("encoding.address.index_mask")) == xh_x86_number("encoding.address.no_base") && mod == xh_x86_number("encoding.mod.indirect")) mod = xh_x86_number("encoding.mod.disp8");
 
         if (needs_sib) {
-            int sb = (base >= 0) ? base : 5;  /* 5 in mod=00 means no base (disp32) */
-            int si = (index >= 0) ? index : 4;  /* 4 = no index */
-            int sc = (mem->scale == 2) ? 1 : (mem->scale == 4) ? 2 : (mem->scale == 8) ? 3 : 0;
-            xa_emit(a, (unsigned char)((mod << 6) | ((reg_field & 7) << 3) | 4));
-            xa_emit(a, (unsigned char)((sc << 6) | ((si & 7) << 3) | (sb & 7)));
+            int sb = (base >= 0) ? base : xh_x86_number("encoding.address.no_base");  /* 5 in mod=00 means no base (disp32) */
+            int si = (index >= 0) ? index : xh_x86_number("encoding.address.no_index");  /* 4 = no index */
+            int sc = (mem->scale == xh_x86_number("encoding.scale.two")) ? xh_x86_number("encoding.scale.code_two") : (mem->scale == xh_x86_number("encoding.scale.four")) ? xh_x86_number("encoding.scale.code_four") : (mem->scale == xh_x86_number("encoding.scale.eight")) ? xh_x86_number("encoding.scale.code_eight") : xh_x86_number("encoding.scale.code_one");
+            xa_field_byte(a,"MODRM",mod,reg_field,xh_x86_number("encoding.address.sib_rm"),0,3);
+            xa_field_byte(a,"SIB",sc,si,sb,0,3);
         } else {
-            xa_emit(a, (unsigned char)((mod << 6) | ((reg_field & 7) << 3) | (base & 7)));
+            xa_field_byte(a,"MODRM",mod,reg_field,base,0,3);
         }
-        if (mod == 1) {
+        if (mod == xh_x86_number("encoding.mod.disp8")) {
             xa_emit(a, (unsigned char)(disp & 0xFF));
-        } else if (mod == 2) {
+        } else if (mod == xh_x86_number("encoding.mod.disp32")) {
             xa_emit32(a, disp);
         }
     }
@@ -4656,12 +4671,12 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
         long long imm = s->imm;
         if (sz == 1) {
             xa_rex(a, 0, 0, d->reg, -1);
-            xa_emit(a, (unsigned char)(0xB0 + (d->reg & 7)));
+            xa_field_byte(a,"REGOP",xh_x86_number("encoding.register_opcode.b0"),d->reg,0,0,2);
             xa_emit(a, (unsigned char)(imm & 0xFF));
         } else if (sz == 2) {
             xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.66"));
             xa_rex(a, 0, 0, d->reg, -1);
-            xa_emit(a, (unsigned char)(0xB8 + (d->reg & 7)));
+            xa_field_byte(a,"REGOP",xh_x86_number("encoding.register_opcode.b8"),d->reg,0,0,2);
             xa_emit16(a, (int)(imm & 0xFFFF));
         } else if (w) {
             if (xa_imm_fits32(imm)) {
@@ -4671,7 +4686,7 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
                 xa_emit32(a, (int)imm);
             } else {
                 xa_rex(a, 1, 0, d->reg, -1);
-                xa_emit(a, (unsigned char)(0xB8 + (d->reg & 7)));
+                xa_field_byte(a,"REGOP",xh_x86_number("encoding.register_opcode.b8"),d->reg,0,0,2);
                 xa_emit64(a, imm);
             }
         } else {
@@ -4680,7 +4695,7 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
                 diag_tool(DIAG_SEV_ERROR, "arkcc", "mov reg, imm32 out of range", 0,0,0,0,0,0);
                 return;
             }
-            xa_emit(a, (unsigned char)(0xB8 + (d->reg & 7)));
+            xa_field_byte(a,"REGOP",xh_x86_number("encoding.register_opcode.b8"),d->reg,0,0,2);
             xa_emit32(a, (int)imm);
         }
     } else if (d->kind == XOP_REG && s->kind == XOP_MEM) {
@@ -4872,7 +4887,7 @@ static void xa_process_line(X86Asm *a, const char *line) {
     } else if (xa_strieq(mn, "push")) {
         if (ops[0].kind == XOP_REG) {
             xa_rex(a, 0, 0, ops[0].reg, -1);
-            xa_emit(a, (unsigned char)(0x50 + (ops[0].reg & 7)));
+            xa_field_byte(a,"REGOP",xh_x86_number("encoding.register_opcode.50"),ops[0].reg,0,0,2);
         } else if (ops[0].kind == XOP_IMM) {
             int imm = (int)ops[0].imm;
             if (imm >= -128 && imm <= 127) {
@@ -4892,7 +4907,7 @@ static void xa_process_line(X86Asm *a, const char *line) {
     } else if (xa_strieq(mn, "pop")) {
         if (ops[0].kind == XOP_REG) {
             xa_rex(a, 0, 0, ops[0].reg, -1);
-            xa_emit(a, (unsigned char)(0x58 + (ops[0].reg & 7)));
+            xa_field_byte(a,"REGOP",xh_x86_number("encoding.register_opcode.58"),ops[0].reg,0,0,2);
         } else if (ops[0].kind == XOP_MEM) {
             xa_rex_rm(a, 0, 0, &ops[0]);
             xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.8f"));
@@ -5224,10 +5239,10 @@ static void xa_process_line(X86Asm *a, const char *line) {
         if (ops[0].kind == XOP_REG && ops[1].kind == XOP_REG) {
             if ((ops[0].reg & 7) == 0) {
                 xa_rex(a, w, 0, ops[1].reg, -1);
-                xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.90") + (ops[1].reg & 7)));
+                xa_field_byte(a,"REGOP",xh_x86_number("encoding.constant.90"),ops[1].reg,0,0,2);
             } else if ((ops[1].reg & 7) == 0) {
                 xa_rex(a, w, 0, ops[0].reg, -1);
-                xa_emit(a, (unsigned char)(xh_x86_number("encoding.constant.90") + (ops[0].reg & 7)));
+                xa_field_byte(a,"REGOP",xh_x86_number("encoding.constant.90"),ops[0].reg,0,0,2);
             } else {
                 xa_rex(a, w, ops[0].reg, ops[1].reg, -1);
                 xa_emit(a, (unsigned char)xh_x86_number("encoding.byte.87")); xa_modrm_reg(a, ops[0].reg, ops[1].reg);
@@ -5407,7 +5422,7 @@ int xhcc_x86_write_elf(const char*path,unsigned char*code,int len){
  temeta(s,n,xh_x86_prog);return tewrite(path,code,len,a->mode64?62:3,a->mode64,s,n,r,nr);
 }
 static int x86_assemble_mode(const char *asm_text, unsigned char *out, int cap, int mode64) {
-    if (xh_x86_rules_begin(mode64)) return -1;
+    if (xh_x86_rules_begin(mode64) || xh_encoding_load(mode64?"x86_64":"x86")) return -1;
     X86Asm a;
     a.src = asm_text;
     a.out = out;

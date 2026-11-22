@@ -74,13 +74,48 @@ class X86Rules(unittest.TestCase):
   source=OUT/'rex.c';source.write_text('int entry(void){int result; asm volatile("mov %0, 1\\nshl rax, 32\\nshr rax, 31" : "=r"(result)); return result;}\n')
   before=hashlib.sha256(self.compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-x86-') as tmp:
-   root=Path(tmp);pkg=self.package(root,'x86_64');path=pkg/'x86.rules';base=path.read_text();outputs=[]
-   self.assertIn('rule encoding.rex.w\ntext 8\n',base)
+   root=Path(tmp);pkg=self.package(root,'x86_64');path=pkg/'x86.encoding.rules';base=path.read_text();outputs=[]
+   self.assertIn('bits 0 0 1 3\n',base)
    for changed in [False,True]:
-    path.write_text(base.replace('rule encoding.rex.w\ntext 8\n','rule encoding.rex.w\ntext 0\n') if changed else base)
+    path.write_text(base.replace('bits 0 0 1 3\n','') if changed else base)
     obj=OUT/('rex_changed.o' if changed else 'rex_base.o');self.invoke(root,'variant-gcc',source,obj);outputs.append(self.execute(obj,True))
    self.assertEqual(outputs,[2,0])
   self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_modrm_sib_known_bytes_and_external_mutation(self):
+  before=hashlib.sha256(self.compiler.read_bytes()).digest()
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-x86-') as tmp:
+    root=Path(tmp);pkg=self.package(root,target);path=pkg/'x86.encoding.rules';base=path.read_text();source=OUT/(target+'_fields.c')
+    text=('mov eax, [ebp]\nmov edx, [esp+ecx*4+127]\nmov ebx, [ebp-128]\nmov edi, [eax+ecx*8+128]\n' if target=='x86' else 'mov r9, [r13]\nmov r10, [r12+r9*4+127]\nmov r11, [r13-128]\nmov r15, [r8+r9*8+128]\n')
+    source.write_text('int entry(void){asm volatile("'+text.replace('\n','\\n')+'");return 0;}\n');obj=OUT/(target+'_fields.o');self.invoke(root,'variant-gcc',source,obj)
+    with obj.open('rb') as f:actual=ELFFile(f).get_section_by_name('.text').data()
+    # Stable Intel encodings cover forced disp8 at base5, SIB base4,
+    # extended REX R/X/B, and displacement endpoints / full disp32.
+    expected=bytes.fromhex('8b4500 8b548c7f 8b5d80 8bbc c880000000' if target=='x86' else '4d8b4d00 4f8b548c7f 4d8b5d80 4f8bbc c880000000')
+    self.assertIn(expected,actual)
+    source=OUT/'sib_exec.c';instructions='mov ecx, 0x710000\\nmov dword ptr [ecx+4], 5\\nmov dword ptr [ecx+8], 11\\nmov edx, 1\\nmov eax, [ecx+edx*4]' if target=='x86' else 'mov rcx, 0x710000\\nmov dword ptr [rcx+4], 5\\nmov dword ptr [rcx+8], 11\\nmov edx, 1\\nmov eax, [rcx+rdx*4]';source.write_text('int entry(void){int out;asm volatile("'+instructions+'" : "=r"(out));return out;}\n')
+    outputs=[]
+    start=base.index('rule SIB ');end=base.index('\nend',start)
+    for changed in [False,True]:
+     # Force scale4 (code2) to encode scale8 by moving its low bit.
+     variant=base[:start]+base[start:end].replace('rule SIB 3 0','rule SIB 3 0x40').replace('bits 0 0 2 6','bits 0 1 1 7')+base[end:] if changed else base
+     path.write_text(variant);obj=OUT/(target+('_sib_changed.o' if changed else '_sib_base.o'));self.invoke(root,'variant-gcc',source,obj);outputs.append(self.execute(obj,target=='x86_64'))
+    self.assertEqual(outputs,[5,11])
+    path.write_text('XHENC 999\n');obj=OUT/(target+'_field_reject.o')
+    if obj.exists():obj.unlink()
+    self.invoke(root,'variant-gcc',source,obj,ok=False)
+  self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_absolute_and_index_only_addressing(self):
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-x86-') as tmp:
+    root=Path(tmp);self.package(root,target);source=OUT/(target+'_nobase.c')
+    instructions='mov dword ptr [0x710000], 7\\nmov dword ptr [0x710004], 19\\nmov edx, 1\\nmov eax, [0x710000]\\n'
+    instructions+=('add eax, [edx*4+0x710000]' if target=='x86' else 'add eax, [rdx*4+0x710000]')
+    source.write_text('int entry(void){int out;asm volatile("'+instructions+'" : "=r"(out));return out;}\n')
+    obj=OUT/(target+'_nobase.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),26)
+    with obj.open('rb') as f:code=ELFFile(f).get_section_by_name('.text').data()
+    self.assertIn(bytes.fromhex('8b042500007100'),code)
+    self.assertIn(bytes.fromhex('03049500007100'),code)
  def test_rep_table_drives_aggregate_copy(self):
   source=OUT/'rep.c';source.write_text('struct S{int a,b,c,d,e;}; int entry(void){struct S a={1,2,3,4,5},b; b=a; return b.a+b.e;}\n')
   before=hashlib.sha256(self.compiler.read_bytes()).digest()

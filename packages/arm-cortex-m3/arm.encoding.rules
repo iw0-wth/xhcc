@@ -1196,3 +1196,171 @@ bits 2 0 8 0
 end
 rule VMRS_APSR 0 0xeef1fa10
 end
+rule B_T1 1 0xe000
+arg 0 11 0 1
+bits 0 0 11 0
+end
+rule BCC_T1 2 0xd000
+arg 0 8 0 1
+arg 1 4 0 1
+bits 0 0 8 0
+bits 1 0 4 8
+end
+rule BL_T1 3 0xf000d000
+arg 0 24 0 1
+arg 1 1 0 1
+arg 2 1 0 1
+bits 0 23 1 26
+bits 0 11 10 16
+bits 0 0 11 0
+bits 1 0 1 13
+bits 2 0 1 11
+end
+rule B_T4 3 0xf0009000
+arg 0 24 0 1
+arg 1 1 0 1
+arg 2 1 0 1
+bits 0 23 1 26
+bits 0 11 10 16
+bits 0 0 11 0
+bits 1 0 1 13
+bits 2 0 1 11
+end
+rule BCC_T3 2 0xf0008000
+arg 0 20 0 1
+arg 1 4 0 1
+bits 0 19 1 26
+bits 0 18 1 13
+bits 0 17 1 11
+bits 0 11 6 16
+bits 0 0 11 0
+bits 1 0 4 22
+end
+rule VFP_MULTI_S_IA 6 0xec800a00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 6 0 1
+arg 3 1 0 1
+arg 4 1 0 1
+arg 5 1 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 16
+bits 2 0 6 0
+bits 4 0 1 21
+bits 5 0 1 20
+end
+rule VFP_MULTI_S_DB 6 0xed000a00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 6 0 1
+arg 3 1 0 1
+arg 4 1 0 1
+arg 5 1 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 16
+bits 2 0 6 0
+bits 4 0 1 21
+bits 5 0 1 20
+end
+rule VFP_MULTI_D_IA 6 0xec800b00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 6 0 1
+arg 3 1 0 1
+arg 4 1 0 1
+arg 5 1 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 2 0 5 1
+bits 4 0 1 21
+bits 5 0 1 20
+end
+rule VFP_MULTI_D_DB 6 0xed000b00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 6 0 1
+arg 3 1 0 1
+arg 4 1 0 1
+arg 5 1 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 2 0 5 1
+bits 4 0 1 21
+bits 5 0 1 20
+end
+rule MRS_MSP 1 0xf3ef8008
+arg 0 4 0 1
+bits 0 0 4 8
+end
+rule MSR_MSP 1 0xf3808808
+arg 0 4 0 1
+bits 0 0 4 16
+end
+rule MRS_PSP 1 0xf3ef8009
+arg 0 4 0 1
+bits 0 0 4 8
+end
+rule MSR_PSP 1 0xf3808809
+arg 0 4 0 1
+bits 0 0 4 16
+end
+rule MRS_PRIMASK 1 0xf3ef8010
+arg 0 4 0 1
+bits 0 0 4 8
+end
+rule MSR_PRIMASK 1 0xf3808810
+arg 0 4 0 1
+bits 0 0 4 16
+end
+rule MRS_BASEPRI 1 0xf3ef8011
+arg 0 4 0 1
+bits 0 0 4 8
+end
+rule MSR_BASEPRI 1 0xf3808811
+arg 0 4 0 1
+bits 0 0 4 16
+end
+rule MRS_FAULTMASK 1 0xf3ef8013
+arg 0 4 0 1
+bits 0 0 4 8
+end
+rule MSR_FAULTMASK 1 0xf3808813
+arg 0 4 0 1
+bits 0 0 4 16
+end
+rule MRS_CONTROL 1 0xf3ef8014
+arg 0 4 0 1
+bits 0 0 4 8
+end
+rule MSR_CONTROL 1 0xf3808814
+arg 0 4 0 1
+bits 0 0 4 16
+end
+rule TST_W 2 0xea100f00
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 4 16
+bits 1 0 4 0
+end
+rule CLZ 2 0xfab0f080
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 1 0 4 0
+end
+rule RBIT 2 0xfa90f0a0
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 4 8
+bits 1 0 4 16
+bits 1 0 4 0
+end
+rule BCC_PLACEHOLDER 1 0xf0008000
+arg 0 4 0 1
+bits 0 0 4 22
+end

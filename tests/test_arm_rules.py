@@ -86,6 +86,9 @@ class ArmRules(unittest.TestCase):
 
     def test_system_and_vfp_encodings_match_gnu_bytes(self):
         cases=[('cpsid','cpsid i',2),('cpsie','cpsie f',2),('dmb','dmb sy',4),('dsb','dsb sy',4),('isb','isb sy',4),('rev','rev r2, r3',2),('rev16','rev16 r4, r5',2),('revsh','revsh r6, r7',2),('rrx','rrx r3, r7',4)]
+        for reg in ['MSP','PSP','PRIMASK','FAULTMASK','BASEPRI','CONTROL']:
+            cases += [('mrs'+reg,'mrs r3, '+reg,4),('msr'+reg,'msr '+reg+', r4',4)]
+        cases += [('vpushs','vpush {s16-s19}',4),('vpops','vpop {s16-s19}',4),('vpushd','vpush {d8-d11}',4),('vpopd','vpop {d8-d11}',4),('vldms','vldmia r3!, {s17-s20}',4),('vstmd','vstmdb r4!, {d8-d11}',4),('clz','clz r3, r9',4),('rbit','rbit r4, r10',4),('tsthi','tst r8, r9',4)]
         for op in ['vadd','vsub','vmul','vdiv']:
             cases += [(op+'s',op+'.f32 s1, s16, s3',4),(op+'d',op+'.f64 d3, d9, d2',4)]
         for op in ['vneg','vabs','vsqrt']:
@@ -107,6 +110,25 @@ class ArmRules(unittest.TestCase):
                     return result
             actual=code(obj);expected=code(ref)
             for name,asm,_ in cases:self.assertEqual(actual[name],expected[name],asm)
+
+    def test_branches_match_gnu_bytes_forward_backward_and_short(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-branch-') as tmp:
+            work=Path(tmp)
+            for short in [False,True]:
+                body='.Lstart:\nNOP\nBL .Lforward\nB .Lforward\nBEQ .Lforward\nBNE .Lstart\n.Lforward:\nBL .Lstart\nB .Lstart\nBEQ .Lstart\nBX lr\n'
+                source=work/'branches.c';gas=work/'branches.s';obj=work/('xh'+str(short)+'.o');ref=work/('gnu'+str(short)+'.o')
+                source.write_text('__asm int entry(void){\n'+body+'}\n')
+                # The compiler chooses wide local branches unless branch shrinking is enabled.
+                wide=body.replace('B .Lforward','B.W .Lforward').replace('BEQ .Lforward','BEQ.W .Lforward').replace('BNE .Lstart','BNE.W .Lstart').replace('B .Lstart','B.W .Lstart').replace('BEQ .Lstart','BEQ.W .Lstart')
+                gas.write_text('.syntax unified\n.thumb\n.global entry\n.thumb_func\nentry:\n'+(body if short else wide))
+                args=[sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-O0']
+                if short:args+=['-fopt-branch']
+                self.command(*args,'-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+                self.command(GNU/'arm-none-eabi-as.exe','-mcpu=cortex-m3','-mthumb',gas,'-o',ref)
+                def section(path):
+                    with path.open('rb') as f:return ELFFile(f).get_section_by_name('.text').data()
+                expected=section(ref)
+                self.assertEqual(section(obj)[:len(expected)],expected,'short='+str(short))
 
     def test_vfp_arithmetic_executes(self):
         from unicorn.arm_const import UC_ARM_REG_C1_C0_2,UC_ARM_REG_FPEXC

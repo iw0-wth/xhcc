@@ -25,6 +25,7 @@
 #include "diag.h"
 #ifdef XHCC
 #include "xh_request.h"
+#include "xh_relocation.h"
 #endif
 /* Note: <stdio.h> intentionally NOT included - all file I/O goes through
  * fs_read_file/fs_write_file (flash_fs abstraction) to avoid pulling in
@@ -109,6 +110,9 @@ static int write_text(const char *path, const char *s) {
  * output image; we do the same, and fall back to a literal when no image name
  * is in scope yet. */
 static const char *g_ld_image = "<link>";
+#ifdef XHCC
+static const char *g_relocation_target="arm";
+#endif
 
 /* "0x%08X" for diagnostics: diag_num only renders decimal, and a hex address
  * in decimal would be unreadable and unsearchable. */
@@ -559,6 +563,10 @@ static void ld_patch_ref(unsigned char *code, int code_size, int pc, int target,
         }
         return;
     }
+#ifdef XHCC
+    if(type==4||type==5||type==8||type==9){XhRelocContext context;context.symbol=(uint64_t)(unsigned)target;context.addend=0;context.place=(uint64_t)(unsigned)pc;context.image_base=0;
+        if(xh_relocation_apply(g_relocation_target,type==4?"ABS32":type==5?"PC32":type==8?"ABS32_ADD":"PC32_ADD",code,(size_t)code_size,(size_t)pc,&context))diag_tool(DIAG_SEV_ERROR,g_ld_image,"relocation formula failed; image was not written",0,0,0,0,0,0);return;}
+#endif
     if (type == 4) {
         /* R_ARM_ABS32 / R_386_32: 4-byte absolute address */
         code[pc]     = (unsigned char)(target & 0xFF);
@@ -2252,6 +2260,9 @@ int ark_compile(const ArkOptions *opts) {
     const ArkBackend *be;
 
     if (!opts) return ARK_ERR_ARG;
+#ifdef XHCC
+    {const ArkBackend*relbe=opts->target?ark_backend_find(opts->target):ark_backend_default();g_relocation_target=relbe?relbe->name:"arm";}
+#endif
 #ifdef XHCC
     { extern int g_xhcc_elf_mode, g_xhcc_listing_mode;
       g_xhcc_elf_mode = !opts->private_object;
