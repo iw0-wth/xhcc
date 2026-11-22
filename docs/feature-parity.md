@@ -87,6 +87,20 @@ full semantic typing and general lvalue lowering, safe register/clobber allocati
 and preservation through optimization and IPO/object IR. Changing template
 substitution alone does not satisfy these requirements.
 
+## IR call metadata compatibility
+
+The argument wire table keeps its existing serialized 32-bit integer records.
+Low 16 bits carry the wire byte count; bits `0x10000` and `0x20000` retain
+alignment and pointer-slot semantics. The new `0x40000` bit identifies scalar
+float/double ABI class, including arguments after index 15 where the legacy
+2-bit argument mask has no capacity. Such later FP arguments force a side-table
+record. Current readers use the new flag together with the legacy low-16-argument
+mask. The ARKIR1 byte layout/version remains unchanged, but an old consumer that
+ignores this semantic flag cannot safely execute a call with later FP arguments;
+transport/API capability negotiation must require matching call-class semantics.
+This is additive record encoding, not a claim of semantic compatibility with all
+historical compiler binaries.
+
 ## Restored optional implementations and runtime controls
 
 | Implementation | Reference runtime controls / limits |

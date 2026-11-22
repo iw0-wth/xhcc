@@ -187,6 +187,16 @@ long long_identity(long a) { long local = a; return local; }
                                       '-fno-builtin', success=False)
         self.assertTrue('puts' in diagnostics or 'undefined' in diagnostics.lower(), diagnostics)
 
+    def test_floating_class_beyond_legacy_argument_mask(self):
+        parameters = ', '.join('int a' + str(i) for i in range(16))
+        arguments = ', '.join(str(i + 1) for i in range(16))
+        source = ('extern double late_fp(' + parameters + ', double last);\n'
+                  'double call_late_fp(void) { return late_fp(' + arguments + ', 3.5); }\n')
+        asm, _ = self.compile(source, '-O0')
+        self.assertIn('late_fp', asm)
+        if TARGET == 'x86_64':
+            self.assertIn('xmm0', asm.lower())
+
     def test_reference_layout_and_bitfield_cases(self):
         # Representative cases from arkcc run_layout/run_bitfield_tests.
         asm, _ = self.compile('''

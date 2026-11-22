@@ -5894,6 +5894,14 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                         if (al >= 8) wires[i] |= 0x10000;
                         else if (wires[i] == 8) wire_extra = 1;
                     }
+                    /* The legacy 2-bit mask ends after argument 15. Carry FP
+                     * class independently of size/alignment so a later double
+                     * can still use the SysV SSE argument bank. A side table
+                     * is mandatory for every FP argument beyond that mask. */
+                    if (use_t && (use_t->kind == TYPE_FLOAT || use_t->kind == TYPE_DOUBLE)) {
+                        wires[i] |= 0x40000;
+                        if (i >= 16) wire_extra = 1;
+                    }
                 }
                 if (wire_extra) {
                     int start = ir_program_add_argbytes(g->prog, wires, max_args);

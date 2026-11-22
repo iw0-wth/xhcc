@@ -89,7 +89,7 @@ class EncodingRules(unittest.TestCase):
   source=OUT/'variant.c';source.write_text('int entry(void){return 4096;}\n')
   base=(ROOT/'packages/riscv32/encoding.rules').read_text()
   with tempfile.TemporaryDirectory(prefix='xh-rules-') as tmp:
-   root=Path(tmp);pkg=root/'variant';pkg.mkdir();(pkg/'include').mkdir()
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg)
    manifest=(ROOT/'packages/riscv32/package.ini').read_text().replace('id=riscv32','id=variant').replace('tools=riscv32-unknown-elf-gcc,riscv32-none-elf-gcc','tools=variant-gcc')
    (pkg/'package.ini').write_text(manifest)
    shutil.copy2(ROOT/'packages/riscv32/selection.rules',pkg/'selection.rules')
@@ -125,7 +125,7 @@ class EncodingRules(unittest.TestCase):
   source=OUT/'selection.c';source.write_text('int entry(void){int a=10,b=3;return a+b;}\n')
   base=(ROOT/'packages/riscv32/selection.rules').read_text()
   with tempfile.TemporaryDirectory(prefix='xh-rules-') as tmp:
-   root=Path(tmp);pkg=root/'variant';pkg.mkdir();(pkg/'include').mkdir()
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg)
    manifest=(ROOT/'packages/riscv32/package.ini').read_text().replace('id=riscv32','id=variant').replace('tools=riscv32-unknown-elf-gcc,riscv32-none-elf-gcc','tools=variant-gcc')
    (pkg/'package.ini').write_text(manifest)
    shutil.copy2(ROOT/'packages/riscv32/encoding.rules',pkg/'encoding.rules')
@@ -183,7 +183,7 @@ class EncodingRules(unittest.TestCase):
   # sequences must produce identical machine text for all 32 functions.
   import tempfile, shutil
   with tempfile.TemporaryDirectory(prefix='xh-fallback-') as tmp:
-   root=Path(tmp);pkg=root/'fallback';pkg.mkdir();(pkg/'include').mkdir()
+   root=Path(tmp);pkg=root/'fallback';shutil.copytree(ROOT/'packages/riscv32',pkg)
    manifest=(ROOT/'packages/riscv32/package.ini').read_text().replace('id=riscv32','id=fallback').replace('tools=riscv32-unknown-elf-gcc,riscv32-none-elf-gcc','tools=fallback-gcc');(pkg/'package.ini').write_text(manifest)
    shutil.copy2(ROOT/'packages/riscv32/encoding.rules',pkg/'encoding.rules');(pkg/'selection.rules').write_text('XHSELECT 2\n')
    fallback=OUT/'fallback.o';p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'fallback-gcc','-O0','-c',str(source.relative_to(ROOT)),'-o',str(fallback.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)

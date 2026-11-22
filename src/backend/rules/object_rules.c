@@ -1,0 +1,25 @@
+/* Bounded external ELF target descriptor; serializer algorithms stay C.
+ * XHOBJECT 1; target NAME; class 32|64; machine U16; endian little;
+ * flags U32; abi NAME; attributes HEX|-; relmap INTERNAL ELF. */
+#include "xh_object_rules.h"
+#include "flash_fs.h"
+#include "diag.h"
+#include <stdlib.h>
+#include <string.h>
+#define MAX_BYTES 8192
+typedef struct{char target[32],path[512];}Path;
+static Path paths[8];static int npaths;static XhObjectTarget*cache;
+static const char*pathof(const char*t){int i;for(i=0;i<npaths;i++)if(!strcmp(paths[i].target,t)&&paths[i].path[0])return paths[i].path;if(!strcmp(t,"arm"))return "packages/arm-cortex-m3/object.rules";if(!strcmp(t,"riscv32"))return "packages/riscv32/object.rules";if(!strcmp(t,"x86"))return "packages/x86/object.rules";if(!strcmp(t,"x86_64"))return "packages/x86_64/object.rules";return "<object.rules>";}
+static int error(const char*t,const char*m){diag_tool(DIAG_SEV_ERROR,pathof(t),m,0,0,0,0,0,0);return -1;}
+void xh_object_rules_release(void){free(cache);cache=0;}
+int xh_object_rules_set_path(const char*t,const char*p){int i;size_t n=p?strlen(p):0;if(!t||!*t||strlen(t)>=32||n>=512)return -1;for(i=0;i<npaths;i++)if(!strcmp(paths[i].target,t))break;if(i==npaths){if(npaths==8)return error(t,"too many object target registrations");strcpy(paths[i].target,t);paths[i].path[0]=0;npaths++;}if(strcmp(paths[i].path,p?p:"")){if(cache&&!strcmp(cache->target,t))xh_object_rules_release();if(n)memcpy(paths[i].path,p,n);paths[i].path[n]=0;}return 0;}
+static char*tok(char**p){char*s=*p,*r;for(;;){while(*s==' '||*s=='\t'||*s=='\r'||*s=='\n')s++;if(*s!='#')break;while(*s&&*s!='\n')s++;}if(!*s)return 0;r=s;while(*s&&*s!=' '&&*s!='\t'&&*s!='\r'&&*s!='\n'&&*s!='#')s++;if(*s=='#'){*s++=0;while(*s&&*s!='\n')s++;}else if(*s)*s++=0;*p=s;return r;}
+static int number(char**p,unsigned*v){char*s=tok(p),*end;unsigned long long n;if(!s||*s=='-')return -1;n=strtoull(s,&end,0);if(!*s||*end||n>0xffffffffULL)return -1;*v=(unsigned)n;return 0;}
+static int hex(int c){if(c>='0'&&c<='9')return c-'0';if(c>='a'&&c<='f')return c-'a'+10;if(c>='A'&&c<='F')return c-'A'+10;return -1;}
+const XhObjectTarget*xh_object_rules_get(const char*target){int size,n,i;unsigned seen=0,v;char*text,*p,*t;XhObjectTarget*next;if(!target||!*target||strlen(target)>=32)return 0;if(cache&&!strcmp(cache->target,target))return cache;xh_object_rules_release();size=fs_file_size(pathof(target));if(size<1||size>MAX_BYTES){error(target,"object rules file missing or exceeds 8192 bytes");return 0;}text=malloc((size_t)size+1);next=calloc(1,sizeof(*next));if(!text||!next){free(text);free(next);error(target,"not enough memory for object rules");return 0;}n=fs_read_file(pathof(target),text,size+1);if(n!=size)goto bad;p=text;t=tok(&p);if(!t||strcmp(t,"XHOBJECT")||number(&p,&v)||v!=1)goto bad;
+ while((t=tok(&p))!=0){unsigned bit=0;if(!strcmp(t,"target")){char*s=tok(&p);bit=1;if(!s||strcmp(s,target))goto bad;strcpy(next->target,s);}else if(!strcmp(t,"class")){bit=2;if(number(&p,&next->elf_class)||(next->elf_class!=32&&next->elf_class!=64))goto bad;}else if(!strcmp(t,"machine")){bit=4;if(number(&p,&next->machine)||next->machine>65535)goto bad;}else if(!strcmp(t,"endian")){char*s=tok(&p);bit=8;if(!s||strcmp(s,"little"))goto bad;next->endian=1;}else if(!strcmp(t,"flags")){bit=16;if(number(&p,&next->flags))goto bad;}else if(!strcmp(t,"abi")){char*s=tok(&p);bit=32;if(!s||!*s||strlen(s)>=32)goto bad;strcpy(next->abi,s);}else if(!strcmp(t,"attributes")){char*s=tok(&p);size_t len;bit=64;if(!s)goto bad;if(strcmp(s,"-")){len=strlen(s);if((len&1)||len>XH_OBJECT_MAX_ATTRS*2)goto bad;for(i=0;i<(int)len;i+=2){int h=hex(s[i]),l=hex(s[i+1]);if(h<0||l<0)goto bad;next->attributes[next->attributes_size++]=(unsigned char)((h<<4)|l);}}}else if(!strcmp(t,"relmap")){unsigned internal,elf;if(number(&p,&internal)||number(&p,&elf)||next->relocation_count==XH_OBJECT_MAX_RELOCS)goto bad;if((next->elf_class==32&&elf>255)||elf>0x7fffffff)goto bad;for(i=0;i<next->relocation_count;i++)if(next->relocations[i].internal==internal)goto bad;next->relocations[next->relocation_count].internal=internal;next->relocations[next->relocation_count++].elf=elf;}else goto bad;if(bit){if(seen&bit)goto bad;seen|=bit;}}
+ if(seen!=127||!next->relocation_count)goto bad;for(i=0;i<next->relocation_count;i++)if(next->elf_class==32&&next->relocations[i].elf>255)goto bad;
+ if(next->attributes_size){unsigned section_len;if(next->attributes_size<5||next->attributes[0]!='A')goto bad;section_len=(unsigned)next->attributes[1]|((unsigned)next->attributes[2]<<8)|((unsigned)next->attributes[3]<<16)|((unsigned)next->attributes[4]<<24);if(section_len!=next->attributes_size-1)goto bad;}
+ free(text);cache=next;return cache;
+ bad:free(text);free(next);error(target,"invalid object rules: version, target, syntax, bounds or duplicate");return 0;}
+int xh_object_rules_relocation(const XhObjectTarget*t,unsigned internal,unsigned*elf){int i;if(!t||!elf)return -1;for(i=0;i<t->relocation_count;i++)if(t->relocations[i].internal==internal){*elf=t->relocations[i].elf;return 0;}return error(t->target,"object relocation has no external mapping");}

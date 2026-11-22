@@ -12990,9 +12990,7 @@ static void pass2_a(ArmAsm *a) {
                     unsigned imm4 = (imm >> 12) & 0xF;
                     unsigned imm3 = (imm >> 8) & 0x7;
                     unsigned imm8 = imm & 0xFF;
-                    unsigned hi = 0xF240u | (ii << 10) | imm4;
-                    unsigned lo = (imm3 << 12) | ((rd & 0xF) << 8) | imm8;
-                    out16(a, hi); out16(a, lo);
+                    arm_encode32(a,"MOVW",rd,(int)((imm4<<12)|(ii<<11)|(imm3<<8)|imm8),0,0,2);
                 }
                 /* Emit MOVT rd, #high16 */
                 {
@@ -13001,9 +12999,7 @@ static void pass2_a(ArmAsm *a) {
                     unsigned imm4 = (imm >> 12) & 0xF;
                     unsigned imm3 = (imm >> 8) & 0x7;
                     unsigned imm8 = imm & 0xFF;
-                    unsigned hi = 0xF2C0u | (ii << 10) | imm4;
-                    unsigned lo = (imm3 << 12) | ((rd & 0xF) << 8) | imm8;
-                    out16(a, hi); out16(a, lo);
+                    arm_encode32(a,"MOVT",rd,(int)((imm4<<12)|(ii<<11)|(imm3<<8)|imm8),0,0,2);
                 }
                 skip_to_eol_a(&p);
                 if (*p == '\n') p++;
@@ -13201,19 +13197,14 @@ static void pass2_a(ArmAsm *a) {
                 else if (*p == 'f' || *p == 'F') affect_f = 1;
                 p++;
             }
-            out16(a, 0xB660 | (is_id ? 0x10 : 0) | (affect_i ? 0x2 : 0) | (affect_f ? 0x1 : 0));
+            arm_encode16(a,"CPS",is_id,affect_i,affect_f,0,3);
         }
         else if (strieq_a(first, "DMB") || strieq_a(first, "DSB") || strieq_a(first, "ISB")) {
             /* T1 32-bit barriers: 0xF3BF 0x8F4x/5x/6x, option=0xF for SY.
              *   DMB SY = F3BF 8F5F, DSB SY = F3BF 8F4F, ISB SY = F3BF 8F6F.
              * Pass1 op_size_a returns 4 for these. Previously NOP'd (2 bytes),
              * causing pass1/pass2 size mismatch and silent instruction drops. */
-            unsigned lo_base;
-            if      (strieq_a(first, "DMB")) lo_base = 0x8F50;
-            else if (strieq_a(first, "DSB")) lo_base = 0x8F40;
-            else                             lo_base = 0x8F60;  /* ISB */
-            arm_encode16(a,"FIXED_F3BF",0,0,0,0,0);
-            out16(a, lo_base | 0xF);
+            arm_encode32(a,strieq_a(first,"DMB")?"DMB":strieq_a(first,"DSB")?"DSB":"ISB",0,0,0,0,0);
         }
         else if (strieq_a(first, "SEV") || strieq_a(first, "WFE") || strieq_a(first, "WFI")) {
             /* 16-bit hint instructions (no operands).
@@ -13228,13 +13219,8 @@ static void pass2_a(ArmAsm *a) {
              *   REV=0xBA00, REV16=0xBA40, REVSH=0xBAC0. */
             int rd = parse_reg_a(&p);
             int rm;
-            unsigned base;
-            eat_comma_a(&p);
-            rm = parse_reg_a(&p);
-            if      (strieq_a(first, "REV"))   base = 0xBA00;
-            else if (strieq_a(first, "REV16")) base = 0xBA40;
-            else                               base = 0xBAC0;  /* REVSH */
-            out16(a, base | ((rm & 7) << 3) | (rd & 7));
+            eat_comma_a(&p);rm=parse_reg_a(&p);
+            arm_encode16(a,strieq_a(first,"REV")?"REV":strieq_a(first,"REV16")?"REV16":"REVSH",rd,rm,0,0,2);
         }
         else if (strieq_a(first, "RRX")) {
             /* 32-bit: MOV Rd, Rm, RRX = 0xEA4F (Rd<<12) 0x30 Rm.
@@ -13243,8 +13229,7 @@ static void pass2_a(ArmAsm *a) {
             int rm;
             eat_comma_a(&p);
             rm = parse_reg_a(&p);
-            arm_encode16(a,"FIXED_EA4F",0,0,0,0,0);
-            out16(a, (unsigned)((rd & 0xF) << 12) | 0x30 | (rm & 0xF));
+            arm_encode32(a,"RRX",rd,rm,0,0,2);
         }
         /* ===== #1 FIX: VFP floating-point instruction encoders =====
          * Previously ALL VFP instructions fell through to NOP (0xBF00),
@@ -13268,30 +13253,20 @@ static void pass2_a(ArmAsm *a) {
                 /* VMOV Sn, Rt — core register to VFP single register */
                 int sn = parse_vfp_sreg_a(&p);
                 int rt;
-                unsigned vn, n_bit, hi, lo;
+
                 if (sn < 0) sn = 0;
                 eat_comma_a(&p);
                 rt = parse_reg_a(&p);
-                vn = ark_vfp_nib(sn, 0);
-                n_bit = ark_vfp_half(sn, 0);
-                hi = 0xEE00u | vn;
-                lo = 0x0A10u | (unsigned)((rt & 0xF) << 12) | (n_bit << 7);
-                out16(a, hi);
-                out16(a, lo);
+                arm_encode32(a,"VMOV_TO",sn,rt,0,0,2);
             } else {
                 /* VMOV Rt, Sn — VFP single register to core register */
                 int rt = parse_reg_a(&p);
                 int sn;
-                unsigned vn, n_bit, hi, lo;
+
                 eat_comma_a(&p);
                 sn = parse_vfp_sreg_a(&p);
                 if (sn < 0) sn = 0;
-                vn = ark_vfp_nib(sn, 0);
-                n_bit = ark_vfp_half(sn, 0);
-                hi = 0xEE10u | vn;   /* bit20=1 means VFP->core */
-                lo = 0x0A10u | (unsigned)((rt & 0xF) << 12) | (n_bit << 7);
-                out16(a, hi);
-                out16(a, lo);
+                arm_encode32(a,"VMOV_FROM",sn,rt,0,0,2);
             }
         }
         else if (strieq_a(first, "VADD") || strieq_a(first, "VSUB") ||
@@ -13299,17 +13274,11 @@ static void pass2_a(ArmAsm *a) {
             /* VOP.F32 Sd,Sn,Sm  or  VOP.F64 Dd,Dn,Dm */
             char suf[16];
             int is_f64;
-            unsigned base;
+            char key[32];
             int sd, sn, sm;
-            unsigned d, vd, n_bit, vn, m, vm;
-            unsigned hi, lo;
             read_vfp_suffix_a(&p, suf, (int)sizeof(suf));
             is_f64 = strieq_a(suf, "F64");
-            if      (strieq_a(first, "VADD")) base = is_f64 ? 0xEE300B00u : 0xEE300A00u;
-            else if (strieq_a(first, "VSUB")) base = is_f64 ? 0xEE300B40u : 0xEE300A40u;
-            else if (strieq_a(first, "VMUL")) base = is_f64 ? 0xEE200B00u : 0xEE200A00u;
-            /* FIX(vfp-encode): VDIV was 0xEE000A40/0xEE000B40 = VMLS, so every float division lost its division. */
-            else                              base = is_f64 ? 0xEE800B00u : 0xEE800A00u;
+            snprintf(key,sizeof key,"%s_%s",strieq_a(first,"VADD")?"VADD":strieq_a(first,"VSUB")?"VSUB":strieq_a(first,"VMUL")?"VMUL":"VDIV",is_f64?"F64":"F32");
             if (is_f64) {
                 sd = parse_vfp_dreg_a(&p); eat_comma_a(&p);
                 sn = parse_vfp_dreg_a(&p); eat_comma_a(&p);
@@ -13320,16 +13289,7 @@ static void pass2_a(ArmAsm *a) {
                 sm = parse_vfp_sreg_a(&p);
             }
             if (sd < 0) sd = 0; if (sn < 0) sn = 0; if (sm < 0) sm = 0;
-            d     = ark_vfp_half(sd, is_f64);   /* bit22   = Sd[0] */
-            vd    = ark_vfp_nib (sd, is_f64);   /* bits15:12 = Sd[4:1] */
-            n_bit = ark_vfp_half(sn, is_f64);   /* bit7    = Sn[0] */
-            vn    = ark_vfp_nib (sn, is_f64);   /* bits19:16 = Sn[4:1] */
-            m     = ark_vfp_half(sm, is_f64);   /* bit5    = Sm[0] */
-            vm    = ark_vfp_nib (sm, is_f64);   /* bits3:0 = Sm[4:1] */
-            hi = (base >> 16) | (d << 6) | vn;
-            lo = (base & 0xFFFF) | (vd << 12) | (n_bit << 7) | (m << 5) | vm;
-            out16(a, hi);
-            out16(a, lo);
+            arm_encode32(a,key,sd,sn,sm,0,3);
         }
         else if (strieq_a(first, "VCVT")) {
             /* VCVT register conversions.  Every base below is the encoding for
@@ -13343,29 +13303,27 @@ static void pass2_a(ArmAsm *a) {
              * used to fall through to the S32.F32 base, so unsigned
              * conversions and float<->double casts silently became S32.F32. */
             char suf[32];
-            unsigned base;
+            const char *key;
             int sd = 0, sm = 0;
             int dst_dbl, src_dbl;
-            unsigned d, vd, m, vm;
-            unsigned hi, lo;
             read_vfp_suffix_a(&p, suf, (int)sizeof(suf));
-            if      (strieq_a(suf, "S32F32")) base = 0xEEBD0AC0u;
-            else if (strieq_a(suf, "U32F32")) base = 0xEEBC0AC0u;
-            else if (strieq_a(suf, "F32S32")) base = 0xEEB80AC0u;
-            else if (strieq_a(suf, "F32U32")) base = 0xEEB80A40u;
-            else if (strieq_a(suf, "S32F64")) base = 0xEEBD0BC0u;
-            else if (strieq_a(suf, "U32F64")) base = 0xEEBC0BC0u;
-            else if (strieq_a(suf, "F64S32")) base = 0xEEB80BC0u;
-            else if (strieq_a(suf, "F64U32")) base = 0xEEB80B40u;
-            else if (strieq_a(suf, "F32F64")) base = 0xEEB70BC0u;
-            else if (strieq_a(suf, "F64F32")) base = 0xEEB70AC0u;
+            if      (strieq_a(suf, "S32F32")) key = "VCVT_S32F32";
+            else if (strieq_a(suf, "U32F32")) key = "VCVT_U32F32";
+            else if (strieq_a(suf, "F32S32")) key = "VCVT_F32S32";
+            else if (strieq_a(suf, "F32U32")) key = "VCVT_F32U32";
+            else if (strieq_a(suf, "S32F64")) key = "VCVT_S32F64";
+            else if (strieq_a(suf, "U32F64")) key = "VCVT_U32F64";
+            else if (strieq_a(suf, "F64S32")) key = "VCVT_F64S32";
+            else if (strieq_a(suf, "F64U32")) key = "VCVT_F64U32";
+            else if (strieq_a(suf, "F32F64")) key = "VCVT_F32F64";
+            else if (strieq_a(suf, "F64F32")) key = "VCVT_F64F32";
             else {
                 /* Do not guess: an unknown suffix used to be encoded as
                  * VCVT.S32.F32, i.e. a silently wrong operation. */
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
                           "unsupported VCVT suffix", 0,0,0,0,0,0);
                 a->hard_errors++;
-                base = 0xEEBD0AC0u;
+                key = "VCVT_S32F32";
             }
             dst_dbl = strieq_a(suf, "F64S32") || strieq_a(suf, "F64U32") ||
                       strieq_a(suf, "F64F32");
@@ -13376,14 +13334,7 @@ static void pass2_a(ArmAsm *a) {
             if (src_dbl) sm = parse_vfp_dreg_a(&p);
             else         sm = parse_vfp_sreg_a(&p);
             if (sd < 0) sd = 0; if (sm < 0) sm = 0;
-            d  = ark_vfp_half(sd, dst_dbl);
-            vd = ark_vfp_nib (sd, dst_dbl);
-            m  = ark_vfp_half(sm, src_dbl);
-            vm = ark_vfp_nib (sm, src_dbl);
-            hi = (base >> 16) | (d << 6);
-            lo = (base & 0xFFFF) | (vd << 12) | (m << 5) | vm;
-            out16(a, hi);
-            out16(a, lo);
+            arm_encode32(a,key,sd,sm,0,0,2);
         }
         else if (strieq_a(first, "VCMP")) {
             /* VCMP.F32 Sd,Sm / VCMP.F64 Dd,Dm / VCMP.F32|F64 Sd,#0.0
@@ -13398,13 +13349,9 @@ static void pass2_a(ArmAsm *a) {
              * immediate is a hard error instead of a wrong answer. */
             char suf[16];
             int is_f64, cmp_zero = 0;
-            unsigned base;
             int sd, sm = 0;
-            unsigned d, vd, m, vm;
-            unsigned hi, lo;
             read_vfp_suffix_a(&p, suf, (int)sizeof(suf));
             is_f64 = strieq_a(suf, "F64");
-            base = is_f64 ? 0xEEB40B40u : 0xEEB40A40u;
             if (is_f64) sd = parse_vfp_dreg_a(&p);
             else        sd = parse_vfp_sreg_a(&p);
             if (sd < 0) {
@@ -13432,7 +13379,6 @@ static void pass2_a(ArmAsm *a) {
                     a->hard_errors++;
                 }
                 cmp_zero = 1;
-                base = is_f64 ? 0xEEB50B40u : 0xEEB50A40u;
             } else if (is_f64) {
                 sm = parse_vfp_dreg_a(&p);
             } else {
@@ -13444,14 +13390,7 @@ static void pass2_a(ArmAsm *a) {
                 a->hard_errors++;
                 sm = 0;
             }
-            d  = ark_vfp_half(sd, is_f64);
-            vd = ark_vfp_nib (sd, is_f64);
-            m  = cmp_zero ? 0u : ark_vfp_half(sm, is_f64);
-            vm = cmp_zero ? 0u : ark_vfp_nib (sm, is_f64);
-            hi = (base >> 16) | (d << 6);
-            lo = (base & 0xFFFF) | (vd << 12) | (m << 5) | vm;
-            out16(a, hi);
-            out16(a, lo);
+            arm_encode32(a,is_f64?(cmp_zero?"VCMP_ZERO_F64":"VCMP_F64"):(cmp_zero?"VCMP_ZERO_F32":"VCMP_F32"),sd,cmp_zero?0:sm,0,0,2);
         }
         else if (strieq_a(first, "VMRS")) {
             /* VMRS APSR_nzcv, FPSCR = 0xEEF1FA10.
@@ -13477,25 +13416,18 @@ static void pass2_a(ArmAsm *a) {
                           rn_m, sys_m, 0,0,0,0);
                 a->hard_errors++;
             }
-            arm_encode16(a,"FIXED_EEF1",0,0,0,0,0);
-            arm_encode16(a,"FIXED_FA10",0,0,0,0,0);
+            arm_encode32(a,"VMRS_APSR",0,0,0,0,0);
         }
         else if (strieq_a(first, "VNEG") || strieq_a(first, "VABS") ||
                  strieq_a(first, "VSQRT")) {
             /* VNEG/VABS/VSQRT .F32 Sd,Sm  or  .F64 Dd,Dm */
             char suf[16];
             int is_f64;
-            unsigned base;
+            char key[32];
             int sd, sm;
-            unsigned d, vd, m, vm;
-            unsigned hi, lo;
             read_vfp_suffix_a(&p, suf, (int)sizeof(suf));
             is_f64 = strieq_a(suf, "F64");
-            /* FIX(vfp-encode): VNEG is 0xEEB10A40/0xEEB10B40 (0xEEB10AC0 is VSQRT). */
-            if      (strieq_a(first, "VNEG"))  base = is_f64 ? 0xEEB10B40u : 0xEEB10A40u;
-            else if (strieq_a(first, "VABS"))  base = is_f64 ? 0xEEB00BC0u : 0xEEB00AC0u;
-            /* FIX(vfp-encode): VSQRT is 0xEEB10AC0/0xEEB10BC0 (0xEEB11AC0 does not exist). */
-            else                               base = is_f64 ? 0xEEB10BC0u : 0xEEB10AC0u;
+            snprintf(key,sizeof key,"%s_%s",strieq_a(first,"VNEG")?"VNEG":strieq_a(first,"VABS")?"VABS":"VSQRT",is_f64?"F64":"F32");
             if (is_f64) {
                 sd = parse_vfp_dreg_a(&p); eat_comma_a(&p);
                 sm = parse_vfp_dreg_a(&p);
@@ -13504,14 +13436,7 @@ static void pass2_a(ArmAsm *a) {
                 sm = parse_vfp_sreg_a(&p);
             }
             if (sd < 0) sd = 0; if (sm < 0) sm = 0;
-            d  = ark_vfp_half(sd, is_f64);
-            vd = ark_vfp_nib (sd, is_f64);
-            m  = ark_vfp_half(sm, is_f64);
-            vm = ark_vfp_nib (sm, is_f64);
-            hi = (base >> 16) | (d << 6);
-            lo = (base & 0xFFFF) | (vd << 12) | (m << 5) | vm;
-            out16(a, hi);
-            out16(a, lo);
+            arm_encode32(a,key,sd,sm,0,0,2);
         }
         else if (strieq_a(first, "VLDR") || strieq_a(first, "VSTR")) {
             /* VLDR/VSTR Sd, [Rn, #imm]  — 32-bit T1 encoding.
@@ -13524,11 +13449,8 @@ static void pass2_a(ArmAsm *a) {
             char suf[16];
             char sym[64];
             int is_f64;
-            unsigned base;
+            char key[32];
             int sd, rn, imm;
-            unsigned d, vd;
-            unsigned hi, lo;
-            unsigned imm8;
             int is_load = strieq_a(first, "VLDR");
             read_vfp_suffix_a(&p, suf, (int)sizeof(suf));
             /* armasm also accepts the ".32"/".64" spelling of the same suffix. */
@@ -13552,8 +13474,7 @@ static void pass2_a(ArmAsm *a) {
                 a->hard_errors++;
                 sd = 0;
             }
-            if (is_f64) base = is_load ? 0xED900B00u : 0xED800B00u;
-            else        base = is_load ? 0xED900A00u : 0xED800A00u;
+            snprintf(key,sizeof key,"%s_%s",is_load?"VLDR":"VSTR",is_f64?"F64":"F32");
             eat_comma_a(&p);
             skip_space_a(&p);
             imm = 0;
@@ -13646,13 +13567,7 @@ static void pass2_a(ArmAsm *a) {
                 a->hard_errors++;
                 imm = 0;
             }
-            d  = ark_vfp_half(sd, is_f64);
-            vd = ark_vfp_nib (sd, is_f64);
-            imm8 = (unsigned)((imm >> 2) & 0xFF);
-            hi = (base >> 16) | (d << 6) | (unsigned)(rn & 0xF);
-            lo = (base & 0xFFFF) | (vd << 12) | imm8;
-            out16(a, hi);
-            out16(a, lo);
+            arm_encode32(a,key,sd,rn,imm>>2,0,3);
         }
         else if (strieq_a(first, "TST")) {
             /* TST (register): 16-bit T1 0100000000 Rm Rn for r0-r7,

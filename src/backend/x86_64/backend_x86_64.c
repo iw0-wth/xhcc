@@ -34,6 +34,12 @@
 #  include <stdlib.h>
 #endif
 
+static int x86_abi_align(int bytes,const char *key) {
+    int alignment=xh_x86_number(key);
+    if(alignment<=0 || alignment>4096 || (alignment&(alignment-1)))return bytes;
+    return (bytes+alignment-1)&~(alignment-1);
+}
+
 /* cdecl has no integer-class argument registers; all args are on the stack. */
 static const char *arg_reg(int i, int abi) {
     (void)i; (void)abi;
@@ -539,8 +545,8 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
     for (fi = 0; fi < prog->func_count; fi++) {
         IrFunc *f = prog->funcs[fi];
         int i;
-        int local_size = (f->local_size + 15) & ~15;
-        if (local_size < 16) local_size = 16;
+        int local_size = x86_abi_align(f->local_size,"abi.frame.alignment");
+        if (local_size < xh_x86_number("abi.frame.minimum_locals")) local_size = xh_x86_number("abi.frame.minimum_locals");
         /* 32-bit frame geometry: locals live at [ebp - framelo + off], with
          * `off` counted *upward* from the bottom of the local area -- exactly
          * like the AMD64 path's [rbp - FRAMELO + off].  This used to be
@@ -550,7 +556,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
          * unrelated slot (int a[3]={1,2,3} read back 1,0,0).  Members of a
          * struct only "worked" because the upward offsets still landed in the
          * 36-byte gap between the saved registers and the local area. */
-        int framelo = 48 + local_size;
+        int framelo = xh_x86_number("abi.frame.locals_gap") + local_size;
         /* One result buffer per call site that returns a struct/union wider
          * than 8 bytes (IR_CALL bit 36).  cdecl hands such a result back
          * through a buffer the caller owns, passed as the hidden first
@@ -564,7 +570,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
         int sret_site_n = 0;
         int sret_site_cur = 0;
         int sret_pool = 0;
-        int sret_area_off = framelo + 512;
+        int sret_area_off = framelo + xh_x86_number("abi.frame.scratch_bytes");
         int frame_reserve;
         {
             int ii;
@@ -573,7 +579,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                 int sz;
                 if (si->op != IR_CALL || !((si->val >> 36) & 1)) continue;
                 sz = (int)((si->val >> 37) & 0xFFFF);
-                sz = (sz + 7) & ~7;
+                sz = x86_abi_align(sz,"abi.aggregate.sret_alignment");
                 if (sz <= 0 || sz > 0xFFFF) {
                     char b1[12];
                     diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -604,14 +610,14 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
          * restoring esp to the saved value and then `push eax` (the result
          * pointer) overwrites the buffer's first word, and the caller reads a
          * stack address back as the struct's leading member. */
-        frame_reserve = (sret_area_off + sret_pool) - 12;
+        frame_reserve = (sret_area_off + sret_pool) - xh_x86_number("abi.frame.saved_bytes");
         /* sret detection: if the function returns a struct/union > 8 bytes,
          * cdecl passes a hidden first arg = return buffer pointer at [ebp+8]. */
         int sret_off = 0;
         if (f->ret_type &&
             (f->ret_type->kind == TYPE_STRUCT || f->ret_type->kind == TYPE_UNION) &&
-            type_size(f->ret_type) > 8) {
-            sret_off = local_size + 48 + 200;
+            type_size(f->ret_type) > xh_x86_number("abi.aggregate.direct_limit")) {
+            sret_off = local_size + xh_x86_number("abi.frame.locals_gap") + xh_x86_number("abi.frame.sret_pointer_offset");
         }
 
         /* Static functions must stay file-local; exporting them as strong
@@ -650,7 +656,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
         /* 16 spare bytes for the 64-bit divide loop, in the hole between the
          * call-argument scratch area (which ends at framelo + 496 for the 116
          * words the width check allows) and the sret pool (framelo + 512). */
-        int divtmp = framelo + 496;
+        int divtmp = framelo + xh_x86_number("abi.frame.div_scratch_offset");
         for (i = 0; i < f->code_count; i++) {
             IrInst *I = &f->code[i];
             switch (I->op) {
@@ -701,7 +707,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * walk, which is a different (and deliberately uniform)
                      * shape. */
                     {
-                        int stk = 8 + (sret_off ? 4 : 0);
+                        int stk = xh_x86_number("abi.stack.argument_base") + (sret_off ? xh_x86_number("abi.stack.word") : 0);
                         int st_sz = (I->aux >> 8) & 0xFFFFFF;
                         /* param_idx was already bumped, so param_idx - 1 is the
                          * number of *real* parameters ahead of this one.  It must
@@ -720,11 +726,11 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             int w = 4;
                             if (f->param_types && j < f->param_count) {
                                 int ps = type_size(f->param_types[j]);
-                                if (ps > 4) w = (ps <= 8) ? 8 : 4;
+                                w = xh_x86_aggregate_wire(ps);
                             }
                             stk += w;
                         }
-                        if (st_sz > 8) {
+                        if (st_sz > xh_x86_number("abi.aggregate.direct_limit")) {
                             /* Named composite wider than 8 bytes: the slot holds
                              * a pointer, and the payload is copied into the
                              * frame -- same wire shape the caller emitted. */
@@ -735,7 +741,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             asmbuf_puts(&buf, xh_x86_rule("text.bf5c869475327afb"));
                             asmbuf_int(&buf, st_sz);
                             asmbuf_puts(&buf, xh_x86_rule("text.8d3fc2867d2efe58"));
-                        } else if (st_sz > 4) {
+                        } else if (st_sz > xh_x86_number("abi.ir.word")) {
                             /* 64-bit scalar or a 5..8 byte composite: two
                              * words, low word at the lower address. */
                             asmbuf_puts(&buf, xh_x86_rule("text.f11eba8d7ffdb259"));
@@ -1088,7 +1094,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     int stack_cnt = 0;
                     /* 16 bytes below the bottom of the local area, so the
                      * saved-esp slot can never overlap the lowest local. */
-                    int scratch_base = framelo + 16;
+                    int scratch_base = framelo + xh_x86_number("abi.frame.call_scratch_gap");
                     int is_void_ret = 0;
                     int sret_call = (int)((I->val >> 36) & 1);
                     int sret_buf_off = 0;
@@ -1120,7 +1126,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     /* The call-scratch area holds 4 bytes per argument; it ends
                      * where the sret buffers begin.  Overflow is an error, not
                      * a silent overlap. */
-                    if (n > 120) {
+                    if (n > xh_x86_number("abi.call.i386_argument_limit")) {
                         ark_log("[x86] error: call in '%s' passes more than 120 "
                                 "arguments\n", f->name);
                         x86_emit_errors++;
@@ -1162,7 +1168,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                                 else if (t->kind == TYPE_FLOAT)
                                     b = 4;
                                 else if (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION)
-                                    b = (ts > 8) ? 4 : ((ts > 4) ? 8 : 4);
+                                    b = xh_x86_aggregate_wire(ts);
                                 else
                                     b = 4;
                             }
@@ -1179,7 +1185,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * run here, after the width table is built -- it used to
                      * sit above the loop that computes words_total, so it
                      * compared an initialised 0 and could never fire. */
-                    if (words_total > 116) {
+                    if (words_total > xh_x86_number("abi.call.max_words")) {
                         ark_log("[x86] error: call in '%s' needs %d argument words "
                                 "but the call-scratch area holds 116\n",
                                 f->name, words_total);
@@ -1200,16 +1206,16 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                             int w = (ai2 < 64) ? (wb[ai2] + 3) / 4 : 1;
                             if (w == 2) {
                                 asmbuf_puts(&buf, xh_x86_rule("text.75ab89ac001efdf8"));
-                                asmbuf_int(&buf, scratch_base + 16 + 4 * (stack_cnt + 1));
+                                asmbuf_int(&buf, scratch_base + xh_x86_number("abi.frame.call_scratch_gap") + xh_x86_number("abi.ir.word") * (stack_cnt + 1));
                                 asmbuf_puts(&buf, xh_x86_rule("text.d67539bdfd59d10f"));
-                                asmbuf_int(&buf, scratch_base + 16 + 4 * stack_cnt);
+                                asmbuf_int(&buf, scratch_base + xh_x86_number("abi.frame.call_scratch_gap") + xh_x86_number("abi.ir.word") * stack_cnt);
                                 asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                                 stack_cnt += 2;
                             } else {
                                 int wi3;
                                 for (wi3 = 0; wi3 < w; wi3++) {
                                     asmbuf_puts(&buf, xh_x86_rule("text.75ab89ac001efdf8"));
-                                    asmbuf_int(&buf, scratch_base + 16 + 4 * stack_cnt);
+                                    asmbuf_int(&buf, scratch_base + xh_x86_number("abi.frame.call_scratch_gap") + xh_x86_number("abi.ir.word") * stack_cnt);
                                     asmbuf_puts(&buf, xh_x86_rule("text.44b5e9f85f2e61a3"));
                                     stack_cnt++;
                                 }
@@ -1234,7 +1240,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     asmbuf_puts(&buf, xh_x86_rule("text.83259b2ffb2f8cc1"));
                     if (stack_cnt + (sret_call ? 1 : 0) > 0) {
                         asmbuf_puts(&buf, xh_x86_rule("text.4a0fe7f169d9b9fd"));
-                        asmbuf_int(&buf, 4 * (stack_cnt + (sret_call ? 1 : 0)));
+                        asmbuf_int(&buf, xh_x86_number("abi.ir.word") * (stack_cnt + (sret_call ? 1 : 0)));
                         asmbuf_putc(&buf, '\n');
                     }
                     asmbuf_puts(&buf, xh_x86_rule("text.d0a85d0a7a5f8b57"));
@@ -1243,7 +1249,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                      * leftmost arg is at [esp] (lowest address). */
                     for (k = stack_cnt - 1; k >= 0; k--) {
                         asmbuf_puts(&buf, xh_x86_rule("text.6bd382e4237dd86d"));
-                        asmbuf_int(&buf, scratch_base + 16 + 4 * k);
+                        asmbuf_int(&buf, scratch_base + xh_x86_number("abi.frame.call_scratch_gap") + xh_x86_number("abi.ir.word") * k);
                         asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
                     }
                     /* Hidden first argument: the address of this site's result
@@ -1343,7 +1349,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                                           rt->kind == TYPE_DOUBLE) ||
                                          ((rt->kind == TYPE_STRUCT ||
                                            rt->kind == TYPE_UNION) &&
-                                          type_size(rt) > 4 && type_size(rt) <= 8));
+                                          type_size(rt) > xh_x86_number("abi.ir.word") && type_size(rt) <= xh_x86_number("abi.aggregate.direct_limit")));
                         if (is_fp && rt->kind == TYPE_FLOAT) {
                             asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
                         } else if (is_fp) {
@@ -2466,7 +2472,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
     for (fi = 0; fi < prog->func_count; fi++) {
         IrFunc *f = prog->funcs[fi];
         int i;
-        int lsz = (f->local_size + 15) & ~15;
+        int lsz = x86_abi_align(f->local_size,"abi.frame.alignment");
         int framelo;
         int frame;
         int sret_used = 0;
@@ -2475,7 +2481,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
         /* Register and stack use of the *named* parameters, kept for va_start:
          * the register save area stores every incoming argument register, and
          * the first variadic argument is the one just past these. */
-        int int_used = 0, sse_used = 0, stk = 16;
+        int int_used = 0, sse_used = 0, stk = xh_x86_number("abi.stack.argument_base");
         int rs_off = 0;
         /* One result buffer per *call site* that returns a struct/union wider
          * than 8 bytes (IR_CALL bit 36).  SysV hands such a result back through
@@ -2487,8 +2493,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
         int sret_site_cur = 0;
         int sret_pool = 0;
         int sret_area = 0;
-        if (lsz < 16) lsz = 16;
-        framelo = 48 + lsz;
+        if (lsz < xh_x86_number("abi.frame.minimum_locals")) lsz = xh_x86_number("abi.frame.minimum_locals");
+        framelo = xh_x86_number("abi.frame.locals_gap") + lsz;
         /* Pre-scan the IR for calls that return a struct/union wider than 8
          * bytes (IR_CALL bit 36) and reserve one buffer per call site, right
          * below the 64-word argument spill area.  The size comes from the IR
@@ -2506,7 +2512,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
             int sz;
             if (si->op != IR_CALL || !((si->val >> 36) & 1)) continue;
             sz = (int)((si->val >> 37) & 0xFFFF);
-            sz = (sz + 7) & ~7;
+            sz = x86_abi_align(sz,"abi.aggregate.sret_alignment");
             if (sz <= 0 || sz > 0xFFFF) {
                 char b1[12];
                 diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -2533,8 +2539,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
         /* The buffers sit below everything else the frame keeps (locals, the
          * argument spill area, and the variadic register save area), so
          * framelo and rs_off -- which existing code reads -- are unaffected. */
-        sret_area = framelo + 64 * 8 + (f->is_variadic ? 176 : 0);
-        frame = (sret_area + sret_pool + 15) & ~15;
+        sret_area = framelo + xh_x86_number("abi.frame.spill_slots") * xh_x86_number("abi.stack.word") + (f->is_variadic ? xh_x86_number("abi.va.save_bytes") : 0);
+        frame = x86_abi_align(sret_area+sret_pool,"abi.frame.alignment");
         /* A variadic definition also owns the ABI's 176-byte register save
          * area: the six integer argument registers (48 bytes) followed by the
          * eight vector ones (16 bytes each).  It sits directly below the
@@ -2542,11 +2548,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
          * so the base is 16-byte aligned -- which is what the vector half
          * needs, and it is why the area is allocated at all instead of being
          * read out of the registers on demand. */
-        rs_off = framelo + 64 * 8 + 176;
+        rs_off = framelo + xh_x86_number("abi.frame.spill_slots") * xh_x86_number("abi.stack.word") + xh_x86_number("abi.va.save_bytes");
 
         if (f->ret_type &&
             (f->ret_type->kind == TYPE_STRUCT || f->ret_type->kind == TYPE_UNION) &&
-            type_size(f->ret_type) > 8)
+            type_size(f->ret_type) > xh_x86_number("abi.aggregate.direct_limit"))
             sret_used = 1;
 
         if (!f->is_static) {
@@ -2572,11 +2578,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
         if (f->is_variadic) {
             int rj;
             for (rj = 0; rj < xh_x86_number("abi.integer.count"); rj++)
-                amd_rd_mem(&buf, "mov", "qword", -rs_off + 8 * rj,
+                amd_rd_mem(&buf, "mov", "qword", -rs_off + xh_x86_number("abi.stack.word") * rj,
                            amd_argreg64(rj));
             for (rj = 0; rj < xh_x86_number("abi.vector.count"); rj++) {
                 asmbuf_puts(&buf, xh_x86_rule("text.9c2b4f48512425bd"));
-                asmbuf_int(&buf, rs_off - 48 - 16 * rj);
+                asmbuf_int(&buf, rs_off - xh_x86_number("abi.va.gp_bytes") - xh_x86_number("abi.va.fp_stride") * rj);
                 asmbuf_puts(&buf, xh_x86_rule("text.c5a10134862f0f36"));
                 asmbuf_int(&buf, rj);
                 asmbuf_putc(&buf, '\n');
@@ -2591,7 +2597,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
             int k = 0, pi = 0, j;
             int_used = sret_used ? 1 : 0;
             sse_used = 0;
-            stk = 16;
+            stk = xh_x86_number("abi.stack.argument_base");
             for (j = 0; j < f->code_count; j++) {
                 IrInst *I = &f->code[j];
                 Type *pt = 0;
@@ -2601,7 +2607,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 if (f->param_types && pi < f->param_count) pt = f->param_types[pi];
                 pi++;
                 is_sse = (pt && (pt->kind == TYPE_FLOAT || pt->kind == TYPE_DOUBLE));
-                tmp = -framelo - 8 * (k + 1);
+                tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                 k++;
                 if (is_sse) {
                     if (sse_used < xh_x86_number("abi.vector.count")) {
@@ -2613,7 +2619,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     } else {
                         amd_mem_rd(&buf, "mov", "rax", "qword", stk);
                         amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
-                        stk += 8;
+                        stk += xh_x86_number("abi.stack.word");
                     }
                 } else {
                     if (int_used < xh_x86_number("abi.integer.count")) {
@@ -2622,7 +2628,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     } else {
                         amd_mem_rd(&buf, "mov", "rax", "qword", stk);
                         amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
-                        stk += 8;
+                        stk += xh_x86_number("abi.stack.word");
                     }
                 }
             }
@@ -2678,9 +2684,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     }
                     sz = (int)((I->aux >> 8) & 0xFF);
                     if (sz <= 0) sz = 4;
-                    tmp = -framelo - 8 * (k + 1);
+                    tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                     dst = (int)I->val - framelo;
-                    if (sz > 8) {
+                    if (sz > xh_x86_number("abi.aggregate.direct_limit")) {
                         /* The wire carried the aggregate's address. */
                         amd_mem_rd(&buf, "mov", "rsi", "qword", tmp);
                         asmbuf_puts(&buf, xh_x86_rule("text.e8358e3e66032f77"));
@@ -2689,7 +2695,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         asmbuf_puts(&buf, xh_x86_rule("text.d392d939b942f07c"));
                         asmbuf_int(&buf, sz);
                         asmbuf_puts(&buf, xh_x86_rule("text.8d3fc2867d2efe58"));
-                    } else if (sz >= 5) {
+                    } else if (sz > xh_x86_number("abi.ir.word")) {
                         amd_mem_rd(&buf, "mov", "rax", "qword", tmp);
                         amd_rd_mem(&buf, "mov", "qword", dst, "rax");
                     } else if (sz == 4) {
@@ -2758,13 +2764,13 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (f->is_variadic && I->name) {
                         if (ark_streq(I->name, "_ark_va__gp_offset")) {
                             asmbuf_puts(&buf, xh_x86_rule("text.276c8636c367c6c1"));
-                            asmbuf_int(&buf, 8 * int_used);
+                            asmbuf_int(&buf, xh_x86_number("abi.stack.word") * int_used);
                             asmbuf_putc(&buf, '\n');
                             break;
                         }
                         if (ark_streq(I->name, "_ark_va__fp_offset")) {
                             asmbuf_puts(&buf, xh_x86_rule("text.276c8636c367c6c1"));
-                            asmbuf_int(&buf, 48 + 16 * sse_used);
+                            asmbuf_int(&buf, xh_x86_number("abi.va.gp_bytes") + xh_x86_number("abi.va.fp_stride") * sse_used);
                             asmbuf_putc(&buf, '\n');
                             break;
                         }
@@ -2868,12 +2874,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     /* Snapshot first: pushing shifts rsp under the reads. */
                     for (k = 0; k < nw; k++) {
                         asmbuf_puts(&buf, xh_x86_rule("text.15ff3752709e02fd"));
-                        asmbuf_int(&buf, 8 * k);
+                        asmbuf_int(&buf, xh_x86_number("abi.stack.word") * k);
                         asmbuf_puts(&buf, xh_x86_rule("text.f9416e09f78ba316"));
-                        amd_rd_mem(&buf, "mov", "qword", -24 - 8 * k, "rax");
+                        amd_rd_mem(&buf, "mov", "qword", -xh_x86_number("abi.frame.multiword_scratch_base") - xh_x86_number("abi.stack.word") * k, "rax");
                     }
                     for (k = nw - 1; k >= 0; k--) {
-                        amd_mem_rd(&buf, "mov", "rax", "qword", -24 - 8 * k);
+                        amd_mem_rd(&buf, "mov", "rax", "qword", -xh_x86_number("abi.frame.multiword_scratch_base") - xh_x86_number("abi.stack.word") * k);
                         asmbuf_puts(&buf, xh_x86_rule("text.de1843ef75a9fb24"));
                     }
                     break;
@@ -3116,7 +3122,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         n -= 1;
                     }
                     if (n < 0) n = 0;
-                    if (n > 64) {
+                    if (n > xh_x86_number("abi.call.max_arguments")) {
                         amd_unsupported(&buf, "call with more than 64 arguments");
                         break;
                     }
@@ -3133,7 +3139,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         }
                         if (b <= 0) b = 4;
                         w = slot64 ? 1 : (b > 4 ? 2 : 1);
-                        tmp = -framelo - 8 * (k + 1);
+                        tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                         if (w == 2) {
                             asmbuf_puts(&buf, xh_x86_rule("text.d0aef66727d08b37"));
                             amd_rd_mem(&buf, "mov", "dword", tmp + 4, "edx");
@@ -3143,7 +3149,10 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                             amd_rd_mem(&buf, "mov", "qword", tmp, "rax");
                         }
-                        same[k] = (k < 16 && ((argmask >> (2 * k)) & 1)) ? 1 : 0;
+                        /* New side tables preserve FP class beyond the legacy
+                         * 16-argument bitmask; old serialized IR remains valid. */
+                        same[k] = ((wires && (wires[k] & 0x40000)) ||
+                                   (k < 16 && ((argmask >> (2 * k)) & 1))) ? 1 : 0;
                     }
                     /* Assign each argument to a register or to a stack slot.
                      * SysV allocates the two register files independently: an
@@ -3172,7 +3181,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     asmbuf_puts(&buf, xh_x86_rule("text.d142bbe448005ce7"));
                     if (nstk > 0) {
                         asmbuf_puts(&buf, xh_x86_rule("text.cb03efe8ee360a4b"));
-                        asmbuf_int(&buf, (8 * nstk + 15) & ~15);
+                        asmbuf_int(&buf, x86_abi_align(xh_x86_number("abi.stack.word")*nstk,"abi.frame.alignment"));
                         asmbuf_putc(&buf, '\n');
                     }
                     /* Stack arguments, left to right, each in its own 8-byte slot. */
@@ -3184,10 +3193,10 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             if (wires) b = wires[k] & 0xFFFF;
                             else b = (k < 16 && ((argmask >> (2 * k + 1)) & 1)) ? 8 : 4;
                             (void)b;
-                            tmp = -framelo - 8 * (k + 1);
+                            tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                             amd_mem_rd(&buf, "mov", "rax", "qword", tmp);
                             asmbuf_puts(&buf, xh_x86_rule("text.e4109461abaf377f"));
-                            asmbuf_int(&buf, 8 * next);
+                            asmbuf_int(&buf, xh_x86_number("abi.stack.word") * next);
                             asmbuf_puts(&buf, xh_x86_rule("text.42ade291e14ed386"));
                             next++;
                         }
@@ -3198,7 +3207,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         if (cls[k] == 2) continue;
                         if (wires) b = wires[k] & 0xFFFF;
                         else b = (k < 16 && ((argmask >> (2 * k + 1)) & 1)) ? 8 : 4;
-                        tmp = -framelo - 8 * (k + 1);
+                        tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                         if (cls[k] == 1) {
                             asmbuf_puts(&buf, xh_x86_rule("text.cc3836120ed5ecf8"));
                             asmbuf_int(&buf, where[k]);
@@ -3294,7 +3303,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     Type *rt = f->ret_type;
                     int two = (rt && (type_is_64bit_integer(rt) || rt->kind == TYPE_DOUBLE)) ||
                               (rt && (rt->kind == TYPE_STRUCT || rt->kind == TYPE_UNION) &&
-                               type_size(rt) > 4 && type_size(rt) <= 8);
+                               type_size(rt) > xh_x86_number("abi.ir.word") && type_size(rt) <= xh_x86_number("abi.aggregate.direct_limit"));
                     if (sret_used) {
                         /* SysV returns a composite wider than 8 bytes through a
                          * buffer the caller owns.  irgen pushes the *address*

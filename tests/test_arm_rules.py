@@ -49,6 +49,7 @@ class ArmRules(unittest.TestCase):
             if 'encoding=' not in manifest:manifest+='\nencoding=arm.encoding.rules\n'
             (pkg/'package.ini').write_text(manifest)
             shutil.copy2(ROOT/'packages/arm-cortex-m3/arm.encoding.rules',pkg/'arm.encoding.rules')
+            shutil.copy2(ROOT/'packages/arm-cortex-m3/object.rules',pkg/'object.rules')
             source=work/'source.c';source.write_text('int entry(int a,int b){return a+b;}\nint constant(void){return 41;}\n')
             base=(ROOT/'packages/arm-cortex-m3/arm.rules').read_text()
             variants=[base,base.replace('rule binary.add\ntext     ADD r0, r0, r1\\n','rule binary.add\ntext     SUB r0, r0, r1\\n',1),base.replace('rule constant.small\ntext     MOV r${0}, #${1}\\n','rule constant.small\ntext     MOV r${0}, #${1}\\n    ADD r${0}, r${0}, #1\\n',1)]
@@ -82,6 +83,45 @@ class ArmRules(unittest.TestCase):
             p=self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-c',source.relative_to(ROOT),'-o',rejected.relative_to(ROOT),ok=False)
             self.assertIn('encoding',p.stderr);self.assertFalse(rejected.exists())
         self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
+
+    def test_system_and_vfp_encodings_match_gnu_bytes(self):
+        cases=[('cpsid','cpsid i',2),('cpsie','cpsie f',2),('dmb','dmb sy',4),('dsb','dsb sy',4),('isb','isb sy',4),('rev','rev r2, r3',2),('rev16','rev16 r4, r5',2),('revsh','revsh r6, r7',2),('rrx','rrx r3, r7',4)]
+        for op in ['vadd','vsub','vmul','vdiv']:
+            cases += [(op+'s',op+'.f32 s1, s16, s3',4),(op+'d',op+'.f64 d3, d9, d2',4)]
+        for op in ['vneg','vabs','vsqrt']:
+            cases += [(op+'s',op+'.f32 s17, s3',4),(op+'d',op+'.f64 d3, d9',4)]
+        cases += [('movto','vmov s17, r3',4),('movfrom','vmov r4, s19',4),('vmrs','vmrs APSR_nzcv, FPSCR',4),('cmps','vcmp.f32 s17, s3',4),('cmpd','vcmp.f64 d3, d9',4),('cmpzero','vcmp.f32 s17, #0.0',4),('vldr','vldr s17, [r3, #24]',4),('vstr','vstr d9, [r4, #40]',4)]
+        conversions=[('s32.f32','s17, s3'),('u32.f32','s17, s3'),('f32.s32','s17, s3'),('f32.u32','s17, s3'),('s32.f64','s17, d3'),('u32.f64','s17, d3'),('f64.s32','d9, s3'),('f64.u32','d9, s3'),('f32.f64','s17, d3'),('f64.f32','d9, s3')]
+        cases += [('cvt'+str(i),'vcvt.'+suf+' '+operands,4) for i,(suf,operands) in enumerate(conversions)]
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-bytes-') as tmp:
+            work=Path(tmp);source=work/'cases.c';gas=work/'cases.s';obj=work/'xh.o';ref=work/'gnu.o'
+            source.write_text(''.join('__asm int case_'+name+'(void){\n'+asm+'\nBX lr\n}\n' for name,asm,_ in cases))
+            gas.write_text('.syntax unified\n.thumb\n'+''.join('.global case_'+name+'\n.thumb_func\ncase_'+name+':\n'+asm+'\nbx lr\n' for name,asm,_ in cases))
+            self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-mcpu=cortex-m7','-mfpu=fpv5-d16','-mfloat-abi=softfp','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+            self.command(GNU/'arm-none-eabi-as.exe','-mcpu=cortex-m7','-mfpu=fpv5-d16','-mthumb',gas,'-o',ref)
+            def code(path):
+                with path.open('rb') as f:
+                    elf=ELFFile(f);result={}
+                    for name,_,size in cases:
+                        sym=elf.get_section_by_name('.symtab').get_symbol_by_name('case_'+name)[0];sec=elf.get_section(sym['st_shndx']);start=(sym['st_value']&~1)-sec['sh_addr'];result[name]=sec.data()[start:start+size]
+                    return result
+            actual=code(obj);expected=code(ref)
+            for name,asm,_ in cases:self.assertEqual(actual[name],expected[name],asm)
+
+    def test_vfp_arithmetic_executes(self):
+        from unicorn.arm_const import UC_ARM_REG_C1_C0_2,UC_ARM_REG_FPEXC
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-vfp-') as tmp:
+            work=Path(tmp);source=work/'vfp.c';obj=work/'vfp.o';elfpath=work/'vfp.elf'
+            source.write_text('__asm int entry(void){\nMOVW r0, #0\nMOVT r0, #0x3fc0\nVMOV s17, r0\nMOVT r0, #0x4020\nVMOV s3, r0\nVADD.F32 s19, s17, s3\nVMOV r0, s19\nBX lr\n}\n')
+            self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-mcpu=cortex-m7','-mfpu=fpv5-d16','-mfloat-abi=softfp','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+            self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e','entry','-o',elfpath,obj)
+            with elfpath.open('rb') as f:
+                elf=ELFFile(f);uc=Uc(UC_ARCH_ARM,UC_MODE_THUMB|UC_MODE_MCLASS);uc.mem_map(0x10000,0x40000);uc.mem_map(0x700000,0x20000)
+                for sec in elf.iter_sections():
+                    if sec['sh_flags']&2 and sec['sh_type']!='SHT_NOBITS':uc.mem_write(sec['sh_addr'],sec.data())
+                uc.reg_write(UC_ARM_REG_C1_C0_2,uc.reg_read(UC_ARM_REG_C1_C0_2)|(0xf<<20));uc.reg_write(UC_ARM_REG_FPEXC,0x40000000)
+                uc.reg_write(UC_ARM_REG_SP,0x71f000);uc.reg_write(UC_ARM_REG_LR,0x4f001);uc.emu_start(elf['e_entry']|1,0x4f000,count=10000)
+                self.assertEqual(uc.reg_read(UC_ARM_REG_R0),0x40800000) # 1.5 + 2.5 = 4.0
 
     def test_scalar_operations_execute(self):
         operations={'add':'+','sub':'-','mul':'*','and':'&','or':'|','xor':'^','shl':'<<','shr':'>>','eq':'==','ne':'!=','lt':'<','gt':'>','le':'<=','ge':'>=','div':'/','mod':'%'}

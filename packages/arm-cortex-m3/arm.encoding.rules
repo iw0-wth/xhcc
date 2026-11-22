@@ -858,3 +858,341 @@ rule FIXED_FA10 0 0xfa10
 end
 rule FIXED_EA5F 0 0xea5f
 end
+rule CPS 3 0xb660
+arg 0 1 0 1
+arg 1 1 0 1
+arg 2 1 0 1
+bits 0 0 1 4
+bits 1 0 1 1
+bits 2 0 1 0
+end
+rule DMB 0 0xf3bf8f5f
+end
+rule DSB 0 0xf3bf8f4f
+end
+rule ISB 0 0xf3bf8f6f
+end
+rule REV 2 0xba00
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule REV16 2 0xba40
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule REVSH 2 0xbac0
+arg 0 3 0 1
+arg 1 3 0 1
+bits 0 0 3 0
+bits 1 0 3 3
+end
+rule RRX 2 0xea4f0030
+arg 0 4 0 1
+arg 1 4 0 1
+bits 0 0 4 8
+bits 1 0 4 0
+end
+rule VMOV_TO 2 0xee000a10
+arg 0 5 0 1
+arg 1 4 0 1
+bits 0 1 4 16
+bits 0 0 1 7
+bits 1 0 4 12
+end
+rule VMOV_FROM 2 0xee100a10
+arg 0 5 0 1
+arg 1 4 0 1
+bits 0 1 4 16
+bits 0 0 1 7
+bits 1 0 4 12
+end
+rule VADD_F32 3 0xee300a00
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 16
+bits 1 0 1 7
+bits 2 1 4 0
+bits 2 0 1 5
+end
+rule VADD_F64 3 0xee300b00
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 1 4 1 7
+bits 2 0 4 0
+bits 2 4 1 5
+end
+rule VSUB_F32 3 0xee300a40
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 16
+bits 1 0 1 7
+bits 2 1 4 0
+bits 2 0 1 5
+end
+rule VSUB_F64 3 0xee300b40
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 1 4 1 7
+bits 2 0 4 0
+bits 2 4 1 5
+end
+rule VMUL_F32 3 0xee200a00
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 16
+bits 1 0 1 7
+bits 2 1 4 0
+bits 2 0 1 5
+end
+rule VMUL_F64 3 0xee200b00
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 1 4 1 7
+bits 2 0 4 0
+bits 2 4 1 5
+end
+rule VDIV_F32 3 0xee800a00
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 16
+bits 1 0 1 7
+bits 2 1 4 0
+bits 2 0 1 5
+end
+rule VDIV_F64 3 0xee800b00
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 1 4 1 7
+bits 2 0 4 0
+bits 2 4 1 5
+end
+rule VCVT_S32F32 2 0xeebd0ac0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCVT_U32F32 2 0xeebc0ac0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCVT_F32S32 2 0xeeb80ac0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCVT_F32U32 2 0xeeb80a40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCVT_S32F64 2 0xeebd0bc0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VCVT_U32F64 2 0xeebc0bc0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VCVT_F64S32 2 0xeeb80bc0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCVT_F64U32 2 0xeeb80b40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCVT_F32F64 2 0xeeb70bc0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VCVT_F64F32 2 0xeeb70ac0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCMP_F32 2 0xeeb40a40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCMP_ZERO_F32 2 0xeeb50a40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VCMP_F64 2 0xeeb40b40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VCMP_ZERO_F64 2 0xeeb50b40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VNEG_F32 2 0xeeb10a40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VNEG_F64 2 0xeeb10b40
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VABS_F32 2 0xeeb00ac0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VABS_F64 2 0xeeb00bc0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VSQRT_F32 2 0xeeb10ac0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 1 4 0
+bits 1 0 1 5
+end
+rule VSQRT_F64 2 0xeeb10bc0
+arg 0 5 0 1
+arg 1 5 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 0
+bits 1 4 1 5
+end
+rule VLDR_F32 3 0xed900a00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule VLDR_F64 3 0xed900b00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule VSTR_F32 3 0xed800a00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 1 4 12
+bits 0 0 1 22
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule VSTR_F64 3 0xed800b00
+arg 0 5 0 1
+arg 1 4 0 1
+arg 2 8 0 1
+bits 0 0 4 12
+bits 0 4 1 22
+bits 1 0 4 16
+bits 2 0 8 0
+end
+rule VMRS_APSR 0 0xeef1fa10
+end

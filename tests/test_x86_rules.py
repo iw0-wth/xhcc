@@ -1,5 +1,8 @@
 """Actual package-driven x86 code generation, LLVM link and Unicorn execution.
 No compiler build is performed: run after the lead's unified --all build.
+Aggregate tests exercise xhcc's existing private wire protocol, including its
+>8-byte hidden-pointer convention. They do not establish GCC/Clang aggregate
+SysV ABI interoperability. Tool aliases currently implement a target subset.
 """
 from pathlib import Path
 import hashlib, os, shutil, struct, subprocess, sys, tempfile, unittest
@@ -90,6 +93,35 @@ class X86Rules(unittest.TestCase):
      obj=OUT/(target+('_rep_changed.o' if changed else '_rep_base.o'));self.invoke(root,'variant-gcc',source,obj);outputs.append(self.execute(obj,target=='x86_64'))
     self.assertEqual(outputs[0],6);self.assertNotEqual(outputs[1],6)
   self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_abi_layout_sret_packed_varargs_and_fp_mix(self):
+  source=OUT/'abi_layout.c';source.write_text('''#include <stdarg.h>
+struct Big{int a,b,c,d,e;};
+struct __attribute__((packed)) Packed{char a; int b; short c;};
+struct Big make(int n){struct Big r={n,n+1,n+2,n+3,n+4};return r;}
+int consume(struct Big b){return b.a+b.e;}
+int packed(struct Packed p){return p.a+p.b+p.c;}
+double mix(int a,double b,int c,double d,int e,double f,int g,double h,int i,double j,int k,double l,int m,double n,int o,double p,double q){return a+b+c+d+e+f+g+h+i+j+k+l+m+n+o+p+q;}
+int vari(int count,...){va_list ap;int sum=0,i;va_start(ap,count);for(i=0;i<count;i++)sum+=va_arg(ap,int);va_end(ap);return sum;}
+int varied(int count,...){va_list ap;double sum=0;int i;va_start(ap,count);for(i=0;i<count;i++)sum+=va_arg(ap,double);va_end(ap);return (int)sum;}
+int entry(void){struct Big a=make(7),b=make(11);struct Big (*fn)(int)=make;struct Big c=fn(20);struct Packed p={2,30,4};
+return consume(a)==18 && consume(b)==26 && consume(c)==44 && packed(p)==36 && sizeof(p)==7
+&& vari(9,1,2,3,4,5,6,7,8,9)==45 && varied(10,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0)==55
+&& (int)mix(1,2.0,3,4.0,5,6.0,7,8.0,9,10.0,11,12.0,13,14.0,15,16.0,17.0)==153;}
+''')
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-x86-') as tmp:
+    root=Path(tmp);pkg=self.package(root,target);obj=OUT/(target+'_abi_layout.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),1)
+    rules=pkg/'x86.rules';base=rules.read_text()
+    for idx,(key,value) in enumerate([('abi.frame.alignment','8'),('abi.va.fp_stride','8'),('abi.aggregate.direct_limit','16'),('abi.aggregate.class.1.wire','4'),('abi.frame.scratch_bytes','256'),('abi.frame.multiword_scratch_base','0')]):
+     import re
+     changed=re.sub('(rule '+re.escape(key)+'\\ntext )[^\\n]*',lambda m:m[1]+value,base)
+     self.assertNotEqual(base,changed);rules.write_text(changed);obj=OUT/(target+f'_abi_reject{idx}.o')
+     if obj.exists():obj.unlink()
+     self.invoke(root,'variant-gcc',source,obj,ok=False)
+    rules.write_text(base.replace('rule abi.va.save_bytes\n','rule missing.abi.va.save_bytes\n'))
+    obj=OUT/(target+'_abi_missing.o')
+    if obj.exists():obj.unlink()
+    self.invoke(root,'variant-gcc',source,obj,ok=False)
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

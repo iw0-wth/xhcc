@@ -27,7 +27,7 @@ def manifest(path):
         raise ValueError(f'version 2 staged packages are obsolete; upgrade to version 3: {path}')
     if not BASE_FIELDS <= data.keys() or data['version'] not in ('1', '3') or data['id'] != path.parent.name:
         raise ValueError(f'invalid package schema: {path}')
-    allowed = BASE_FIELDS | ({'module'} if data['version'] == '1' else {'dialect', 'options', 'engine', 'encoding', 'selection', 'templates', 'requires'})
+    allowed = BASE_FIELDS | ({'module'} if data['version'] == '1' else {'dialect', 'options', 'engine', 'encoding', 'selection', 'templates', 'object', 'requires'})
     if data.keys() - allowed:
         raise ValueError(f'unsupported package fields: {path}')
     if 'requires' in data:
@@ -37,7 +37,7 @@ def manifest(path):
             raise ValueError(f'invalid requires capability list: {path}')
     if data.get('dialect', 'gcc') not in ('gcc', 'armcc'):
         raise ValueError(f'unsupported dialect: {path}')
-    for key in ('include', *[key for key in ('options', 'encoding', 'selection', 'templates') if key in data]):
+    for key in ('include', *[key for key in ('options', 'encoding', 'selection', 'templates', 'object') if key in data]):
         value = data[key]
         p = PurePosixPath(value)
         if not value or '\\' in value or ':' in value or p.is_absolute() or any(x in ('', '..', '.') for x in value.split('/')):

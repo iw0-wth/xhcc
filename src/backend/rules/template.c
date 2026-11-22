@@ -21,7 +21,16 @@ static int decode(const char *src,char **dest,char *end){while(*src){unsigned c=
 static int placeholders(const char *s){while(*s){if(*s++!='$')continue;if(*s=='$'){s++;continue;}if(*s++!='{')return 0;{unsigned n=0;int digits=0;while(*s>='0'&&*s<='9'){n=n*10u+(unsigned)(*s++-'0');if(n>=XH_TEMPLATE_MAX_ARGS)return 0;digits++;}if(!digits||*s++!='}')return 0;}}return 1;}
 static int load(const char *target){char fallback[512];const char *path;char *source,*p,*next,*write,*end;int size,n,version=0,open=0;Entry *table;char *data;int count=0;
  if(!identifier(target,32))return error("xhcc templates","invalid template target");path=path_for(target,fallback,sizeof(fallback));if(!path)return error("xhcc templates","no templates configured for target");if(entries&&!strcmp(loaded_target,target)&&!strcmp(loaded_path,path))return 0;
- size=fs_file_size(path);if(size<=0||(unsigned)size>XH_TEMPLATE_MAX_BYTES)return error(path,"missing template file or file exceeds 512 KiB");source=malloc((size_t)size+1);data=malloc((size_t)size+1);table=calloc(XH_TEMPLATE_MAX_RULES,sizeof(*table));if(!source||!data||!table){free(source);free(data);free(table);return error(path,"not enough memory for target templates");}n=fs_read_file(path,source,size+1);if(n!=size||memchr(source,0,(size_t)size))goto invalid;p=source;write=data;end=data+size;
+ size=fs_file_size(path);if(size<=0||(unsigned)size>XH_TEMPLATE_MAX_BYTES)return error(path,"missing template file or file exceeds 512 KiB");
+ /* A target switch invalidates pointers by contract. Release before loading its
+  * successor, rather than retaining two target tables during the parse. */
+ xh_template_release();
+ source=malloc((size_t)size+1);data=malloc((size_t)size+1);table=0;
+ if(!source||!data){free(source);free(data);return error(path,"not enough memory for target templates");}
+ n=fs_read_file(path,source,size+1);if(n!=size||memchr(source,0,(size_t)size))goto invalid;
+ /* Allocate entries for actual rule records, not the maximum package capacity. */
+ {const char *scan=source;unsigned records=0;while(*scan){if(!strncmp(scan,"rule ",5))records++;scan=strchr(scan,'\n');if(!scan)break;scan++;}if(!records||records>XH_TEMPLATE_MAX_RULES)goto invalid;table=calloc(records,sizeof(*table));if(!table){free(source);free(data);return error(path,"not enough memory for target template index");}}
+ p=source;write=data;end=data+size;
  while(*p){size_t len;next=strchr(p,'\n');if(next)*next++=0;len=strlen(p);if(len&&p[len-1]=='\r')p[--len]=0;
   if(!version){if(!*p||*p=='#')goto line_done;if(strcmp(p,"XHTEMPLATE 1"))goto invalid;version=1;goto line_done;}
   if(!open){if(!*p||*p=='#')goto line_done;if(strncmp(p,"rule ",5)||!identifier(p+5,96)||count>=XH_TEMPLATE_MAX_RULES)goto invalid;{int i;for(i=0;i<count;i++)if(!strcmp(table[i].key,p+5))goto invalid;}table[count].key=write;if((size_t)(end-write)<strlen(p+5)+2)goto invalid;strcpy(write,p+5);write+=strlen(write)+1;table[count].text=write;open=1;}

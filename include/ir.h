@@ -261,7 +261,12 @@ extern int g_ir_va_slot_region;
  * (IrInst.val & 0xFFFFFFFF).  Entries are the *wire* sizes: 4 for a word, 8 for
  * a double word (even register pair / 8-byte stack slot), and for a composite
  * passed through `...` the struct's size rounded up to a multiple of 4 -- one
- * argument word per 4 bytes, laid out consecutively.
+ * argument word per 4 bytes, laid out consecutively. Low 16 bits carry bytes;
+ * 0x10000 requests 8-byte alignment, 0x20000 means one 64-bit pointer slot,
+ * and 0x40000 marks the scalar floating-point ABI class. Consumers must mask
+ * width independently of these flags. FP beyond argument 15 requires a run
+ * because the legacy two-bit-per-argument mask has no room for that class.
+ * Low-16-argument readers retain the old mask as a compatibility fallback.
  *
  * The table lives in the program, not in a module global, because the driver
  * resets the memory pool between translation units (compiler.c calls

@@ -9,8 +9,10 @@
 #include <limits.h>
 static const char *target = "x86";
 static int failed, cursor;
+static int wide_mode;
 static char (*results)[4096];
 int xh_x86_rules_begin(int mode64) {
+    wide_mode=mode64;
     target = mode64 ? "x86_64" : "x86";
     failed = 0;
     if (!results) results = malloc(8 * sizeof(*results));
@@ -23,6 +25,32 @@ int xh_x86_rules_begin(int mode64) {
         if(version!=1 || integers!=(mode64?6:0) || vectors!=(mode64?8:0)) {
             failed=1;
             diag_tool(DIAG_SEV_ERROR,target,"x86 package register counts disagree with the supported frontend ABI",0,0,0,0,0,0);
+        }
+        /* These values match xhcc IR argument packing and package stdarg.
+         * Aggregate sizes describe xhcc's legacy private wire, not the full
+         * native SysV eightbyte classification used by external compilers.
+         * Reject a package/IR mismatch before any object can be emitted. */
+        {
+            static const char *keys[]={"abi.ir.word","abi.aggregate.direct_limit","abi.aggregate.sret_alignment","abi.frame.alignment","abi.va.gp_bytes","abi.va.fp_stride","abi.va.save_bytes","abi.frame.spill_slots","abi.aggregate.class.count","abi.aggregate.class.0.maximum","abi.aggregate.class.0.wire","abi.aggregate.class.1.maximum","abi.aggregate.class.1.wire","abi.aggregate.class.2.maximum"};
+            static const int values[]={4,8,8,16,48,16,176,64,3,4,4,8,8,65535};
+            int i;
+            for(i=0;i<(int)(sizeof(values)/sizeof(values[0]));i++)
+                if(xh_x86_number(keys[i])!=values[i])failed=1;
+            if(xh_x86_number("abi.aggregate.class.2.wire")!=(mode64?8:4))failed=1;
+            if(xh_x86_number("abi.stack.word")!=(mode64?8:4) ||
+               xh_x86_number("abi.stack.argument_base")!=(mode64?16:8))failed=1;
+            if(xh_x86_number("abi.frame.locals_gap")!=48 ||
+               xh_x86_number("abi.frame.saved_bytes")!=(mode64?0:12) ||
+               xh_x86_number("abi.frame.sret_pointer_offset")!=200 ||
+               xh_x86_number("abi.frame.call_scratch_gap")!=16 ||
+               xh_x86_number("abi.frame.div_scratch_offset")!=496 ||
+               xh_x86_number("abi.frame.scratch_bytes")!=512 ||
+               xh_x86_number("abi.frame.minimum_locals")!=16 ||
+               xh_x86_number("abi.call.max_arguments")!=64 ||
+               xh_x86_number("abi.call.max_words")!=116 ||
+               xh_x86_number("abi.call.i386_argument_limit")!=120 ||
+               xh_x86_number("abi.frame.multiword_scratch_base")!=24)failed=1;
+            if(failed)diag_tool(DIAG_SEV_ERROR,target,"x86 ABI layout rules disagree with the supported IR and stdarg contract",0,0,0,0,0,0);
         }
         return failed ? -1 : 0;
     }
@@ -74,3 +102,15 @@ int xh_x86_register(const char *name,int *width) {
 bad: failed=1;return -1;
 }
 int xh_x86_rules_failed(void){return failed;}
+
+int xh_x86_aggregate_wire(int bytes) {
+    int count=xh_x86_number("abi.aggregate.class.count"),i;char key[80];
+    if(bytes<=0)bytes=1;
+    if(count<1 || count>8){failed=1;return 0;}
+    for(i=0;i<count;i++){
+        int limit;
+        snprintf(key,sizeof(key),"abi.aggregate.class.%d.maximum",i);limit=xh_x86_number(key);
+        if(bytes<=limit){snprintf(key,sizeof(key),"abi.aggregate.class.%d.wire",i);return xh_x86_number(key);}
+    }
+    failed=1;return wide_mode?8:4;
+}

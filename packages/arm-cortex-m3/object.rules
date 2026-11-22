@@ -1,0 +1,15 @@
+# Historical internal relocation keys map to ELF wire types below.
+XHOBJECT 1
+target arm
+class 32
+machine 40
+endian little
+flags 0x05000000
+abi eabi5
+attributes 41210000006165616269000117000000060a074d0800090212041401150118011901
+relmap 2 2
+relmap 10 10
+relmap 30 30
+relmap 51 51
+relmap 47 47
+relmap 48 48

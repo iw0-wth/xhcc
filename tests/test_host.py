@@ -56,10 +56,11 @@ class HostTests(unittest.TestCase):
         self.assertEqual(json.loads(trace), {'event': 'execute', 'module': str(self.compiler), 'package': 'selected', 'worker_count': 1})
 
     def test_copied_configuration_package_needs_no_wasm(self):
-        source = self.package(engine='rv32-rule-v1', encoding='encoding.rules', selection='selection.rules', templates='arm.rules')
+        source = self.package(engine='rv32-rule-v1', encoding='encoding.rules', selection='selection.rules', templates='arm.rules', object='object.rules')
         (source / 'encoding.rules').write_text('external rule fixture\n')
         (source / 'selection.rules').write_text('external selector fixture\n')
         (source / 'arm.rules').write_text('external template fixture\n')
+        (source / 'object.rules').write_text('external object descriptor fixture\n')
         copy = self.root / 'copy'
         shutil.copytree(source, copy)
         path = copy / 'package.ini'
@@ -75,6 +76,8 @@ class HostTests(unittest.TestCase):
         self.assertEqual((copy / 'encoding.rules').read_text(), 'external rule fixture\n')
         self.assertEqual((copy / 'selection.rules').read_text(), 'external selector fixture\n')
         self.assertEqual((copy / 'arm.rules').read_text(), 'external template fixture\n')
+        self.assertEqual((copy / 'object.rules').read_text(), 'external object descriptor fixture\n')
+        self.assertEqual(host.manifest(path)['object'], 'object.rules')
         self.assertEqual(host.manifest(path)['templates'], 'arm.rules')
         self.assertEqual(host.manifest(path)['selection'], 'selection.rules')
         self.assertEqual(host.manifest(path)['engine'], 'rv32-rule-v1')
@@ -100,7 +103,7 @@ class HostTests(unittest.TestCase):
         self.package('duplicate', 'chosen')
         with self.assertRaisesRegex(ValueError, 'alias'):
             host.discover(self.root)
-        for key, value in [('include', '../outside'), ('options', '/absolute'), ('encoding', '../outside.rules'), ('encoding', 'C:/escape.rules'), ('selection', '../outside.rules'), ('selection', '/absolute.rules'), ('templates', '../outside.rules'), ('templates', 'C:/escape.rules'), ('include', 'sub\\path'), ('dialect', 'unknown'), ('module', 'backend.wasm')]:
+        for key, value in [('include', '../outside'), ('options', '/absolute'), ('encoding', '../outside.rules'), ('encoding', 'C:/escape.rules'), ('selection', '../outside.rules'), ('selection', '/absolute.rules'), ('templates', '../outside.rules'), ('templates', 'C:/escape.rules'), ('object', '../outside.rules'), ('object', '/absolute.rules'), ('include', 'sub\\path'), ('dialect', 'unknown'), ('module', 'backend.wasm')]:
             name = 'invalid' + str(len(list(self.root.iterdir())))
             directory = self.package(name, name, **{key: value})
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
@@ -108,7 +111,7 @@ class HostTests(unittest.TestCase):
 
     def test_requires_syntax_only_and_legacy_default(self):
         valid = ['package.options.v1,encoding.fields.v1,selection.scalar32.v1',
-                 'selection.scalar32.v2,object.elf32,object.elf64,codegen.templates.v1', 'future.capability.v99']
+                 'selection.scalar32.v2,object.elf32,object.elf64,codegen.templates.v1,object.descriptor.v1', 'future.capability.v99']
         for index, requires in enumerate(valid):
             directory = self.package('valid' + str(index), 'valid' + str(index), requires=requires)
             self.assertEqual(host.manifest(directory / 'package.ini')['requires'], requires)

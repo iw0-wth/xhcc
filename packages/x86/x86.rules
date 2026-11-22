@@ -2426,3 +2426,81 @@ end
 rule abi.pair_scratch.r11
 text rdx
 end
+rule abi.ir.word
+text 4
+end
+rule abi.aggregate.direct_limit
+text 8
+end
+rule abi.aggregate.sret_alignment
+text 8
+end
+rule abi.frame.alignment
+text 16
+end
+rule abi.frame.minimum_locals
+text 16
+end
+rule abi.frame.locals_gap
+text 48
+end
+rule abi.frame.scratch_bytes
+text 512
+end
+rule abi.frame.sret_pointer_offset
+text 200
+end
+rule abi.frame.div_scratch_offset
+text 496
+end
+rule abi.frame.call_scratch_gap
+text 16
+end
+rule abi.call.max_arguments
+text 64
+end
+rule abi.call.max_words
+text 116
+end
+rule abi.va.gp_bytes
+text 48
+end
+rule abi.va.fp_stride
+text 16
+end
+rule abi.va.save_bytes
+text 176
+end
+rule abi.aggregate.class.count
+text 3
+end
+rule abi.aggregate.class.0.maximum
+text 4
+end
+rule abi.aggregate.class.0.wire
+text 4
+end
+rule abi.aggregate.class.1.maximum
+text 8
+end
+rule abi.aggregate.class.1.wire
+text 8
+end
+rule abi.aggregate.class.2.maximum
+text 65535
+end
+rule abi.frame.saved_bytes
+text 12
+end
+rule abi.frame.spill_slots
+text 64
+end
+rule abi.aggregate.class.2.wire
+text 4
+end
+rule abi.call.i386_argument_limit
+text 120
+end
+rule abi.frame.multiword_scratch_base
+text 24
+end

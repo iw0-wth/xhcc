@@ -2,6 +2,7 @@
  * IR initializers, never the lossy ARKOBJ export. All scratch storage is arena
  * allocated in proportion to this translation unit. ELF32 little endian REL. */
 #include "flash_fs.h"
+#include "xh_object_rules.h"
 typedef struct { const char *name; unsigned value,size; int sec,bind,type,index; } XhSym;
 typedef struct { unsigned off; int sym,type,sec; } XhRel;
 typedef struct { unsigned name,type,flags,off,size,link,info,align,entsize; } XhSec;
@@ -20,7 +21,8 @@ int xhcc_arm_write_elf(const char *path,unsigned char *code,int code_len){
     XhSym *s;XhRel *r;unsigned char *data,*out;int *gidx;unsigned *goff;XhSec *sec;int nsec=14,custom_count=0;char *names;unsigned names_size;const char **custom_names;
     const char base_names[]="\0.text\0.data\0.bss\0.rel.text\0.rel.data\0.symtab\0.strtab\0.shstrtab\0.ARM.attributes\0.init_array\0.fini_array\0.rel.init_array\0.rel.fini_array\0";
     /* aeabi, Tag_File: v7-M, microcontroller, Thumb-2, base AAPCS. */
-    const unsigned char attrs[]={65,33,0,0,0,97,101,97,98,105,0,1,23,0,0,0,6,10,7,77,8,0,9,2,18,4,20,1,21,1,24,1,25,1};
+    const XhObjectTarget*descriptor=xh_object_rules_get("arm");const unsigned char*attrs;unsigned attrs_size;
+    if(!descriptor||descriptor->elf_class!=32||descriptor->machine!=40||descriptor->endian!=1||!ark_streq(descriptor->abi,"eabi5")){diag_tool(DIAG_SEV_ERROR,path,"object descriptor disagrees with ARM target",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}attrs=descriptor->attributes;attrs_size=descriptor->attributes_size;
     if(!p){diag_tool(DIAG_SEV_ERROR,path,"ELF assembly input is not supported",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}
     for(i=0;i<p->global_count;i++)rcap+=p->globals[i]->init_ref_count+1;
     custom_names=mem_pool_alloc((p->global_count+1)*(int)sizeof(char*));if(!custom_names)goto fail;
@@ -109,20 +111,20 @@ int xhcc_arm_write_elf(const char *path,unsigned char *code,int code_len){
     sec[6].name=38;sec[6].type=2;sec[6].size=(unsigned)(n+1)*16;sec[6].link=7;sec[6].info=(unsigned)local_count;sec[6].align=4;sec[6].entsize=16;
     sec[7].name=46;sec[7].type=3;sec[7].size=strsz;sec[7].align=1;
     sec[8].name=54;sec[8].type=3;sec[8].size=names_size;sec[8].align=1;
-    sec[9].name=64;sec[9].type=0x70000003;sec[9].size=sizeof(attrs);sec[9].align=1;
+    sec[9].name=64;sec[9].type=0x70000003;sec[9].size=attrs_size;sec[9].align=1;
     sec[10].name=80;sec[10].type=14;sec[10].flags=3;sec[10].align=4;sec[10].entsize=4;
     sec[11].name=92;sec[11].type=15;sec[11].flags=3;sec[11].align=4;sec[11].entsize=4;
     for(i=12;i<14;i++){sec[i].name=i==12?104:120;sec[i].type=9;sec[i].link=6;sec[i].info=i-2;sec[i].align=4;sec[i].entsize=8;}
     for(i=0;i<nr;i++){int rs=r[i].sec;if(rs>=10){int ri=rs<12?rs+2:rs+custom_count;sec[ri].size+=8;}}
     total=52;for(i=1;i<nsec;i++){total=xh_align(total,sec[i].align);sec[i].off=total;if(i!=3)total+=sec[i].size;}total=xh_align(total,4);stroff=total;total+=nsec*40;
     out=mem_pool_alloc(total);if(!out)goto fail;for(i=0;i<(int)total;i++)out[i]=0;
-    out[0]=127;out[1]='E';out[2]='L';out[3]='F';out[4]=1;out[5]=1;out[6]=1;
-    xh_w16(out+16,1);xh_w16(out+18,40);xh_w32(out+20,1);xh_w32(out+32,stroff);xh_w32(out+36,0x05000000);xh_w16(out+40,52);xh_w16(out+46,40);xh_w16(out+48,nsec);xh_w16(out+50,8);
+    out[0]=127;out[1]='E';out[2]='L';out[3]='F';out[4]=(unsigned char)(descriptor->elf_class==64?2:1);out[5]=(unsigned char)descriptor->endian;out[6]=1;
+    xh_w16(out+16,1);xh_w16(out+18,descriptor->machine);xh_w32(out+20,1);xh_w32(out+32,stroff);xh_w32(out+36,descriptor->flags);xh_w16(out+40,52);xh_w16(out+46,40);xh_w16(out+48,nsec);xh_w16(out+50,8);
     for(i=0;i<code_len;i++)out[sec[1].off+i]=code[i];for(i=0;i<(int)dsize;i++)out[sec[2].off+i]=data[i];for(i=0;i<p->global_count;i++){XhSym*z=&s[gidx[i]];if(z->sec>=14&&z->sec<nsec)for(j=0;j<(int)z->size;j++)out[sec[z->sec].off+z->value+j]=data[goff[i]+j];}
     strsz=1;for(i=0;i<n;i++){unsigned char *v=out+sec[6].off+s[i].index*16;int len=ark_strlen(s[i].name)+1;xh_w32(v,strsz);xh_w32(v+4,s[i].value);xh_w32(v+8,s[i].size);v[12]=(unsigned char)((s[i].bind<<4)|s[i].type);xh_w16(v+14,(unsigned)s[i].sec);for(j=0;j<len;j++)out[sec[7].off+strsz+j]=(unsigned char)s[i].name[j];strsz+=(unsigned)len;}
-    {unsigned*rp=mem_pool_alloc(nsec*(int)sizeof(unsigned));if(!rp)goto fail;for(i=0;i<nsec;i++)rp[i]=sec[i].off;for(i=0;i<nr;i++){int rs=r[i].sec,ri=rs==1?4:rs==2?5:rs<12?rs+2:rs+custom_count;unsigned char*v=out+rp[ri];xh_w32(v,r[i].off);xh_w32(v+4,((unsigned)s[r[i].sym].index<<8)|(unsigned)r[i].type);rp[ri]+=8;}}
+    {unsigned*rp=mem_pool_alloc(nsec*(int)sizeof(unsigned));if(!rp)goto fail;for(i=0;i<nsec;i++)rp[i]=sec[i].off;for(i=0;i<nr;i++){int rs=r[i].sec,ri=rs==1?4:rs==2?5:rs<12?rs+2:rs+custom_count;unsigned type;unsigned char*v=out+rp[ri];if(xh_object_rules_relocation(descriptor,(unsigned)r[i].type,&type))return ARK_ERR_CODEGEN;xh_w32(v,r[i].off);xh_w32(v+4,((unsigned)s[r[i].sym].index<<8)|type);rp[ri]+=8;}}
     for(i=0;i<(int)names_size;i++)out[sec[8].off+i]=(unsigned char)names[i];
-    for(i=0;i<(int)sizeof(attrs);i++)out[sec[9].off+i]=attrs[i];
+    for(i=0;i<(int)attrs_size;i++)out[sec[9].off+i]=attrs[i];
     for(i=1;i<nsec;i++){unsigned char *v=out+stroff+i*40;xh_w32(v,sec[i].name);xh_w32(v+4,sec[i].type);xh_w32(v+8,sec[i].flags);xh_w32(v+16,sec[i].off);xh_w32(v+20,sec[i].size);xh_w32(v+24,sec[i].link);xh_w32(v+28,sec[i].info);xh_w32(v+32,sec[i].align);xh_w32(v+36,sec[i].entsize);}
     if(fs_write_file(path,out,(int)total)!=(int)total){diag_tool(DIAG_SEV_ERROR,path,"cannot write ELF object",0,0,0,0,0,0);return ARK_ERR_IO;}return ARK_OK;
 fail:diag_tool(DIAG_SEV_ERROR,path,"ELF object exceeds memory or unsupported initializer",0,0,0,0,0,0);return ARK_ERR_CODEGEN;

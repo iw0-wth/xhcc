@@ -3,6 +3,7 @@
 #include "xh_package.h"
 #include "xh_rules.h"
 #include "xh_template.h"
+#include "xh_object_rules.h"
 #ifndef XH_MODULE_TARGET
 #define XH_MODULE_TARGET "arm"
 #endif
@@ -16,7 +17,7 @@
 typedef struct {
   char id[64], tools[128], target[32], cpu[32], abi[32], module[128],
       include[128];
-  char dialect[16], options[128], engine[32], encoding[128], selection[128], templates[128];
+  char dialect[16], options[128], engine[32], encoding[128], selection[128], templates[128], object[128];
   int version;
   char protocol[32], protocol_major[8], protocol_minor[8], min_host_minor[8];
   char requires[512], entry[32], adapter[128], backend[128];
@@ -52,7 +53,7 @@ static int safe_relative(const char *s) {
   return 1;
 }
 static int package_requirements(const Package *pkg) {
-  static const char *supported[]={"codegen.templates.v1","package.options.v1","encoding.fields.v1","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
+  static const char *supported[]={"object.descriptor.v1","codegen.templates.v1","package.options.v1","encoding.fields.v1","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
   const char *p=pkg->requires;
   while(*p){const char *end=strchr(p,',');size_t n=end?(size_t)(end-p):strlen(p);int i,known=0;size_t k;
     if(!n||n>=96||p[0]<'a'||p[0]>'z')goto invalid;
@@ -111,7 +112,7 @@ static int read_package(const char *path, Package *pkg) {
     dest = pkg->fld;                                                           \
     cap = sizeof(pkg->fld);                                                    \
   }
-    FIELD("templates",templates) else FIELD("selection",selection) else FIELD("engine",engine) else FIELD("encoding",encoding) else FIELD("dialect",dialect) else FIELD("options",options) else FIELD("id", id)
+    FIELD("object",object) else FIELD("templates",templates) else FIELD("selection",selection) else FIELD("engine",engine) else FIELD("encoding",encoding) else FIELD("dialect",dialect) else FIELD("options",options) else FIELD("id", id)
     else FIELD("tools", tools) else FIELD("target", target) else FIELD(
         "cpu",
         cpu) else FIELD("abi",
@@ -139,7 +140,8 @@ static int read_package(const char *path, Package *pkg) {
       (*pkg->options && !safe_relative(pkg->options)) ||
       (*pkg->encoding && !safe_relative(pkg->encoding)) ||
       (*pkg->selection && !safe_relative(pkg->selection)) ||
-      (*pkg->templates && !safe_relative(pkg->templates)))
+      (*pkg->templates && !safe_relative(pkg->templates)) ||
+      (*pkg->object && !safe_relative(pkg->object)))
     goto invalid_closed;
   return 1;
 invalid:
@@ -296,6 +298,10 @@ int xh_package_apply(const char *root, const char *tool, ArkOptions *opts) {
         char template_path[PATH_CAP];
         if(snprintf(template_path,sizeof(template_path),"%s/%s/%s",root,p->id,p->templates)>=(int)sizeof(template_path)||xh_template_set_path(p->target,template_path))return 1;
       } else if(xh_template_set_path(p->target,0))return 1;
+      if (*p->object) {
+        char object_path[PATH_CAP];
+        if(snprintf(object_path,sizeof(object_path),"%s/%s/%s",root,p->id,p->object)>=(int)sizeof(object_path)||xh_object_rules_set_path(p->target,object_path))return 1;
+      } else if(xh_object_rules_set_path(p->target,0))return 1;
       opts->target = p->target;
       opts->cpu = strcmp(p->target, "arm") ? 0 : p->cpu;
       return 0;
