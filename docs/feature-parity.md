@@ -230,6 +230,34 @@ assembly, and corrupts the serialized output metadata to confirm explicit
 rejection. They run the same unified main artifact; the explicit legacy driver
 retains original private-object/link options in addition to the modern interface.
 
+## Outstanding: decimal floating-literal rounding
+
+This is a confirmed lexer correctness defect and a priority for the next repair
+round. In `src/frontend/c/lexer.c`, decimal floats without `e/E` use repeated
+binary-double multiplication/addition for their decimal integer/fraction parts.
+The non-STM32 `strtod` path currently runs only when an exponent is present.
+Intermediate rounding therefore changes the final literal before any target
+floating-to-integer conversion occurs. Reproducing the exact accumulation gives:
+
+| Literal | Current accumulation: binary64 hex | Correct binary64 hex | Error |
+| --- | --- | --- | ---: |
+| `9223372036854775808.0` | `43e0000000000001` | `43e0000000000000` | +2048 |
+| `9223372036854774784.0` | `43dffffffffffffe` | `43dfffffffffffff` | -1024 |
+
+Adding `e0` selects a different conversion path in a non-STM32 build. Tests that
+construct exact IEEE bits are valid for isolating backend conversions, but do
+not establish correct decimal-literal parsing or resolve this defect.
+
+The repair must convert the full lexeme consistently, including no-exponent
+forms, rather than only adjusting backend conversion rules. Related audited
+risks are the existing 64-byte `strtod` scratch silently truncating longer
+lexemes; signed `long long` integer-prefix accumulation overflowing even for an
+eventual floating token; and separate hexadecimal-float integer/fraction
+accumulation. Float-suffix parsing should avoid double rounding, and the STM32
+manual/pow path needs its own bounded rounding-correct implementation. These
+items were inspected only in this round; no lexer fix or passing regression is
+claimed here.
+
 Pending final integration results must distinguish output inspection from
 execution on the destination ISA. No claim here establishes full C99/C11,
 complete GCC/Clang/ARMCC command compatibility, unrestricted source capacity,

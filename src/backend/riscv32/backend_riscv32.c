@@ -316,164 +316,30 @@ static void rv_cx_second(AsmBuffer *b)
  * re-addressed off sp (never through a base register) after each call.
  *
  * Entry: B at sp+0..12, A at sp+16..28, each part stored high word first. */
-static void rv_cx_addsub(AsmBuffer *b, const char *helper)
-{
-    xh_rv_rule(b,"emit.fixed.0021");
-    rv_cx_ldh(b, 32, 0);                 /* A_im */
-    rv_cx_ldh(b, 16, 2);                 /* B_im */
-    xh_rv_rule(b,"emit.fixed.0022");
-    asmbuf_puts(b, helper);
-    asmbuf_putc(b, '\n');
-    rv_cx_park(b, 0);
-    rv_cx_ldh(b, 24, 0);                 /* A_re */
-    rv_cx_ldh(b, 8, 2);                  /* B_re */
-    xh_rv_rule(b,"emit.fixed.0022");
-    asmbuf_puts(b, helper);
-    asmbuf_putc(b, '\n');
-    xh_rv_rule(b,"emit.fixed.0023");
-    rv_cx_unpark(b, 0, 2);               /* im_lo -> a2, im_hi -> a3 */
-    xh_rv_rule(b,"emit.fixed.0024");
-    xh_rv_rule(b,"emit.fixed.0025");
-}
+
 
 /* (a+bi)(c+di) = (ac-bd) + (ad+bc)i.  32 bytes of scratch; the operands then
  * sit at B=32..44, A=48..60. */
-static void rv_cx_mul(AsmBuffer *b)
-{
-    xh_rv_rule(b,"emit.fixed.0026");
-    rv_cx_ldh(b, 48, 0);                 /* A_re */
-    rv_cx_ldh(b, 32, 2);                 /* B_re */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_park(b, 0);                    /* ac */
-    rv_cx_ldh(b, 48, 0);                 /* A_re */
-    rv_cx_ldh(b, 40, 2);                 /* B_im */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_park(b, 8);                    /* ad */
-    rv_cx_ldh(b, 56, 0);                 /* A_im */
-    rv_cx_ldh(b, 40, 2);                 /* B_im */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 0, 0);               /* ac */
-    xh_rv_rule(b,"emit.fixed.0028");
-    rv_cx_park(b, 16);                   /* real */
-    rv_cx_ldh(b, 56, 0);                 /* A_im */
-    rv_cx_ldh(b, 32, 2);                 /* B_re */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 8, 0);               /* ad */
-    xh_rv_rule(b,"emit.fixed.0029");
-    xh_rv_rule(b,"emit.fixed.0030");
-    rv_cx_push4_from_t(b);
-}
+
 
 /* (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i) / (c*c + d*d).
  * Scratch: [0] denominator, [8] real numerator, [16] b*c, [24] imaginary
  * numerator.  48 bytes; the operands then sit at B=48..60, A=64..76. */
-static void rv_cx_div(AsmBuffer *b)
-{
-    xh_rv_rule(b,"emit.fixed.0031");
-    rv_cx_ldh(b, 48, 0);                 /* B_re */
-    rv_cx_second(b);
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_park(b, 0);                    /* c*c */
-    rv_cx_ldh(b, 56, 0);                 /* B_im */
-    rv_cx_second(b);
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 0, 0);
-    xh_rv_rule(b,"emit.fixed.0029");
-    rv_cx_park(b, 0);                    /* denominator */
-    rv_cx_ldh(b, 64, 0);                 /* A_re */
-    rv_cx_ldh(b, 48, 2);                 /* B_re */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_park(b, 8);                    /* a*c */
-    rv_cx_ldh(b, 72, 0);                 /* A_im */
-    rv_cx_ldh(b, 56, 2);                 /* B_im */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 8, 0);
-    xh_rv_rule(b,"emit.fixed.0029");
-    rv_cx_park(b, 8);                    /* ac+bd */
-    rv_cx_ldh(b, 72, 0);                 /* A_im */
-    rv_cx_ldh(b, 48, 2);                 /* B_re */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_park(b, 16);                   /* b*c */
-    rv_cx_ldh(b, 64, 0);                 /* A_re */
-    rv_cx_ldh(b, 56, 2);                 /* B_im */
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 16, 0);
-    xh_rv_rule(b,"emit.fixed.0028");
-    rv_cx_park(b, 24);                   /* bc-ad */
-    rv_cx_unpark(b, 8, 0);
-    rv_cx_unpark(b, 0, 2);
-    xh_rv_rule(b,"emit.fixed.0032");
-    rv_cx_park(b, 8);                    /* real */
-    rv_cx_unpark(b, 24, 0);
-    rv_cx_unpark(b, 0, 2);
-    xh_rv_rule(b,"emit.fixed.0032");
-    xh_rv_rule(b,"emit.fixed.0033");
-    rv_cx_push4_from_t(b);
-}
+
 
 /* == and != on two complex values: both parts must answer the same way, so
  * the two strcmp-style __eqdf2 results are OR-ed and only the sign test is
  * left.  8 bytes of scratch keep the first answer safe across the second
  * call.  Entry: B at sp+0..12, A at sp+16..28. */
-static void rv_cx_cmp(AsmBuffer *b, int want_ne)
-{
-    xh_rv_rule(b,"emit.fixed.0021");
-    rv_cx_ldh(b, 24, 0);                 /* A_re */
-    rv_cx_ldh(b, 8, 2);                  /* B_re */
-    xh_rv_rule(b,"emit.fixed.0034");
-    rv_cx_ldh(b, 32, 0);                 /* A_im */
-    rv_cx_ldh(b, 16, 2);                 /* B_im */
-    xh_rv_rule(b,"emit.fixed.0035");
-    asmbuf_puts(b, want_ne ? xh_rv_rule_text("emit.choice.0006") : xh_rv_rule_text("emit.choice.0007"));
-    xh_rv_rule(b,"emit.fixed.0036");
-}
+
 
 /* cabs(z) = sqrt(re*re + im*im).  libm's sqrt takes and returns a double.
  * Entry: z at sp+0..12. */
-static void rv_cx_cabs(AsmBuffer *b)
-{
-    xh_rv_rule(b,"emit.fixed.0021");
-    rv_cx_ldh(b, 8, 0);                  /* re */
-    rv_cx_second(b);
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_park(b, 0);
-    rv_cx_ldh(b, 16, 0);                 /* im */
-    rv_cx_second(b);
-    xh_rv_rule(b,"emit.fixed.0027");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 0, 0);
-    xh_rv_rule(b,"emit.fixed.0037");
-    rv_fpush1(b, 1);
-}
+
 
 /* cexp(z) = e^re * (cos(im) + i sin(im)).  libm exp/cos/sin.  Entry: z at
  * sp+0..12; 32 bytes of scratch keep e^re and cos(im) across the calls. */
-static void rv_cx_cexp(AsmBuffer *b)
-{
-    xh_rv_rule(b,"emit.fixed.0026");   /* z now at 32..44 */
-    rv_cx_ldh(b, 32, 0);                        /* re */
-    xh_rv_rule(b,"emit.fixed.0038");
-    rv_cx_park(b, 0);                           /* e^re */
-    rv_cx_ldh(b, 40, 0);                        /* im */
-    xh_rv_rule(b,"emit.fixed.0039");
-    rv_cx_park(b, 8);
-    rv_cx_ldh(b, 40, 0);                        /* im */
-    xh_rv_rule(b,"emit.fixed.0040");
-    rv_cx_second(b);
-    rv_cx_unpark(b, 0, 0);                      /* e^re * sin(im) */
-    xh_rv_rule(b,"emit.fixed.0027");
-    xh_rv_rule(b,"emit.fixed.0023");
-    rv_cx_unpark(b, 8, 0);                      /* cos(im) */
-    rv_cx_unpark(b, 0, 2);                      /* e^re */
-    xh_rv_rule(b,"emit.fixed.0027");
-    xh_rv_rule(b,"emit.fixed.0041");
-    rv_cx_push4(b);
-}
+
 
 /* Push the real part from t0:t1 and the imaginary part from a0:a1 -- the
  * epilogue shared by every complex arithmetic helper above. */
@@ -1471,14 +1337,11 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     int is_dbl = (I->aux & 0x200) != 0;
                     if ((I->aux & 0xF00) == 0x900) {
                         /* cexp(z) = e^re * (cos(im) + i sin(im)); libm. */
-                        rv_cx_cexp(&buf);
+                        xh_rv_semantic(&buf,"complex.math","exp",128,"complex","stack",4,4,0,0);
                         break;
                     }
                     if (I->aux & IR_AUX_COMPLEX) {
-                        if (I->op == IR_FADD)      rv_cx_addsub(&buf, "__adddf3");
-                        else if (I->op == IR_FSUB) rv_cx_addsub(&buf, "__subdf3");
-                        else if (I->op == IR_FMUL) rv_cx_mul(&buf);
-                        else                       rv_cx_div(&buf);
+                        xh_rv_semantic(&buf,"complex.bin",I->op==IR_FADD?"add":I->op==IR_FSUB?"sub":I->op==IR_FMUL?"mul":"div",128,"complex","stack",8,4,0,0);
                         break;
                     }
                     xh_rv_semantic(&buf,"float.bin",I->op==IR_FADD?"add":I->op==IR_FSUB?"sub":I->op==IR_FMUL?"mul":"div",is_dbl?64:32,"real","stack",is_dbl?4:2,is_dbl?2:1,0,0);
@@ -1490,7 +1353,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     int is_dbl = (I->aux & 0x200) != 0;
                     int op = I->aux & ~0x200;
                     if (I->aux & IR_AUX_COMPLEX) {
-                        rv_cx_cmp(&buf, (I->aux & ~(0x200 | IR_AUX_COMPLEX)) == (int)TOK_NE);
+                        xh_rv_semantic(&buf,"complex.cmp",(I->aux&~(0x200|IR_AUX_COMPLEX))==TOK_NE?"ne":"eq",128,"complex","stack",8,1,0,0);
                         break;
                     }
                     xh_rv_semantic(&buf,"float.cmp",op==TOK_EQ?"eq":op==TOK_NE?"ne":op==TOK_LT?"lt":op==TOK_GT?"gt":op==TOK_LE?"le":"ge",is_dbl?64:32,"real","stack",is_dbl?4:2,1,0,0);
@@ -1506,20 +1369,8 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                          * are emitted as calls, so a target without libm fails
                          * to link instead of quietly producing another number. */
                         int k = I->aux & 0x300;
-                        if (k == 0x200) {
-                            rv_cx_cabs(&buf);
-                        } else if (k == 0x300) {
-                            rv_cx_ldh(&buf, 8, 0);       /* im -> a0:a1 */
-                            rv_cx_ldh(&buf, 0, 2);       /* re -> a2:a3 */
-                            xh_rv_rule(&buf,"emit.fixed.0175");
-                            rv_fpush1(&buf, 1);
-                        } else if (k == 0x100) {
-                            xh_rv_rule(&buf,"emit.fixed.0176");
-                            rv_fpush1(&buf, 1);
-                        } else {
-                            xh_rv_rule(&buf,"emit.fixed.0177");
-                            rv_fpush1(&buf, 1);
-                        }
+                        if(k==0x200)xh_rv_semantic(&buf,"complex.math","abs",128,"complex","stack",4,2,0,0);
+                        else xh_rv_semantic(&buf,"complex.extract",k==0x300?"arg":k==0x100?"imag":"real",128,"complex","stack",4,2,0,0);
                         break;
                     }
                     int is_dbl = (I->aux & 0x200) != 0;
@@ -1535,16 +1386,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                          * aux & 0x700: 0x000 float, 0x200 double, 0x100 int
                          * (plus 0x400 when the source is unsigned). */
                         int k = I->aux & 0x700;
-                        if (k == 0x100 || k == 0x500) {
-                            xh_rv_rule(&buf,"emit.fixed.0179");
-                            asmbuf_puts(&buf, k == 0x500 ? "__floatunsidf\n" : "__floatsidf\n");
-                        } else if (k == 0x200) {
-                            xh_rv_rule(&buf,"emit.fixed.0180");
-                        } else {
-                            xh_rv_rule(&buf,"emit.fixed.0181");
-                        }
-                        xh_rv_rule(&buf,"emit.fixed.0182");
-                        rv_cx_push4(&buf);
+                        xh_rv_semantic(&buf,"complex.from",(k==0x100||k==0x500)?"i32":k==0x200?"f64":"f32",k==0x200?64:32,(k==0x100||k==0x500)?(k==0x500?"u":"s"):"real","stack",k==0x200?2:1,4,0,0);
                         break;
                     }
                     int is_dbl = (I->aux & 0x200) != 0;
@@ -1585,7 +1427,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* conj: flip the sign bit of the imaginary part, whose
                          * high word is at sp+8. */
-                        xh_rv_rule(&buf,"emit.fixed.0185");
+                        xh_rv_semantic(&buf,"complex.unary","conj",128,"complex","stack",4,4,0,0);
                         break;
                     }
                     if (I->val == 2) {

@@ -1320,6 +1320,50 @@ text callpop complex 64 s seq.callpop.complex.s 1 0\n
 text callaux signature 64 s seq.callaux.signature.s 0 0\n
 text callaux separator 64 s seq.callaux.separator.s 0 0\n
 text callaux end 64 s seq.callaux.end.s 0 0\n
+text type VOID 64 s seq.type.VOID 0 0\n
+text type CHAR 64 s seq.type.CHAR 0 0\n
+text type SHORT 64 s seq.type.SHORT 0 0\n
+text type INT 64 s seq.type.INT 0 0\n
+text type LONG 64 s seq.type.LONG 0 0\n
+text type LLONG 64 s seq.type.LLONG 0 0\n
+text type BOOL 64 s seq.type.BOOL 0 0\n
+text type FLOAT 64 s seq.type.FLOAT 0 0\n
+text type DOUBLE 64 s seq.type.DOUBLE 0 0\n
+text type ENUM 64 s seq.type.ENUM 0 0\n
+text type WCHAR 64 s seq.type.WCHAR 0 0\n
+text type POINTER 64 s seq.type.POINTER 0 0\n
+text type ARRAY_DIM 64 s seq.type.ARRAY_DIM 0 0\n
+text type ARRAY_UNSIZED 64 s seq.type.ARRAY_UNSIZED 0 0\n
+text type STRUCT_REF 64 s seq.type.STRUCT_REF 0 0\n
+text type UNION_REF 64 s seq.type.UNION_REF 0 0\n
+text type ANON_POINTER 64 s seq.type.ANON_POINTER 0 0\n
+text type STRUCT_HEAD 64 s seq.type.STRUCT_HEAD 0 0\n
+text type UNION_HEAD 64 s seq.type.UNION_HEAD 0 0\n
+text type BODY_OPEN 64 s seq.type.BODY_OPEN 0 0\n
+text type BODY_CLOSE 64 s seq.type.BODY_CLOSE 0 0\n
+text type FIELD_END 64 s seq.type.FIELD_END 0 0\n
+text type TAG 64 s seq.type.TAG 0 0\n
+text type NAME 64 s seq.type.NAME 0 0\n
+text type FUNPTR_OPEN 64 s seq.type.FUNPTR_OPEN 0 0\n
+text type FUNPTR_CLOSE 64 s seq.type.FUNPTR_CLOSE 0 0\n
+text type PARAM_SEPARATOR 64 s seq.type.PARAM_SEPARATOR 0 0\n
+text type VARIADIC 64 s seq.type.VARIADIC 0 0\n
+text type COMPLEX_FLOAT 64 s seq.type.COMPLEX_FLOAT 0 0\n
+text type COMPLEX_DOUBLE 64 s seq.type.COMPLEX_DOUBLE 0 0\n
+text type QUAL_CONST 64 s seq.type.QUAL_CONST 0 0\n
+text type QUAL_VOLATILE 64 s seq.type.QUAL_VOLATILE 0 0\n
+text attribute attribute_tok_ge_4 64 s seq.attribute.attribute_tok_ge_4 0 0\n
+text attribute attribute_tok_ge_5 64 s seq.attribute.attribute_tok_ge_5 0 0\n
+text attribute attribute_tok_ge_6 64 s seq.attribute.attribute_tok_ge_6 0 0\n
+text attribute attribute_tok_ge_7 64 s seq.attribute.attribute_tok_ge_7 0 0\n
+text attribute attribute_tok_ge_8 64 s seq.attribute.attribute_tok_ge_8 0 0\n
+text attribute attribute_tok_ge_9 64 s seq.attribute.attribute_tok_ge_9 0 0\n
+text attribute attribute_tok_ge_10 64 s seq.attribute.attribute_tok_ge_10 0 0\n
+text attribute attribute_tok_ge_11 64 s seq.attribute.attribute_tok_ge_11 0 0\n
+text attribute attribute_tok_ge_12 64 s seq.attribute.attribute_tok_ge_12 0 0\n
+text attribute attribute_tok_ge_13 64 s seq.attribute.attribute_tok_ge_13 0 0\n
+text attribute attribute_tok_ge_14 64 s seq.attribute.attribute_tok_ge_14 0 0\n
+text attribute attribute_ir_cmp_jmp_eq_57 64 s seq.attribute.attribute_ir_cmp_jmp_eq_57 0 0\n
 end
 rule semantic.operands
 text ark_a ark_c ark_fa ark_fc ark_ca ark_cc
@@ -2017,4 +2061,180 @@ end
 
 rule seq.callaux.end.s
 text  }
+end
+
+rule seq.type.VOID
+text void\x20${0}
+end
+
+rule seq.type.CHAR
+text char\x20${0}
+end
+
+rule seq.type.SHORT
+text short\x20${0}
+end
+
+rule seq.type.INT
+text int\x20${0}
+end
+
+rule seq.type.LONG
+text long\x20${0}
+end
+
+rule seq.type.LLONG
+text long long\x20${0}
+end
+
+rule seq.type.BOOL
+text _Bool\x20${0}
+end
+
+rule seq.type.FLOAT
+text float\x20${0}
+end
+
+rule seq.type.DOUBLE
+text double\x20${0}
+end
+
+rule seq.type.ENUM
+text int\x20${0}
+end
+
+rule seq.type.WCHAR
+text wchar_t\x20${0}
+end
+
+rule seq.type.POINTER
+text *${0}
+end
+
+rule seq.type.ARRAY_DIM
+text [${0}]
+end
+
+rule seq.type.ARRAY_UNSIZED
+text []
+end
+
+rule seq.type.STRUCT_REF
+text struct ${1} ${0}
+end
+
+rule seq.type.UNION_REF
+text union ${1} ${0}
+end
+
+rule seq.type.ANON_POINTER
+text void ${0}
+end
+
+rule seq.type.STRUCT_HEAD
+text struct\x20
+end
+
+rule seq.type.UNION_HEAD
+text union\x20
+end
+
+rule seq.type.BODY_OPEN
+text {\x20
+end
+
+rule seq.type.BODY_CLOSE
+text }\x20
+end
+
+rule seq.type.FIELD_END
+text ;\x20
+end
+
+rule seq.type.TAG
+text ${1}\x20
+end
+
+rule seq.type.NAME
+text ${0}
+end
+
+rule seq.type.FUNPTR_OPEN
+text (*${0})(
+end
+
+rule seq.type.FUNPTR_CLOSE
+text )
+end
+
+rule seq.type.PARAM_SEPARATOR
+text ,\x20
+end
+
+rule seq.type.VARIADIC
+text ...
+end
+
+rule seq.type.COMPLEX_FLOAT
+text _Complex float ${0}
+end
+
+rule seq.type.COMPLEX_DOUBLE
+text _Complex double ${0}
+end
+
+rule seq.type.QUAL_CONST
+text const\x20
+end
+
+rule seq.type.QUAL_VOLATILE
+text volatile\x20
+end
+
+rule seq.attribute.attribute_tok_ge_4
+text /* __weak (host: dropped) */\x20
+end
+
+rule seq.attribute.attribute_tok_ge_5
+text __attribute__((naked))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_6
+text __attribute__((used))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_7
+text __attribute__((unused))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_8
+text __attribute__((always_inline)) inline\x20
+end
+
+rule seq.attribute.attribute_tok_ge_9
+text __attribute__((constructor))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_10
+text __attribute__((destructor))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_11
+text __attribute__((deprecated))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_12
+text __attribute__((pure))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_13
+text __attribute__((const))\x20
+end
+
+rule seq.attribute.attribute_tok_ge_14
+text __attribute__((alias("ark_
+end
+
+rule seq.attribute.attribute_ir_cmp_jmp_eq_57
+text __attribute__((section(".text.
 end

@@ -264,6 +264,21 @@ class ArmRules(unittest.TestCase):
                 self.assertEqual(self.execute(exe,'bounds'),1)
             self.assertEqual(results,[(7,1,1),(2,1,1),(7,0,1),(7,1,0)]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
 
+    def test_complex_semantic_sequences_and_same_sha_selection(self):
+        compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-complex-semantic-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'complex.c';source.write_text('#include <complex.h>\n_Complex double plus(_Complex double a,_Complex double b){return a+b;}\nint entry(void){_Complex double a=3.0+4.0*I,b=1.0+2.0*I,c;c=plus(a,b);return (int)(creal(c)*10+cimag(c));}\nint operations(void){_Complex double a=3.0+4.0*I,b=1.0+2.0*I,m=a*b,d=a/b,n=conj(a);return ((int)creal(m)==-5)&&((int)cimag(m)==10)&&((int)(creal(d)*5)==11)&&((int)(cimag(d)*5)==-2)&&((int)creal(n)==3)&&((int)cimag(n)==-4)&&(a==a)&&(a!=b);}\nint conversions(void){int i=7;unsigned u=9;float f=11.0f;double d=13.0;_Complex double a=i,b=u,c=f,e=d;return (int)(creal(a)+creal(b)+creal(c)+creal(e)+cimag(a)+cimag(b));}\n')
+            lib=subprocess.run([str(GNU/'arm-none-eabi-gcc.exe'),'-mcpu=cortex-m3','-mthumb','-mfloat-abi=soft','-print-libgcc-file-name'],capture_output=True,text=True,check=True).stdout.strip();path=pkg/'arm.rules';base=path.read_text();values=[]
+            original='complex add 128 v stack sem.complex.add 8 4';variant='complex add 128 v stack sem.complex.sub 8 4'
+            for i,text in enumerate([base,base.replace(original,variant,1)]):
+                path.write_text(text);obj=work/(str(i)+'.o');exe=work/(str(i)+'.elf')
+                self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT));self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e','entry','-o',exe,obj,lib)
+                values.append(self.execute(exe))
+                if i==0:self.assertEqual(self.execute(exe,'operations'),1);self.assertEqual(self.execute(exe,'conversions'),40)
+            self.assertEqual(values,[46,22]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

@@ -273,111 +273,11 @@ static void arm_cplx_push4(AsmBuffer *b) {
     arm_push_reg(b, 0);
     arm_push_reg(b, 1);
 }
-/* complex + and -: componentwise, no interaction between the parts. */
-static void arm_cplx_addsub(AsmBuffer *b, const char *helper) {
-    /* Imaginary part first; its result is parked in an 8-byte scratch slot
-     * because the real part's loads and the helper's own use of r0-r3 would
-     * otherwise destroy it. After SUB sp,#8 the input block (and therefore
-     * every offset below) has moved up by exactly 8 bytes. */
-    arm_dcall(b, helper, 28, 24, 12, 8);          /* A_im / B_im */
-    xh_arm_rule(b, "text.0025");
-    arm_str_sp(b, 0, 0);
-    arm_str_sp(b, 1, 4);
-    arm_dcall(b, helper, 28, 24, 12, 8);          /* A_re / B_re */
-    arm_ldr_sp(b, 2, 0);
-    arm_ldr_sp(b, 3, 4);
-    emit_add_sp(b, 40);                            /* scratch + both operands */
-    arm_cplx_push4(b);
-}
-/* (a+bi)(c+di) = (ac-bd) + (ad+bc)i */
-static void arm_cplx_mul(AsmBuffer *b) {
-    xh_arm_rule(b, "text.0026");               /* operands now at sp+32 */
-    arm_dcall(b, "__aeabi_dmul", 52, 48, 36, 32);   /* ac */
-    arm_str_sp(b, 0, 0);
-    arm_str_sp(b, 1, 4);
-    arm_dcall(b, "__aeabi_dmul", 60, 56, 44, 40);   /* bd */
-    xh_arm_rule(b, "text.0027");
-    xh_arm_rule(b, "text.0028");
-    arm_ldr_sp(b, 0, 0);
-    arm_ldr_sp(b, 1, 4);
-    arm_call1(b, "__aeabi_dsub");                   /* ac - bd = real */
-    arm_str_sp(b, 0, 16);
-    arm_str_sp(b, 1, 20);
-    arm_dcall(b, "__aeabi_dmul", 52, 48, 44, 40);   /* ad */
-    arm_str_sp(b, 0, 0);
-    arm_str_sp(b, 1, 4);
-    arm_dcall(b, "__aeabi_dmul", 60, 56, 36, 32);   /* bc */
-    xh_arm_rule(b, "text.0027");
-    xh_arm_rule(b, "text.0028");
-    arm_ldr_sp(b, 0, 0);
-    arm_ldr_sp(b, 1, 4);
-    arm_call1(b, "__aeabi_dadd");                   /* ad + bc = imag */
-    xh_arm_rule(b, "text.0027");
-    xh_arm_rule(b, "text.0028");
-    arm_ldr_sp(b, 0, 16);
-    arm_ldr_sp(b, 1, 20);
-    emit_add_sp(b, 64);                             /* scratch + both operands */
-    arm_cplx_push4(b);
-}
-/* (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i) / (c*c + d*d) */
-static void arm_cplx_div(AsmBuffer *b) {
-    xh_arm_rule(b, "text.0029");               /* operands now at sp+40 */
-    arm_dcall(b, "__aeabi_dmul", 44, 40, 44, 40);   /* c*c        -> S0 */
-    arm_str_sp(b, 0, 0);
-    arm_str_sp(b, 1, 4);
-    arm_dcall(b, "__aeabi_dmul", 52, 48, 52, 48);   /* d*d        -> S1 */
-    arm_str_sp(b, 0, 8);
-    arm_str_sp(b, 1, 12);
-    arm_dcall(b, "__aeabi_dadd", 0, 4, 8, 12);      /* den        -> S2 */
-    arm_str_sp(b, 0, 16);
-    arm_str_sp(b, 1, 20);
-    arm_dcall(b, "__aeabi_dmul", 60, 56, 44, 40);   /* ac         -> S0 */
-    arm_str_sp(b, 0, 0);
-    arm_str_sp(b, 1, 4);
-    arm_dcall(b, "__aeabi_dmul", 68, 64, 52, 48);   /* bd         -> S1 */
-    arm_str_sp(b, 0, 8);
-    arm_str_sp(b, 1, 12);
-    arm_dcall(b, "__aeabi_dadd", 0, 4, 8, 12);      /* ac+bd      -> S3 */
-    arm_str_sp(b, 0, 24);
-    arm_str_sp(b, 1, 28);
-    arm_dcall(b, "__aeabi_dmul", 68, 64, 44, 40);   /* bc         -> S1 */
-    arm_str_sp(b, 0, 8);
-    arm_str_sp(b, 1, 12);
-    arm_dcall(b, "__aeabi_dmul", 60, 56, 52, 48);   /* ad         -> S0 */
-    arm_str_sp(b, 0, 0);
-    arm_str_sp(b, 1, 4);
-    arm_dcall(b, "__aeabi_dsub", 8, 12, 0, 4);      /* bc-ad      -> S4 */
-    arm_str_sp(b, 0, 32);
-    arm_str_sp(b, 1, 36);
-    arm_dcall(b, "__aeabi_ddiv", 24, 28, 16, 20);   /* real */
-    arm_str_sp(b, 0, 24);
-    arm_str_sp(b, 1, 28);
-    arm_dcall(b, "__aeabi_ddiv", 32, 36, 16, 20);   /* imag */
-    xh_arm_rule(b, "text.0027");
-    xh_arm_rule(b, "text.0028");
-    arm_ldr_sp(b, 0, 24);
-    arm_ldr_sp(b, 1, 28);
-    emit_add_sp(b, 72);                             /* scratch + both operands */
-    arm_cplx_push4(b);
-}
-/* == / != on two complex operands (C99 6.5.9: nothing else is defined). */
-static void arm_cplx_cmp(AsmBuffer *b, int want_ne) {
-    /* Two complex values are equal when both parts are equal.  libgcc has no
-     * __aeabi_dcmpne (checked with nm on the no-FPU v7-m libgcc.a: only
-     * dcmpeq/dcmplt/dcmple/dcmpgt/dcmpge/dcmpun exist), so `!=` is built as
-     * the negation of `==` instead of naming a helper that does not link.
-     * It is also the NaN-correct form: dcmpeq answers 0 for an unordered
-     * pair, so `z != z` is 1 for a complex NaN, as IEEE requires. */
-    xh_arm_rule(b, "text.0025");                /* operands now at sp+8 */
-    arm_dcall(b, "__aeabi_dcmpeq", 12, 8, 28, 24);
-    arm_str_sp(b, 0, 0);
-    arm_dcall(b, "__aeabi_dcmpeq", 20, 16, 36, 32);
-    arm_ldr_sp(b, 1, 0);
-    xh_arm_rule(b, "text.0030");
-    if (want_ne) xh_arm_rule(b, "text.0031");
-    emit_add_sp(b, 40);                             /* scratch + both operands */
-    arm_push_reg(b, 0);
-}
+/* Complex stack values use four words of double precision components. */
+static void arm_cplx_addsub(AsmBuffer*b,int subtract){xh_arm_semantic(b,"complex",subtract?"sub":"add",128,"v","stack",8,4);}
+static void arm_cplx_mul(AsmBuffer*b){xh_arm_semantic(b,"complex","mul",128,"v","stack",8,4);}
+static void arm_cplx_div(AsmBuffer*b){xh_arm_semantic(b,"complex","div",128,"v","stack",8,4);}
+static void arm_cplx_cmp(AsmBuffer*b,int ne){xh_arm_semantic(b,"complex",ne?"ne":"eq",128,"v","stack",8,1);}
 
 #if ARKCC_FEATURE_FPU_HW
 /* Hardware VFP floating-point path helpers.
@@ -7510,11 +7410,7 @@ static char *codegen_arm(IrProgram *prog) {
                     break;
                 case IR_UNARY:
                     if (I->aux & IR_AUX_COMPLEX) {
-                        /* conj: flip the sign bit of the imaginary part, which
-                         * is its high word at sp+8. */
-                        arm_ldr_sp(&buf, 0, 8);
-                        xh_arm_rule(&buf, "text.0235");
-                        arm_str_sp(&buf, 0, 8);
+                        xh_arm_semantic(&buf,"complex","conj",128,"v","stack",4,4);
                         break;
                     }
                     if (I->val == 2 &&
@@ -7701,7 +7597,7 @@ static char *codegen_arm(IrProgram *prog) {
                         break;
                     }
                     if (I->aux & IR_AUX_COMPLEX) {
-                        arm_cplx_addsub(&buf, "__aeabi_dadd");
+                        arm_cplx_addsub(&buf,0);
                         break;
                     }
                     xh_arm_semantic(&buf,"floatbin","add",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,is_dbl?2:1);
@@ -7710,7 +7606,7 @@ static char *codegen_arm(IrProgram *prog) {
                 case IR_FSUB: {
                     int is_dbl = (I->aux & 0x200) != 0;
                     if (I->aux & IR_AUX_COMPLEX) {
-                        arm_cplx_addsub(&buf, "__aeabi_dsub");
+                        arm_cplx_addsub(&buf,1);
                         break;
                     }
                     xh_arm_semantic(&buf,"floatbin","sub",is_dbl?64:32,"v",arm_fp_semantic_mode(is_dbl),is_dbl?4:2,is_dbl?2:1);
@@ -7768,19 +7664,8 @@ static char *codegen_arm(IrProgram *prog) {
                             arm_call1(&buf, "atan2");
                             arm_push_reg(&buf, 0);
                             arm_push_reg(&buf, 1);
-                        } else if (k == 0x100) {
-                            arm_ldr_sp(&buf, 0, 12);   /* imag low  */
-                            arm_ldr_sp(&buf, 1, 8);    /* imag high */
-                            emit_add_sp(&buf, 16);
-                            arm_push_reg(&buf, 0);
-                            arm_push_reg(&buf, 1);
-                        } else {
-                            arm_ldr_sp(&buf, 0, 4);    /* real low  */
-                            arm_ldr_sp(&buf, 1, 0);    /* real high */
-                            emit_add_sp(&buf, 16);
-                            arm_push_reg(&buf, 0);
-                            arm_push_reg(&buf, 1);
-                        }
+                        }else xh_arm_semantic(&buf,"complex",k==0x100?"imag":"real",128,"v","stack",4,2);
+
                         break;
                     }
                     int is_dbl=(I->aux&0x200)!=0,is_unsigned=(I->aux&0x400)!=0;
@@ -7789,27 +7674,8 @@ static char *codegen_arm(IrProgram *prog) {
                 }
                 case IR_I2F: {
                     if (I->aux & IR_AUX_COMPLEX) {
-                        /* real -> complex widening, imaginary part 0.
-                         * aux & 0x700: 0x000 float, 0x200 double,
-                         * 0x100 int (0x400 more if unsigned). */
-                        int k = I->aux & 0x700;
-                        if (k == 0x100 || k == 0x500) {
-                            emit_pop_r0(&buf);
-                            arm_call1(&buf, k == 0x500 ? "__aeabi_ui2d" : "__aeabi_i2d");
-                        } else if (k == 0x200) {
-                            xh_arm_rule(&buf, "text.0008");
-                            emit_pop_r0(&buf);
-                        } else {
-                            emit_pop_r0(&buf);
-                            arm_call1(&buf, "__aeabi_f2d");
-                        }
-                        xh_arm_rule(&buf, "text.0027");
-                        xh_arm_rule(&buf, "text.0028");
-                        xh_arm_rule(&buf, "text.0267");
-                        arm_push_reg(&buf, 0);
-                        arm_push_reg(&buf, 0);
-                        arm_push_reg(&buf, 2);
-                        arm_push_reg(&buf, 3);
+                        int k=I->aux&0x700;
+                        xh_arm_semantic(&buf,"complex",k==0x100?"from_i":k==0x500?"from_u":k==0x200?"from_d":"from_f",128,"v","stack",k==0x200?2:1,4);
                         break;
                     }
                     /* int -> float/double */

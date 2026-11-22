@@ -596,3 +596,18 @@ int xh_c_rule_find(const char *key,const char *name,char *out,int cap) {
         while(*p==' ')p++;
     }return 0;
 }
+
+int xh_c_production(const char *family,const char *operation,const char *name,const char *tag,char *output,int capacity) {
+    XhSemanticInput input={family,operation,"s","-",64};XhSemanticResult selected;
+    const char *args[2]={name?name:"",tag?tag:""};int n;
+    if(xh_semantic_select("c","semantic.selectors",&input,&selected)!=1 || selected.pop || selected.push) {
+        xh_c_rules_error("missing or invalid C type or attribute production");return -1;
+    }
+    n=xh_template_emit("c",selected.template_key,args,2,output,capacity);
+    if(n<0)c_failed=1;return n;
+}
+const char *xh_c_attribute(const char *operation) {
+    static char text[256];
+    if(xh_c_production("attribute",operation,"","",text,sizeof text)<0)return "";
+    return text;
+}

@@ -175,6 +175,44 @@ class CRules(unittest.TestCase):
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
 
+    def test_named_aggregate_self_pointer_is_finite(self):
+        original = self.source.read_text(encoding='utf-8')
+        try:
+            self.source.write_text('struct Node { int value; struct Node *next; }; '
+                                   'struct Node root; int main(void) { root.value=37; return root.value; }\n', encoding='utf-8')
+            output = self.compile(self.original, 'named_self_pointer')
+            text = output.read_text(encoding='utf-8')
+            self.assertIn('struct Node *next', text)
+            self.assertLess(len(text), 100000)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
+    def test_type_production_selection_changes_real_object_size_same_sha(self):
+        original = self.source.read_text(encoding='utf-8')
+        before = hashlib.sha256(COMPILER.read_bytes()).digest()
+        try:
+            self.source.write_text('char grammar_object = 7; int main(void) { return grammar_object; }\n', encoding='utf-8')
+            base = self.compile(self.original, 'type_base')
+            variant = self.original.replace('type CHAR 64 s seq.type.CHAR 0 0',
+                                            'type CHAR 64 s seq.type.INT 0 0', 1)
+            self.assertNotEqual(variant, self.original)
+            changed = self.compile(variant, 'type_variant')
+            self.assertIn('char grammar_object', base.read_text(encoding='utf-8'))
+            self.assertIn('int grammar_object', changed.read_text(encoding='utf-8'))
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            sizes = []
+            sys.path.insert(0, str(ROOT / 'build/test-deps'))
+            from elftools.elf.elffile import ELFFile
+            for output in [base, changed]:
+                self.assertEqual(self.run_arm_generated_c(arm, output), 7)
+                with output.with_suffix('.elf').open('rb') as stream:
+                    elf = ELFFile(stream)
+                    sizes.append(elf.get_section_by_name('.symtab').get_symbol_by_name('grammar_object')[0]['st_size'])
+            self.assertEqual(sizes, [1, 4])
+            self.assertEqual(hashlib.sha256(COMPILER.read_bytes()).digest(), before)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
     def test_discarded_wide_values_execute_balanced_loop(self):
         original = self.source.read_text(encoding='utf-8')
         try:
@@ -334,6 +372,13 @@ int main(int argc,char**argv){
  else if(!strcmp(argv[1],"unary")){inst.op=IR_UNARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"compare")){inst.op=IR_FCMP;inst.aux=99999;}
  else if(!strcmp(argv[1],"compare64")){inst.op=IR_64CMP;inst.aux=99999;}
+ else if(!strcmp(argv[1],"typecycle")||!strcmp(argv[1],"typedepth")){
+  Type ty[70]={{0}};IrGlobal g={0};IrGlobal*globals[1]={&g};int j;
+  for(j=0;j<69;j++){ty[j].kind=TYPE_PTR;ty[j].base=&ty[j+1];}ty[69].kind=TYPE_INT;
+  if(!strcmp(argv[1],"typecycle"))ty[0].base=&ty[0];
+  g.name="limited";g.type=ty;prog.globals=globals;prog.global_count=1;out[0]='X';n=c_emit(&prog,out,sizeof out);
+  printf("%d %d\n",n,(int)out[0]);return n<0&&out[0]==0?0:1;
+ }
  else if(!strcmp(argv[1],"pointer")||!strcmp(argv[1],"array")){
   Type ty[18]={{0}};IrGlobal g={0};IrGlobal*globals[1]={&g};char name[300];int i;
   memset(name,'a',sizeof name-1);name[sizeof name-1]=0;ty[17].kind=TYPE_INT;
@@ -383,7 +428,7 @@ class CBackendRejections(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(result.stdout.strip(), str(depth))
                 if depth < 0:
-                    self.assertIn('c backend:', result.stderr)
+                    self.assertRegex(result.stderr, r'c backend:|template expansion exceeds output capacity')
 
     def test_dynamic_call_stack_effects_use_real_return_shape(self):
         result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), 'calls'],
@@ -392,13 +437,13 @@ class CBackendRejections(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), '-3 -2 0 -1 1 -15')
 
     def test_invalid_ir_operator_and_type_limits_reject_without_output(self):
-        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0']:
+        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0', 'typecycle', 'typedepth']:
             with self.subTest(mode=mode):
                 result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
                                         cwd=ROOT, capture_output=True, text=True, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(result.stdout.strip(), '-1 0')
-                self.assertIn('c backend:', result.stderr)
+                self.assertRegex(result.stderr, r'c backend:|template expansion exceeds output capacity')
 
 
 if __name__ == '__main__':

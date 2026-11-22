@@ -4175,8 +4175,15 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                 int dst_float = dst_t && (dst_t->kind == TYPE_FLOAT || dst_t->kind == TYPE_DOUBLE);
                 int src_int   = src_t && type_is_integer(src_t);
                 int dst_int   = dst_t && type_is_integer(dst_t);
+                /* An explicit real->complex cast must materialize the zero
+                 * imaginary component before the surrounding store consumes it.
+                 * Reuse the same representation lowering as assignment/calls. */
+                if (dst_t && ARK_IS_CX(dst_t) && src_t && !ARK_IS_CX(src_t) &&
+                    (src_float || src_int)) {
+                    irgen_widen_real_to_complex(g, src_t);
+                }
                 /* _Bool from a floating operand compares against 0.0. */
-                if (dst_t && dst_t->kind == TYPE_BOOL && src_float) {
+                else if (dst_t && dst_t->kind == TYPE_BOOL && src_float) {
                     irgen_float_to_bool(g, src_t->kind == TYPE_DOUBLE);
                 }
                 else if (src_float && dst_int) {
@@ -4735,7 +4742,20 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                     (node->type->kind == TYPE_FLOAT || node->type->kind == TYPE_DOUBLE);
                 int is_llong = node->type && type_is_64bit_integer(node->type);
                 irgen_expr(g, node->u.unary.operand);
-                ir_emit(g->fn, IR_UNARY, is_float ? 1 : (is_llong ? 2 : 0), 0, op);
+                /* ! consumes the operand representation and returns one int.
+                 * Normalize a machine word-pair here so every backend sees
+                 * scalar NOT; C's one-slot mode needs no collapse. */
+                if (op == (int)TOK_NOT && node->u.unary.operand &&
+                    type_is_64bit_integer(node->u.unary.operand->type)) {
+                    irgen_cond_to_bool(g, node->u.unary.operand);
+                    ir_emit(g->fn, IR_UNARY, 0, 0, op);
+                    break;
+                }
+                /* GNU ~ on a complex value is conjugation, exactly the IR
+                 * operation used by conj(); integer BNOT would drop its shape. */
+                if (op == (int)TOK_BNOT && node->type && ARK_IS_CX(node->type))
+                    ir_emit(g->fn, IR_UNARY, 0, 0, op | IR_AUX_COMPLEX);
+                else ir_emit(g->fn, IR_UNARY, is_float ? 1 : (is_llong ? 2 : 0), 0, op);
             }
             break;
         }

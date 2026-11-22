@@ -26,5 +26,7 @@ void xh_c_effect_get(int *pop,int *push);
 int xh_c_call_piece(const char *family,const char *operation,const char *const *args,char *out,int capacity);
 int xh_c_rule_copy(char *out, int capacity, const char *key);
 void xh_c_rules_error(const char *message);
+int xh_c_production(const char *family,const char *operation,const char *name,const char *tag,char *out,int capacity);
+const char *xh_c_attribute(const char *operation);
 int xh_c_rules_failed(void);
 #endif

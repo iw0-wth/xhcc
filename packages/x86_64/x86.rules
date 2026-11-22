@@ -3061,5 +3061,53 @@ rule int64.binary.mod.unsigned
 text     pop rdx\n    pop rcx\n    mov ecx, ecx\n    shl rdx, 32\n    or rcx, rdx\n    pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    xor edx, edx\n    div rcx\n    mov rax, rdx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
 end
 rule semantic.integer64
-text XHSEMANTIC 1\nbinary add 64 signed pair int64.binary.add.signed 4 2\nbinary sub 64 signed pair int64.binary.sub.signed 4 2\nbinary and 64 signed pair int64.binary.and.signed 4 2\nbinary or 64 signed pair int64.binary.or.signed 4 2\nbinary xor 64 signed pair int64.binary.xor.signed 4 2\nbinary mul 64 signed pair int64.binary.mul.signed 4 2\nbinary shl 64 signed pair int64.binary.shl.signed 4 2\nbinary shr 64 signed pair int64.binary.shr.signed 4 2\ncompare eq 64 signed pair int64.compare.eq.signed 4 1\ncompare ne 64 signed pair int64.compare.ne.signed 4 1\ncompare lt 64 signed pair int64.compare.lt.signed 4 1\ncompare le 64 signed pair int64.compare.le.signed 4 1\ncompare gt 64 signed pair int64.compare.gt.signed 4 1\ncompare ge 64 signed pair int64.compare.ge.signed 4 1\nbinary div 64 signed pair int64.binary.div.signed 4 2\nbinary mod 64 signed pair int64.binary.mod.signed 4 2\nbinary add 64 unsigned pair int64.binary.add.unsigned 4 2\nbinary sub 64 unsigned pair int64.binary.sub.unsigned 4 2\nbinary and 64 unsigned pair int64.binary.and.unsigned 4 2\nbinary or 64 unsigned pair int64.binary.or.unsigned 4 2\nbinary xor 64 unsigned pair int64.binary.xor.unsigned 4 2\nbinary mul 64 unsigned pair int64.binary.mul.unsigned 4 2\nbinary shl 64 unsigned pair int64.binary.shl.unsigned 4 2\nbinary shr 64 unsigned pair int64.binary.shr.unsigned 4 2\ncompare eq 64 unsigned pair int64.compare.eq.unsigned 4 1\ncompare ne 64 unsigned pair int64.compare.ne.unsigned 4 1\ncompare lt 64 unsigned pair int64.compare.lt.unsigned 4 1\ncompare le 64 unsigned pair int64.compare.le.unsigned 4 1\ncompare gt 64 unsigned pair int64.compare.gt.unsigned 4 1\ncompare ge 64 unsigned pair int64.compare.ge.unsigned 4 1\nbinary div 64 unsigned pair int64.binary.div.unsigned 4 2\nbinary mod 64 unsigned pair int64.binary.mod.unsigned 4 2\n
+text XHSEMANTIC 1\nbinary add 64 signed pair int64.binary.add.signed 4 2\nbinary sub 64 signed pair int64.binary.sub.signed 4 2\nbinary and 64 signed pair int64.binary.and.signed 4 2\nbinary or 64 signed pair int64.binary.or.signed 4 2\nbinary xor 64 signed pair int64.binary.xor.signed 4 2\nbinary mul 64 signed pair int64.binary.mul.signed 4 2\nbinary shl 64 signed pair int64.binary.shl.signed 4 2\nbinary shr 64 signed pair int64.binary.shr.signed 4 2\ncompare eq 64 signed pair int64.compare.eq.signed 4 1\ncompare ne 64 signed pair int64.compare.ne.signed 4 1\ncompare lt 64 signed pair int64.compare.lt.signed 4 1\ncompare le 64 signed pair int64.compare.le.signed 4 1\ncompare gt 64 signed pair int64.compare.gt.signed 4 1\ncompare ge 64 signed pair int64.compare.ge.signed 4 1\nbinary div 64 signed pair int64.binary.div.signed 4 2\nbinary mod 64 signed pair int64.binary.mod.signed 4 2\nbinary add 64 unsigned pair int64.binary.add.unsigned 4 2\nbinary sub 64 unsigned pair int64.binary.sub.unsigned 4 2\nbinary and 64 unsigned pair int64.binary.and.unsigned 4 2\nbinary or 64 unsigned pair int64.binary.or.unsigned 4 2\nbinary xor 64 unsigned pair int64.binary.xor.unsigned 4 2\nbinary mul 64 unsigned pair int64.binary.mul.unsigned 4 2\nbinary shl 64 unsigned pair int64.binary.shl.unsigned 4 2\nbinary shr 64 unsigned pair int64.binary.shr.unsigned 4 2\ncompare eq 64 unsigned pair int64.compare.eq.unsigned 4 1\ncompare ne 64 unsigned pair int64.compare.ne.unsigned 4 1\ncompare lt 64 unsigned pair int64.compare.lt.unsigned 4 1\ncompare le 64 unsigned pair int64.compare.le.unsigned 4 1\ncompare gt 64 unsigned pair int64.compare.gt.unsigned 4 1\ncompare ge 64 unsigned pair int64.compare.ge.unsigned 4 1\nbinary div 64 unsigned pair int64.binary.div.unsigned 4 2\nbinary mod 64 unsigned pair int64.binary.mod.unsigned 4 2\nconvert f2i64 32 signed pair int64.convert.f2i64.32.signed 1 2\nconvert i64tof 32 signed pair int64.convert.i64tof.32.signed 2 1\nconvert f2i64 64 signed pair int64.convert.f2i64.64.signed 2 2\nconvert i64tof 64 signed pair int64.convert.i64tof.64.signed 2 2\nunary neg 64 signed pair int64.unary.neg.signed 2 2\nunary not 64 signed pair int64.unary.not.signed 2 2\nunary lnot 64 signed pair int64.unary.lnot.signed 2 1\nunary plus 64 signed pair int64.unary.plus.signed 2 2\nconvert f2i64 32 unsigned pair int64.convert.f2i64.32.unsigned 1 2\nconvert i64tof 32 unsigned pair int64.convert.i64tof.32.unsigned 2 1\nconvert f2i64 64 unsigned pair int64.convert.f2i64.64.unsigned 2 2\nconvert i64tof 64 unsigned pair int64.convert.i64tof.64.unsigned 2 2\nunary neg 64 unsigned pair int64.unary.neg.unsigned 2 2\nunary not 64 unsigned pair int64.unary.not.unsigned 2 2\nunary lnot 64 unsigned pair int64.unary.lnot.unsigned 2 1\nunary plus 64 unsigned pair int64.unary.plus.unsigned 2 2\n
+end
+rule int64.convert.f2i64.32.signed
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n    cvttsd2si rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.convert.i64tof.32.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cvtsi2sd xmm0, rax\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule int64.convert.f2i64.64.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    movq xmm0, rax\n    cvttsd2si rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.convert.i64tof.64.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    cvtsi2sd xmm0, rax\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.unary.neg.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    neg rax\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.unary.not.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    not rax\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.unary.lnot.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    test rax, rax\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule int64.unary.plus.signed
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.convert.f2i64.32.unsigned
+text     pop rax\n    movq xmm0, rax\n    cvtss2sd xmm0, xmm0\n    mov rax, 0x43E0000000000000\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    jb ${0}\n    subsd xmm0, xmm1\n    cvttsd2si rax, xmm0\n    mov rcx, 0x8000000000000000\n    or rax, rcx\n    jmp ${1}\n${0}:\n    cvttsd2si rax, xmm0\n${1}:\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.convert.i64tof.32.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    test rax, rax\n    jns ${0}\n    mov rcx, rax\n    and eax, 1\n    shr rcx, 1\n    or rcx, rax\n    cvtsi2sd xmm0, rcx\n    addsd xmm0, xmm0\n    jmp ${1}\n${0}:\n    cvtsi2sd xmm0, rax\n${1}:\n    cvtsd2ss xmm0, xmm0\n    movq rax, xmm0\n    mov eax, eax\n    push rax\n
+end
+rule int64.convert.f2i64.64.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    movq xmm0, rax\n    mov rax, 0x43E0000000000000\n    movq xmm1, rax\n    ucomisd xmm0, xmm1\n    jb ${0}\n    subsd xmm0, xmm1\n    cvttsd2si rax, xmm0\n    mov rcx, 0x8000000000000000\n    or rax, rcx\n    jmp ${1}\n${0}:\n    cvttsd2si rax, xmm0\n${1}:\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.convert.i64tof.64.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    test rax, rax\n    jns ${0}\n    mov rcx, rax\n    and eax, 1\n    shr rcx, 1\n    or rcx, rax\n    cvtsi2sd xmm0, rcx\n    addsd xmm0, xmm0\n    jmp ${1}\n${0}:\n    cvtsi2sd xmm0, rax\n${1}:\n    movq rax, xmm0\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.unary.neg.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    neg rax\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.unary.not.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    not rax\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule int64.unary.lnot.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    test rax, rax\n    sete al\n    movzx eax, al\n    push rax\n
+end
+rule int64.unary.plus.unsigned
+text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
 end

@@ -222,16 +222,16 @@ static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
      * an unresolved weak external, so the call jumps to a bogus alias and
      * faults at run time; weak linkage is not observable in a
      * single-translation-unit host build. */
-    if (f->is_weak)   asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_4"));
-    if (f->is_naked || f->is_asm_func) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_5"));
-    if (f->is_used)   asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_6"));
-    if (f->is_unused) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_7"));
-    if (f->forceinline) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_8"));
+    if (f->is_weak)   asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_4"));
+    if (f->is_naked || f->is_asm_func) asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_5"));
+    if (f->is_used)   asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_6"));
+    if (f->is_unused) asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_7"));
+    if (f->forceinline) asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_8"));
     /* constructor/destructor emit into gcc's .init_array/.fini_array sections;
      * deprecated triggers a gcc warning at the use site. */
-    if (f->is_constructor) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_9"));
-    if (f->is_destructor)  asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_10"));
-    if (f->is_deprecated)  asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_11"));
+    if (f->is_constructor) asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_9"));
+    if (f->is_destructor)  asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_10"));
+    if (f->is_deprecated)  asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_11"));
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
     /* armcc 5 keywords mapped to the closest gcc equivalent:
      *   __pure            -> __attribute__((pure))
@@ -239,12 +239,12 @@ static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
      *   __value_in_regs   -> no gcc equivalent; ignored (struct return ABI differs)
      *   __interwork       -> ARM/Thumb interworking; ignored on host builds
      *   __smc(n)          -> secure monitor call; ignored on host builds */
-    if (f->is_pure)       asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_12"));
-    if (f->is_const_attr) asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_13"));
+    if (f->is_pure)       asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_12"));
+    if (f->is_const_attr) asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_13"));
 #endif
     if (f->alias_target) {
         /* alias attribute: __attribute__((alias("ark_xxx"))) */
-        asmbuf_puts(b, xh_c_rule_text("attribute_tok_ge_14"));
+        asmbuf_puts(b, xh_c_attribute("attribute_tok_ge_14"));
         asmbuf_puts(b, f->alias_target);
         asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_15"));
     }
@@ -417,145 +417,93 @@ static void emit_extern_proto(AsmBuffer *b, const char *name) {
     asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_34"));
 }
 
-/* Emit a C type with declarator syntax. Follows the standard layout:
- *   - scalar types print as "<base> <name>"
- *   - pointers recurse with base, name gets a '*' prefix
- *   - arrays recurse with base+name, then append "[size]" ("[]" when size==0)
- *   - struct/union emit either an inline definition or a tag reference.
- * Storage class is added by the caller (e.g., const/static/section). */
-static void emit_c_type(AsmBuffer *b, Type *t, const char *name) {
-    if (!t) { asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_35")); asmbuf_puts(b, name); return; }
-    /* F2: Emit volatile/const qualifiers for non-pointer types.
-     * For pointer types, qualifiers on the pointer itself are not emitted here
-     * (would require placement after '*'); base-type qualifiers are correctly
-     * emitted through recursion into t->base. This covers the common HAL patterns:
-     *   volatile uint32_t x  ->  volatile unsigned int x
-     *   volatile uint32_t *p ->  volatile unsigned int *p  (volatile on base) */
-    if (t->kind != TYPE_PTR) {
-        if (t->is_volatile) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_36"));
-        if (t->is_const) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_37"));
+/* The walker handles graph structure and finite traversal. Package records
+ * choose complete scalar/declarator/qualifier and aggregate productions. */
+static void c_type_production(AsmBuffer *b,const char *operation,const char *name,const char *tag) {
+    char text[1024];
+    if(xh_c_production("type",operation,name,tag,text,sizeof text)>=0)asmbuf_puts(b,text);
+}
+static const char *c_type_kind(int kind) {
+    switch(kind){
+        case TYPE_VOID:return "VOID";
+        case TYPE_CHAR:return "CHAR";
+        case TYPE_SHORT:return "SHORT";
+        case TYPE_INT:return "INT";
+        case TYPE_LONG:return "LONG";
+        case TYPE_LLONG:return "LLONG";
+        case TYPE_BOOL:return "BOOL";
+        case TYPE_FLOAT:return "FLOAT";
+        case TYPE_DOUBLE:return "DOUBLE";
+        case TYPE_ENUM:return "ENUM";
+        case TYPE_WCHAR:return "WCHAR";
+        default:return 0;
     }
-    switch (t->kind) {
-        case TYPE_VOID:   asmbuf_puts(b, xh_c_rule_text("type_void")); break;
-        case TYPE_CHAR:   asmbuf_puts(b, xh_c_rule_text("type_char")); break;
-        case TYPE_SHORT:  asmbuf_puts(b, xh_c_rule_text("type_short")); break;
-        case TYPE_INT:    asmbuf_puts(b, xh_c_rule_text("type_int")); break;
-        case TYPE_LONG:   asmbuf_puts(b, xh_c_rule_text("type_long")); break;
-        case TYPE_LLONG:  asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_35")); break;
-        case TYPE_BOOL:   asmbuf_puts(b, xh_c_rule_text("type_bool")); break;
-        case TYPE_FLOAT:  asmbuf_puts(b, xh_c_rule_text("type_float")); break;
-        case TYPE_DOUBLE: asmbuf_puts(b, xh_c_rule_text("type_double")); break;
-        case TYPE_ENUM:   asmbuf_puts(b, xh_c_rule_text("type_int")); break;
-        case TYPE_WCHAR:  asmbuf_puts(b, xh_c_rule_text("type_wchar")); break;  /* B2: matches gcc wchar_t */
-        case TYPE_COMPLEX: /* B4: _Complex float/double supported by gcc */
-            asmbuf_puts(b, xh_c_rule_text("type_complex"));
-            if (t->base && t->base->kind == TYPE_FLOAT) asmbuf_puts(b, xh_c_rule_text("type_float"));
-            else asmbuf_puts(b, xh_c_rule_text("type_double"));
-            break;
-        case TYPE_PTR: {
-            /* If name starts with '*', prepend another '*' to the base. */
-            char namebuf[256];
-            int i = 0;
-            namebuf[i++] = '*';
-            if (name) {
-                const char *p = name;
-                while (*p && i < (int)sizeof(namebuf) - 1) namebuf[i++] = *p++;
-                if (*p) { xh_c_rules_error("C declarator name exceeds capacity"); return; }
-            }
-            namebuf[i] = 0;
-            /* For pointer to struct/union, emit "struct Tag *name" without recursing
-             * into the struct body. This prevents infinite recursion on self-referential
-             * types (e.g. struct Type { StructField *fields; } where StructField has
-             * a Type* field). Anonymous struct pointers use "void *" as fallback. */
-            if (t->base && (t->base->kind == TYPE_STRUCT || t->base->kind == TYPE_UNION)) {
-                if (t->base->tag) {
-                    asmbuf_puts(b, t->base->kind == TYPE_UNION ? xh_c_rule_text("type_ptr") : xh_c_rule_text("type_ptr_2"));
-                    asmbuf_puts(b, t->base->tag);
-                    asmbuf_puts(b, xh_c_rule_text("type_ptr_3"));
-                    asmbuf_puts(b, namebuf);
-                    return;
-                } else {
-                    asmbuf_puts(b, xh_c_rule_text("type_void"));
-                    asmbuf_puts(b, namebuf);
-                    return;
-                }
-            }
-            /* Function pointer: emit "<ret> (*name)(<params>)".
-             * Without this, function pointer fields in structs (e.g. the
-             * ArkBackend vtable) would be emitted as "long long *name",
-             * losing the function-pointer type and breaking initializers
-             * that reference function symbols. */
-            if (t->base && t->base->kind == TYPE_FUNC) {
-                Type *func = t->base;
-                int j;
-                emit_c_type(b, func->base, xh_c_rule_text("type_ptr_4"));
-                asmbuf_puts(b, xh_c_rule_text("type_ptr_5"));
-                if (name) asmbuf_puts(b, name);
-                asmbuf_puts(b, xh_c_rule_text("type_ptr_6"));
-                for (j = 0; j < func->param_count; j++) {
-                    if (j) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_19"));
-                    emit_c_type(b, func->params[j], xh_c_rule_text("type_ptr_4"));
-                }
-                if (func->is_variadic) {
-                    if (func->param_count) asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_19"));
-                    asmbuf_puts(b, xh_c_rule_text("type_ptr_7"));
-                }
-                asmbuf_puts(b, xh_c_rule_text("type_ptr_8"));
-                return;
-            }
-            emit_c_type(b, t->base, namebuf);
-            return;
-        }
-        case TYPE_ARRAY: {
-            /* Multi-dim arrays: collect dimension list, emit base+name then
-             * suffix each "[size]" left to right (e.g. int m[2][3] -> m is
-             * an array of 2 arrays of int[3]). */
-            int dims[16];
-            int n = 0;
-            Type *cur = t;
-            while (cur && cur->kind == TYPE_ARRAY && n < 16) {
-                dims[n++] = cur->size;
-                cur = cur->base;
-            }
-            if (cur && cur->kind == TYPE_ARRAY) {
-                xh_c_rules_error("C array declarator exceeds dimension capacity");
-                return;
-            }
-            emit_c_type(b, cur, name);
-            {
-                int k;
-                for (k = 0; k < n; k++) {
-                    asmbuf_puts(b, xh_c_rule_text("type_array"));
-                    if (dims[k] > 0) asmbuf_int(b, dims[k]);
-                    asmbuf_puts(b, xh_c_rule_text("type_array_2"));
-                }
-            }
-            return;
-        }
-        case TYPE_STRUCT:
-        case TYPE_UNION: {
-            asmbuf_puts(b, t->kind == TYPE_UNION ? xh_c_rule_text("type_ptr") : xh_c_rule_text("type_ptr_2"));
-            if (t->fields) {
-                StructField *f;
-                asmbuf_puts(b, xh_c_rule_text("type_union"));
-                for (f = t->fields; f; f = f->next) {
-                    if (f->name && f->name[0]) {
-                        emit_c_type(b, f->type, f->name);
-                        asmbuf_puts(b, xh_c_rule_text("type_union_2"));
-                    }
-                }
-                asmbuf_puts(b, xh_c_rule_text("type_union_3"));
-            } else if (t->tag) {
-                asmbuf_puts(b, t->tag);
-                asmbuf_puts(b, xh_c_rule_text("type_ptr_3"));
-            }
-            break;
-        }
-        default:
-            asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_35"));
-            break;
+}
+static void emit_c_type_walk(AsmBuffer *b,Type *t,const char *name,Type **path,int depth) {
+    const char *scalar;int i;
+    if(!t){c_type_production(b,"LLONG",name,0);return;}
+    if(depth>=64){xh_c_rules_error("C type traversal depth exceeds capacity");return;}
+    for(i=0;i<depth;i++)if(path[i]==t){xh_c_rules_error("cyclic C type expansion");return;}
+    path[depth]=t;
+    if(t->kind!=TYPE_PTR){
+        if(t->is_volatile)c_type_production(b,"QUAL_VOLATILE",0,0);
+        if(t->is_const)c_type_production(b,"QUAL_CONST",0,0);
     }
-    asmbuf_puts(b, name);
+    scalar=c_type_kind(t->kind);
+    if(scalar){c_type_production(b,scalar,name,0);return;}
+    switch(t->kind){
+        case TYPE_COMPLEX:
+            c_type_production(b,t->base&&t->base->kind==TYPE_FLOAT?"COMPLEX_FLOAT":"COMPLEX_DOUBLE",name,0);return;
+        case TYPE_PTR:{
+            char next[256];
+            if(xh_c_production("type","POINTER",name,0,next,sizeof next)<0)return;
+            if(t->base&&(t->base->kind==TYPE_STRUCT||t->base->kind==TYPE_UNION)){
+                c_type_production(b,t->base->tag?(t->base->kind==TYPE_UNION?"UNION_REF":"STRUCT_REF"):"ANON_POINTER",next,t->base->tag);return;
+            }
+            if(t->base&&t->base->kind==TYPE_FUNC){
+                Type *f=t->base;
+                emit_c_type_walk(b,f->base,"",path,depth+1);
+                c_type_production(b,"FUNPTR_OPEN",name,0);
+                if(f->param_count<0||f->param_count>256){xh_c_rules_error("C function type parameter capacity exceeded");return;}
+                for(i=0;i<f->param_count;i++){
+                    if(i)c_type_production(b,"PARAM_SEPARATOR",0,0);
+                    emit_c_type_walk(b,f->params[i],"",path,depth+1);
+                }
+                if(f->is_variadic){if(f->param_count)c_type_production(b,"PARAM_SEPARATOR",0,0);c_type_production(b,"VARIADIC",0,0);}
+                c_type_production(b,"FUNPTR_CLOSE",0,0);return;
+            }
+            emit_c_type_walk(b,t->base,next,path,depth+1);return;
+        }
+        case TYPE_ARRAY:{
+            int dims[16],n=0,k;Type *cur=t;
+            while(cur&&cur->kind==TYPE_ARRAY&&n<16){
+                for(k=0;k<depth+n;k++)if(path[k]==cur && !(n==0&&k==depth)){xh_c_rules_error("cyclic C array type");return;}
+                if(depth+n>=64){xh_c_rules_error("C type traversal depth exceeds capacity");return;}
+                path[depth+n]=cur;dims[n++]=cur->size;cur=cur->base;
+            }
+            if(cur&&cur->kind==TYPE_ARRAY){xh_c_rules_error("C array declarator exceeds dimension capacity");return;}
+            emit_c_type_walk(b,cur,name,path,depth+n);
+            for(k=0;k<n;k++){char dim[24];snprintf(dim,sizeof dim,"%d",dims[k]);c_type_production(b,dims[k]>0?"ARRAY_DIM":"ARRAY_UNSIZED",dim,0);}return;
+        }
+        case TYPE_STRUCT:case TYPE_UNION:{
+            StructField *field=t->fields;int count=0;
+            c_type_production(b,t->kind==TYPE_UNION?"UNION_HEAD":"STRUCT_HEAD",0,0);
+            if(field){
+                c_type_production(b,"BODY_OPEN",0,0);
+                while(field){
+                    if(++count>1024){xh_c_rules_error("C aggregate field traversal exceeds capacity");return;}
+                    if(field->name&&*field->name){emit_c_type_walk(b,field->type,field->name,path,depth+1);c_type_production(b,"FIELD_END",0,0);}
+                    field=field->next;
+                }
+                c_type_production(b,"BODY_CLOSE",0,0);
+            }else if(t->tag)c_type_production(b,"TAG",0,t->tag);
+            c_type_production(b,"NAME",name,0);return;
+        }
+        default:xh_c_rules_error("unsupported C type production");return;
+    }
+}
+static void emit_c_type(AsmBuffer *b,Type *t,const char *name){
+    Type *path[64];emit_c_type_walk(b,t,name,path,0);
 }
 
 /* Check whether a C type is an aggregate (array/struct/union). */
@@ -1083,17 +1031,17 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         /* alias target: __attribute__((alias(...))) handles body generation. */
         if (f->alias_target) continue;
 
-        if (f->is_weak)   asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_4"));
-        if (f->is_naked || f->is_asm_func) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_5"));
-        if (f->is_used)   asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_6"));
-        if (f->is_unused) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_7"));
+        if (f->is_weak)   asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_4"));
+        if (f->is_naked || f->is_asm_func) asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_5"));
+        if (f->is_used)   asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_6"));
+        if (f->is_unused) asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_7"));
         if (f->is_irq)    asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_54"));
-        if (f->is_constructor) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_9"));
-        if (f->is_destructor)  asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_10"));
-        if (f->is_deprecated)  asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_11"));
+        if (f->is_constructor) asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_9"));
+        if (f->is_destructor)  asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_10"));
+        if (f->is_deprecated)  asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_11"));
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
-        if (f->is_pure)       asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_12"));
-        if (f->is_const_attr) asmbuf_puts(&buf, xh_c_rule_text("attribute_tok_ge_13"));
+        if (f->is_pure)       asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_12"));
+        if (f->is_const_attr) asmbuf_puts(&buf, xh_c_attribute("attribute_tok_ge_13"));
         if (f->is_value_in_regs) asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_55"));
         if (f->is_interwork)     asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_56"));
         if (f->smc_num > 0) {
@@ -1102,7 +1050,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
 #endif
         /* --split_sections/-ffunction-sections: per-function section attribute for gcc. */
         if (g_config.split_sections) {
-            asmbuf_puts(&buf, xh_c_rule_text("attribute_ir_cmp_jmp_eq_57"));
+            asmbuf_puts(&buf, xh_c_attribute("attribute_ir_cmp_jmp_eq_57"));
             asmbuf_puts(&buf, f->name);
             asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_15"));
         }

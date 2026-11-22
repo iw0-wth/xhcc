@@ -187,6 +187,40 @@ long long_identity(long a) { long local = a; return local; }
                                       '-fno-builtin', success=False)
         self.assertTrue('puts' in diagnostics or 'undefined' in diagnostics.lower(), diagnostics)
 
+    def test_logical_not_wide_integer_has_int_result(self):
+        asm, _ = self.compile('''
+_Static_assert(sizeof(!0LL) == sizeof(int), "logical not result is int");
+int wide_not(long long value) { return !value; }
+int wide_not_call(void) { return wide_not(0LL) + wide_not(4294967296LL); }
+''', '-std=c11', '-O0')
+        self.assertIn('wide_not', asm)
+
+    def test_bitwise_not_rejects_real_floating_operand(self):
+        _, diagnostics = self.compile('double bad(double x) { return ~x; }\n', success=False)
+        self.assertIn('requires an integer or GNU complex operand', diagnostics)
+
+    @unittest.skipUnless(TARGET in ('arm', 'riscv32', 'c'), 'complex-enabled targets')
+    def test_gnu_complex_conjugation_and_scalar_casts(self):
+        asm, _ = self.compile('''
+extern double _Complex conj(double _Complex);
+extern double creal(double _Complex);
+extern double cimag(double _Complex);
+static double _Complex folded = ~(2.0 + 3.0i);
+int complex_frontend(double _Complex input, int n, float f, double d) {
+    double _Complex a = ~input;
+    double _Complex b = conj(input);
+    double _Complex from_int = (double _Complex)n;
+    double _Complex from_float = (double _Complex)f;
+    double _Complex from_double = (double _Complex)d;
+    return creal(a) == creal(b) && cimag(a) == cimag(b)
+        && cimag(from_int) == 0.0 && cimag(from_float) == 0.0
+        && cimag(from_double) == 0.0 && cimag(folded) == -3.0;
+}
+''', '-std=gnu99', '-O0')
+        self.assertIn('complex_frontend', asm)
+        if TARGET == 'c':
+            self.assertIn('conj(', asm)
+
     @unittest.skipUnless(TARGET == 'c', 'C ordinal single-slot representation')
     def test_c_discarded_values_keep_loop_stack_balanced(self):
         asm, _ = self.compile('''

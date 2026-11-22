@@ -3577,8 +3577,13 @@ static AstNode *parse_unary_expr(Parser *p) {
         case TOK_INC:
         case TOK_DEC: {
             int op = (int)t.kind;
+            AstNode *n;
             lexer_advance(p->lex);
-            return anchor(ast_unary(op, parse_cast_expr(p), line), t.col);
+            n = anchor(ast_unary(op, parse_cast_expr(p), line), t.col);
+            /* ! has int type even before sema; sizeof(!expr) is an ICE
+             * without needing the operand's type or value. */
+            if (op == (int)TOK_NOT) n->type = type_int();
+            return n;
         }
         case TOK_MUL:
             lexer_advance(p->lex);

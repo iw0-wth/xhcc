@@ -259,6 +259,32 @@ return udiv(0x123456789abcdef0ULL,17ULL)==0x112233445566777ULL && umod(0x1234567
     if obj.exists():obj.unlink()
     self.invoke(root,'variant-gcc',probe,obj,ok=False)
   self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_integer64_float_conversions_and_unary(self):
+  source=OUT/'wide_convert.c';source.write_text('''double sd(long long a){return (double)a;} double ud(unsigned long long a){return (double)a;}
+float sf(long long a){return (float)a;} float uf(unsigned long long a){return (float)a;}
+long long ds(double a){return (long long)a;} unsigned long long du(double a){return (unsigned long long)a;}
+long long fs(float a){return (long long)a;} unsigned long long fu(float a){return (unsigned long long)a;}
+long long neg(long long a){return -a;} unsigned long long inv(unsigned long long a){return ~a;} int zero(long long a){return !a;}
+union Raw{unsigned long long bits;double d;};
+int entry(void){long long a=-4294967297LL;unsigned long long u=9223372036854775808ULL;union Raw boundary,last;boundary.bits=0x43e0000000000000ULL;last.bits=0x43dfffffffffffffULL;
+return sd(a)==-4294967297.0 && ud(u)==boundary.d && sf(-2147483648LL)==-2147483648.0f && uf(4294967296ULL)==4294967296.0f
+&& ds(-4294967297.75)==-4294967297LL && du(boundary.d)==u && fs(-2147483648.0f)==-2147483648LL && fu(4294967296.0f)==4294967296ULL
+&& ds(2147483647.0)==2147483647LL && ds(4294967296.0)==4294967296LL && ds(last.d)==9223372036854774784LL
+&& neg(a)==4294967297LL && inv(0x123456789abcdef0ULL)==0xedcba9876543210fULL && zero(0LL)==1 && zero(1LL)==0 && zero(0x100000000LL)==0;}
+''')
+  before=hashlib.sha256(self.compiler.read_bytes()).digest()
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-wide-conv-') as tmp:
+    root=Path(tmp);pkg=self.package(root,target);obj=OUT/(target+'_wide_convert.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),1)
+    path=pkg/'x86.rules';base=path.read_text();record='convert i64tof 64 signed pair int64.convert.i64tof.64.signed 2 2';self.assertIn(record,base)
+    probe=OUT/'wide_convert_variant.c';probe.write_text('double cv(long long x){return (double)x;}int entry(void){return cv(-1LL)<0.0;}\n');outputs=[]
+    for changed in [False,True]:
+     path.write_text(base.replace(record,'convert i64tof 64 signed pair int64.convert.i64tof.64.unsigned 2 2') if changed else base);obj=OUT/(target+('_conv_changed.o' if changed else '_conv_base.o'));self.invoke(root,'variant-gcc',probe,obj);outputs.append(self.execute(obj,target=='x86_64'))
+    self.assertEqual(outputs,[1,0])
+    path.write_text(base.replace(record,''));obj=OUT/(target+'_conv_rejected.o')
+    if obj.exists():obj.unlink()
+    self.invoke(root,'variant-gcc',probe,obj,ok=False)
+  self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

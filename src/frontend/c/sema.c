@@ -215,6 +215,7 @@ int eval_const_cexpr(AstNode *node, double *re, double *im) {
         if (!eval_const_cexpr(node->u.unary.operand, &ar, &ai)) return 0;
         if (node->u.unary.op == TOK_MINUS) { *re = -ar; *im = -ai; return 1; }
         if (node->u.unary.op == TOK_PLUS)  { *re =  ar; *im =  ai; return 1; }
+        if (node->u.unary.op == TOK_BNOT)  { *re =  ar; *im = -ai; return 1; }
         return 0;
     case AST_BINARY:
         if (!eval_const_cexpr(node->u.binary.left,  &ar, &ai)) return 0;
@@ -1136,13 +1137,23 @@ static Type *sema_expr(AstNode *node) {
         }
         case AST_UNARY: {
             Type *t = sema_expr(node->u.unary.operand);
+            if (node->u.unary.op == (int)TOK_BNOT && t &&
+                !type_is_integer(t) && !ARK_IS_CX(t)) {
+                DiagLoc loc = loc_of(node);
+                diag_report_msg(DIAG_SEV_ERROR, &loc,
+                                "operator ~ requires an integer or GNU complex operand", 0, 0, 0);
+                g_errors++;
+            }
             if ((node->u.unary.op == (int)TOK_INC ||
                  node->u.unary.op == (int)TOK_DEC) &&
                 t && t->is_atomic) {
                 err_atomic_rmw(node, "an increment or decrement",
                                "atomic_fetch_add/sub()");
             }
-            if (node->u.unary.op == (int)TOK_BAND) {
+            if (node->u.unary.op == (int)TOK_NOT) {
+                /* C99 ! always produces int, independent of operand width. */
+                node->type = type_int();
+            } else if (node->u.unary.op == (int)TOK_BAND) {
                 node->type = type_pointer(t);
             } else if (node->u.unary.op == (int)TOK_MUL) {
                 if (t && t->kind == TYPE_PTR && t->is_func_ptr) {

@@ -1019,21 +1019,9 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                         x86_complex_unsupported(&buf, "conj");
                         break;
                     }
-                    if (I->val == 2) {
-                        /* 64-bit integer unary: two words, HIGH one on top.
-                         * A single-word `neg` here only touched the high half,
-                         * so `-1000000000LL` came out as +1000000000 and every
-                         * signed 64-bit divide / shift derived from a negated
-                         * literal was silently wrong. */
-                        if (I->aux == (int)TOK_MINUS) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.b716e4426333894b"));
-                        } else if (I->aux == (int)TOK_BNOT) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.662530fc69420395"));
-                        } else if (I->aux == (int)TOK_NOT) {
-                            asmbuf_puts(&buf, xh_x86_rule("text.a78df3bfcd4a7ecc"));
-                        } else {
-                            asmbuf_puts(&buf, xh_x86_rule("text.ec2340ca8c1a28c7"));
-                        }
+                    if(I->val==2){
+                        const char *op=I->aux==TOK_MINUS?"neg":I->aux==TOK_BNOT?"not":I->aux==TOK_NOT?"lnot":"plus";
+                        asmbuf_puts(&buf,xh_x86_semantic("unary",op,64,"signed","pair",2,I->aux==TOK_NOT?1:2,0,0));
                         break;
                     }
                     asmbuf_puts(&buf, xh_x86_rule("text.4e39c3f7bd9309f5"));
@@ -1658,108 +1646,17 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                 /* IR_64F2I / IR_64I2F: 64-bit float <-> 64-bit int.
                  * On x86-32 these operate on 8-byte stack slots. */
                 case IR_64F2I: {
-                    /* double (or float, aux bit 0x200 clear) -> long long.
-                     * aux 0x200 = source is double, 0x400 = destination is
-                     * unsigned.  The source sits high-dword-first on the IR
-                     * stack, so it has to be flipped before the movq.
-                     * Every cvttsd2si below is handed a NON-NEGATIVE operand,
-                     * so truncation toward zero is floor and the 2^32 split
-                     * carries exactly.  Folding the 2^31 bias in BEFORE the
-                     * truncation (as this used to) makes truncation round the
-                     * high half up whenever the quotient has a fraction:
-                     * `double d = 1e9; unsigned long long u = (unsigned long
-                     * long)d;` answered 0x100000000, so u%251 was 123 where
-                     * the x86-64 and ARM backends both say 187.  The sign is
-                     * now handled by converting the magnitude and negating
-                     * afterwards, the same shape as IR_64I2F. */
-                    int lp = ++lbl64, ld = ++lbl64, lu = ++lbl64, lv = ++lbl64;
-                    int lw = ++lbl64;
-                    if (I->aux & 0x200) {
-                        x86_pair_swap_at(&buf, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.c0d9bc14821121d4"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.4afef8bb740fd333"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.5d9f1cb0416a63f8"));
-                    }
-                    /* xmm2 = 2^32, xmm3 = 2^31 */
-                    asmbuf_puts(&buf, xh_x86_rule("text.6e94a4c258ef9ff0"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.a85fde474c053be0"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.59ac07dd691e82c6"));
-                    if (I->aux & 0x400) {
-                        /* Unsigned destination: values at or above 2^63 do not
-                         * fit a signed conversion, so they lose 2^63 up front
-                         * and get that bit put back at the end. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.25c3185bc4002855"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.a3318c44ef5a1b4e"));
-                        x86_elbl(&buf, f->name, "f2i", lu, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.4a901af6a9ce5827"));
-                        x86_elbl(&buf, f->name, "f2i", lu, 1);
-                    } else {
-                        /* Signed destination: take the magnitude first, then
-                         * re-apply the sign. |x| < 2^63 always fits. */
-                        asmbuf_puts(&buf, xh_x86_rule("text.f303df9e4dea9593"));
-                        x86_elbl(&buf, f->name, "f2i", lp, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.b323dcde75821ec9"));
-                        x86_elbl(&buf, f->name, "f2i", lp, 1);
-                    }
-                    /* Shared: xmm0 = |x| in [0, 2^63).  High half = floor(x /
-                     * 2^32); the quotient is non-negative so cvttsd2si is a
-                     * floor.  The remainder is in [0, 2^32), so it needs the
-                     * same 2^31 split, again on a non-negative operand. */
-                    asmbuf_puts(&buf, xh_x86_rule("text.18b4bd5cca1366a6"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.bf57062e79a57deb"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.23c4ded4321ef5c6"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.1571b586265e2bfa"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.4d294fbe16d34d51"));
-                    x86_elbl(&buf, f->name, "f2i", lv, 0);
-                    asmbuf_puts(&buf, xh_x86_rule("text.3d2e1813919f5f02"));
-                    x86_elbl(&buf, f->name, "f2i", lw, 0);
-                    x86_elbl(&buf, f->name, "f2i", lv, 1);
-                    asmbuf_puts(&buf, xh_x86_rule("text.8cc0cd8c22cadc72"));
-                    x86_elbl(&buf, f->name, "f2i", lw, 1);
-                    if (I->aux & 0x400) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.bf53b61ffa4748cd"));
-                        x86_elbl(&buf, f->name, "f2i", ld, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.18456b0dc84465a1"));
-                        x86_elbl(&buf, f->name, "f2i", ld, 1);
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.bf53b61ffa4748cd"));
-                        x86_elbl(&buf, f->name, "f2i", ld, 0);
-                        asmbuf_puts(&buf, xh_x86_rule("text.e927fc829b5b2ad2"));
-                        x86_elbl(&buf, f->name, "f2i", ld, 1);
-                    }
-                    asmbuf_puts(&buf, xh_x86_rule("text.a7a351cdc205c8ef"));
+                    int width=(I->aux&0x200)?64:32,k;
+                    char labels[5][48];const char *args[5];
+                    for(k=0;k<5;k++){snprintf(labels[k],sizeof(labels[k]),".Lic_%d_%d_%d",fi,i,k);args[k]=labels[k];}
+                    asmbuf_puts(&buf,xh_x86_semantic("convert","f2i64",width,(I->aux&0x400)?"unsigned":"signed","pair",width/32,2,args,5));
                     break;
                 }
                 case IR_64I2F: {
-                    /* long long -> double/float.  aux 0x200 = destination is
-                     * double, 0x400 = source is unsigned.  |x| is assembled as
-                     * hi*2^32 + lo with each half converted as unsigned
-                     * (cvtsi2sd is signed only), then the sign is applied as a
-                     * multiply. */
-                    asmbuf_puts(&buf, xh_x86_rule("text.6f9c8b71fa5adc5a"));
-                    if (!(I->aux & 0x400)) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.466239f8ebbb4beb"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.24620940121cebad"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.c1678ecc06d8c119"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.ae4c7e27bb40fc19"));
-                    }
-                    asmbuf_puts(&buf, xh_x86_rule("text.0e2163b0183a2bf5"));
-                    x86_u32_to_xmm(&buf, "xmm1");
-                    asmbuf_puts(&buf, xh_x86_rule("text.42a37330107db660"));
-                    x86_u32_to_xmm(&buf, "xmm0");
-                    asmbuf_puts(&buf, xh_x86_rule("text.6e94a4c258ef9ff0"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.c17e0c0d27c3d7ee"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.f3204e6546e0591b"));
-                    asmbuf_puts(&buf, xh_x86_rule("text.12fd0b0927f0e8a7"));
-                    if (I->aux & 0x200) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.7674ef19adb6c5e8"));
-                        x86_pair_swap_at(&buf, 0);
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.57b0860be9389b8b"));
-                        asmbuf_puts(&buf, xh_x86_rule("text.bfbf7eb10d65f0c1"));
-                    }
+                    int width=(I->aux&0x200)?64:32,k;
+                    char labels[5][48];const char *args[5];
+                    for(k=0;k<5;k++){snprintf(labels[k],sizeof(labels[k]),".Lic_%d_%d_%d",fi,i,k);args[k]=labels[k];}
+                    asmbuf_puts(&buf,xh_x86_semantic("convert","i64tof",width,(I->aux&0x400)?"unsigned":"signed","pair",2,width/32,args,5));
                     break;
                 }
 
@@ -2660,6 +2557,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         amd_unsupported(&buf, "conj");
                         break;
                     }
+                    if(I->val==2){
+                        const char *op=I->aux==TOK_MINUS?"neg":I->aux==TOK_BNOT?"not":I->aux==TOK_NOT?"lnot":"plus";
+                        asmbuf_puts(&buf,xh_x86_semantic("unary",op,64,"signed","pair",2,I->aux==TOK_NOT?1:2,0,0));
+                        break;
+                    }
                     asmbuf_puts(&buf, xh_x86_rule("text.755680c4ca6d94df"));
                     if (I->val == 1 && (int)I->aux == (int)TOK_MINUS) {
                         /* float: the only word holds the sign bit; double: the
@@ -3107,65 +3009,18 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 }
 
                 case IR_64F2I: {
-                    int src_dbl = (I->aux & 0x200) != 0;
-                    int dst_uns = (I->aux & 0x400) != 0;
-                    if (src_dbl) {
-                        amd_pop64(&buf, "rax", "eax");
-                        asmbuf_puts(&buf, xh_x86_rule("text.666c9c0127f987ab"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.efbd6e805ebcde33"));
-                    }
-                    if (dst_uns) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.207af587925b69e5"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.35961bcff24ffbb8"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.9ed4773e60445886"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.f93897535644328c"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.c54b801b3c7f4a0c"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.35961bcff24ffbb8"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.c78cc2578921b416"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.f93897535644328c"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.83267ea010e4594c"));
-                    }
-                    amd_push64(&buf, "rax", "eax");
+                    int width=(I->aux&0x200)?64:32,k;
+                    char labels[5][48];const char *args[5];
+                    for(k=0;k<5;k++){snprintf(labels[k],sizeof(labels[k]),".Lic_%d_%d_%d",fi,i,k);args[k]=labels[k];}
+                    asmbuf_puts(&buf,xh_x86_semantic("convert","f2i64",width,(I->aux&0x400)?"unsigned":"signed","pair",width/32,2,args,5));
                     break;
                 }
 
                 case IR_64I2F: {
-                    int dst_dbl = (I->aux & 0x200) != 0;
-                    int src_uns = (I->aux & 0x400) != 0;
-                    amd_pop64(&buf, "rax", "eax");
-                    if (src_uns) {
-                        asmbuf_puts(&buf, xh_x86_rule("text.403bf3de62279b59"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.cb0a2fa0d24b4edc"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.195beb5ae1d61c37"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.80656b170c4f469a"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.c54b801b3c7f4a0c"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.cb0a2fa0d24b4edc"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.5c67d0d3b542f472"));
-                        asmbuf_puts(&buf, f->name);
-                        asmbuf_puts(&buf, xh_x86_rule("text.80656b170c4f469a"));
-                        asmbuf_int(&buf, i);
-                        asmbuf_puts(&buf, xh_x86_rule("text.f3743a0a18e53d13"));
-                    } else {
-                        asmbuf_puts(&buf, xh_x86_rule("text.e90ca0e5f84313f1"));
-                    }
-                    amd_store_fp(&buf, dst_dbl);
+                    int width=(I->aux&0x200)?64:32,k;
+                    char labels[5][48];const char *args[5];
+                    for(k=0;k<5;k++){snprintf(labels[k],sizeof(labels[k]),".Lic_%d_%d_%d",fi,i,k);args[k]=labels[k];}
+                    asmbuf_puts(&buf,xh_x86_semantic("convert","i64tof",width,(I->aux&0x400)?"unsigned":"signed","pair",2,width/32,args,5));
                     break;
                 }
 

@@ -89,7 +89,7 @@ int xh_x86_number(const char *key) {
     return (int)v;
 }
 int xh_x86_register(const char *name,int *width) {
-    char key[64],*end; const char *s;long code,w;
+    char key[64],*end; const char *s;long code,w;int found=0;
     if (strlen(name)>16) return -1;
     /* All legal names are enumerated externally. A list avoids missing-rule
      * diagnostics for identifiers and labels that are not registers. */
@@ -97,10 +97,10 @@ int xh_x86_register(const char *name,int *width) {
     while (*s) {
         const char *start=s; size_t n;
         while(*s && *s!=' ')s++;n=(size_t)(s-start);
-        if(strlen(name)==n && !strncmp(name,start,n))break;
+        if(strlen(name)==n && !strncmp(name,start,n)){found=1;break;}
         while(*s==' ')s++;
     }
-    if(!*s)return -1;
+    if(!found)return -1;
     snprintf(key,sizeof(key),"register.%s",name);s=xh_x86_rule(key);
     code=strtol(s,&end,10);if(end==s || *end!=' ')goto bad;
     s=end+1;w=strtol(s,&end,10);
