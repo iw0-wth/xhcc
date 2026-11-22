@@ -1,0 +1,1337 @@
+/* Ark C Compiler - sema
+ * Semantic analysis: undefined / redefinition checks and basic type inference.
+ * Relaxed vs the original: > 4 parameters, variadic declarations, typedefs ignored, full node walk.
+ */
+#include "sema.h"
+#include "symtab.h"
+#include "memory.h"
+#include "platform.h"
+#include "common.h"
+#include "diag.h"
+
+static int g_errors;
+
+/* Forward declarations */
+static void sema_decl(AstNode *node);
+static void sema_stmt(AstNode *node);
+static Type *sema_expr(AstNode *node);
+static AstNode *sema_implicit_cast(AstNode *node, Type *target);
+
+/* Diagnostics raised here carry an armcc code when one has been measured for
+ * the condition (see src/diag_msg_table.c), and arkc's own wording otherwise.
+ * Columns are not tracked on AST nodes yet, so IDE-style output for these
+ * omits the column (registered limitation, docs/DIAGNOSTICS.md). */
+static DiagLoc loc_of(const AstNode *node) {
+    DiagLoc loc;
+    loc.file = 0;
+    loc.line = node ? node->line : 0;
+    loc.col  = node ? node->col : 0;
+    return loc;
+}
+
+/* Report a semantic error using an armcc code, with `a0` filling its
+ * placeholder (usually the offending identifier). */
+/* armcc's %n is a *kind-qualified* name: it expands to e.g. `function "g" `
+ * (trailing space included, which is why the printed text has two spaces
+ * before "has"). Composing that here keeps the generated template word-for-word
+ * armcc's instead of inventing a parallel wording. Single-threaded, used
+ * immediately, so one buffer is enough. */
+static const char *qual_name(const char *kind, const char *name) {
+    static char buf[192];
+    int n = 0, i = 0;
+    for (i = 0; kind[i] && n < (int)sizeof(buf) - 4; i++) buf[n++] = kind[i];
+    if (n < (int)sizeof(buf) - 4) buf[n++] = ' ';
+    if (n < (int)sizeof(buf) - 4) buf[n++] = '"';
+    for (i = 0; name[i] && n < (int)sizeof(buf) - 4; i++) buf[n++] = name[i];
+    if (n < (int)sizeof(buf) - 4) buf[n++] = '"';
+    if (n < (int)sizeof(buf) - 4) buf[n++] = ' ';
+    buf[n] = 0;
+    return buf;
+}
+
+/* C11 6.5.16.2p3 / 6.5.2.4p2: a compound assignment or ++/-- on an _Atomic
+ * object is defined as an atomic read-modify-write.  This compiler has no such
+ * lowering: every backend would emit a plain load, compute, store, which loses
+ * an update whenever the code is interrupted between the two accesses.  That is
+ * a silent wrong answer on the exact hardware this target is used on, so it is
+ * refused with the name of the function that does it correctly. */
+static void err_atomic_rmw(AstNode *node, const char *form, const char *use) {
+    DiagLoc loc = loc_of(node);
+    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                    "%s on an _Atomic object is a read-modify-write (C11), which "
+                    "this compiler does not lower atomically; use %s from <stdatomic.h>",
+                    form, use, 0);
+    g_errors++;
+}
+
+static void err_code(AstNode *node, int code, const char *a0) {
+    DiagLoc loc = loc_of(node);
+    diag_report(code, DIAG_SEV_ERROR, &loc, a0, 0, 0);
+    g_errors++;
+}
+
+/* Integer promotion (C99 6.3.1.1): char/short/_Bool/enum become int.
+ * int can represent every value of those types (including uchar/ushort), so the
+ * result is always signed int; int/long/llong are left unchanged. */
+static Type *promote_integer(Type *t) {
+    if (!t) return type_int();
+    switch (t->kind) {
+        case TYPE_CHAR:
+        case TYPE_SHORT:
+        case TYPE_BOOL:
+        case TYPE_ENUM:
+            return type_int();
+        default:
+            return t;
+    }
+}
+
+/* Integer rank (C99 6.3.1.1), used by the usual arithmetic conversions to compare
+ * operand widths. Assumes sizeof(long)==sizeof(int)==4 (ARM and Windows LLP64):
+ *   int/unsigned int       -> 1
+ *   long/unsigned long     -> 2
+ *   long long/unsigned ll  -> 3
+ * char/short/bool/enum are promoted to int by promote_integer first, so rank = 1. */
+static int type_rank(Type *t) {
+    if (!t) return 1;
+    switch (t->kind) {
+        case TYPE_LLONG: return 3;
+        case TYPE_LONG:  return 2;
+        default:         return 1;  /* int, or a narrow type after promotion */
+    }
+}
+
+/* usual arithmetic conversions (C99 6.3.1.8):
+ *   1. Floating point wins: double > float. Either side double -> double,
+ *      otherwise either side float -> float.
+ *   2. Otherwise both operands get integer promotion (char/short/_Bool/enum -> int).
+ *   3. Same kind and same signedness: return it unchanged.
+ *   4. Same rank: the unsigned type wins (unsigned int + int -> unsigned int).
+ *   5. Different rank:
+ *      - if the higher-rank type can represent every value of the lower one
+ *        (higher unsigned, or higher signed but strictly wider), take it;
+ *      - otherwise take the unsigned version of the higher-rank type. */
+#if ARKCC_FEATURE_FCONST_FOLD
+/* 浮点常量表达式求值。
+ *
+ * 为什么单独一个函数：eval_const_expr 的出口是 long long，float/double 常量
+ * 放不进去，于是 `double g = 1.0/3.0*3.0;` 求值失败，全局变量被留成 0——
+ * 编译不报错，运行结果恒为 0。这不是优化问题，而是 C99 6.6「初始化器必须是
+ * 常量表达式」这条要求没有做到。
+ *
+ * 规则：
+ *   - 常量（含整型常量）一律按 double 参与运算，等价于常用算术转换的结果；
+ *   - 结果类型是 float 时按 float 精度舍入一次（与目标机单精度运算一致）；
+ *   - 除零不折叠：那是 UB，折叠等于凭空发明一个值。
+ */
+int eval_const_fexpr(AstNode *node, double *out) {
+    double a = 0.0, b = 0.0, r = 0.0;
+    if (!node || !out) return 0;
+    switch (node->kind) {
+    case AST_NUM:
+        if (node->type && (node->type->kind == TYPE_FLOAT || node->type->kind == TYPE_DOUBLE)) {
+            *out = node->fval;
+        } else {
+            *out = (double)node->u.num_val;
+        }
+        return 1;
+    case AST_CAST:
+        if (!node->type) return 0;
+        if (!eval_const_fexpr(node->u.unary.operand, &a)) return 0;
+        if (node->type->kind == TYPE_FLOAT)  { *out = (double)(float)a; return 1; }
+        if (node->type->kind == TYPE_DOUBLE) { *out = a; return 1; }
+        if (type_is_integer(node->type)) {
+            /* (int)2.9 = 2；先截断再转回 double，保持与有符号整型一致 */
+            *out = (double)(long long)a;
+            return 1;
+        }
+        return 0;
+    case AST_UNARY:
+        if (!eval_const_fexpr(node->u.unary.operand, &a)) return 0;
+        if (node->u.unary.op == TOK_MINUS) { *out = -a; return 1; }
+        if (node->u.unary.op == TOK_PLUS)  { *out =  a; return 1; }
+        return 0;
+    case AST_BINARY:
+        if (!eval_const_fexpr(node->u.binary.left, &a)) return 0;
+        if (!eval_const_fexpr(node->u.binary.right, &b)) return 0;
+        switch (node->u.binary.op) {
+        case TOK_PLUS:  r = a + b; break;
+        case TOK_MINUS: r = a - b; break;
+        case TOK_MUL:   r = a * b; break;
+        case TOK_DIV:
+            if (b == 0.0) return 0;   /* 除零是 UB，不折叠 */
+            r = a / b;
+            break;
+        default:
+            return 0;
+        }
+        if (node->type && node->type->kind == TYPE_FLOAT) r = (double)(float)r;
+        *out = r;
+        return 1;
+    default:
+        return 0;
+    }
+}
+#if ARKCC_FEATURE_COMPLEX
+/* _Complex 常量表达式（C99 6.6）：编译期算出实部与虚部。
+ *
+ * 只为文件作用域的 _Complex 初始化器服务。没有它，`double _Complex g =
+ * 3.0 + 4.0i;` 走的是"把表达式序列化成文本"的分支，ARM 后端解析不了就报错
+ * （尚可接受）；而 `double _Complex g = 3.0;` 会被当成 float 只写一个 32 位
+ * 字，g 的实部是 3.0f 的位型被当成 double 的高半部分，虚部是隔壁对象 —— 静默
+ * 错值。这里把两边都折叠出来。
+ *
+ * 复数乘除用教科书公式；除零不折叠（UB，不发明结果）。 */
+int eval_const_cexpr(AstNode *node, double *re, double *im) {
+    double ar = 0.0, ai = 0.0, br = 0.0, bi = 0.0;
+    double ab;
+    if (!node || !re || !im) return 0;
+    switch (node->kind) {
+    case AST_NUM:
+        if (node->type && ARK_IS_CX(node->type)) {
+            /* 虚数字面量（4.0i / 1.0fi）：fval 是虚部 */
+            *re = 0.0;
+            *im = node->fval;
+            return 1;
+        }
+        if (!eval_const_fexpr(node, re)) return 0;
+        *im = 0.0;
+        return 1;
+    case AST_CAST:
+        if (!node->type) return 0;
+        if (ARK_IS_CX(node->type)) {
+            if (!eval_const_cexpr(node->u.unary.operand, &ar, &ai)) return 0;
+            if (node->type->base && node->type->base->kind == TYPE_FLOAT) {
+                ar = (double)(float)ar;
+                ai = (double)(float)ai;
+            }
+            *re = ar; *im = ai;
+            return 1;
+        }
+        if (!eval_const_fexpr(node, &ar)) return 0;
+        *re = ar; *im = 0.0;
+        return 1;
+    case AST_UNARY:
+        if (!eval_const_cexpr(node->u.unary.operand, &ar, &ai)) return 0;
+        if (node->u.unary.op == TOK_MINUS) { *re = -ar; *im = -ai; return 1; }
+        if (node->u.unary.op == TOK_PLUS)  { *re =  ar; *im =  ai; return 1; }
+        return 0;
+    case AST_BINARY:
+        if (!eval_const_cexpr(node->u.binary.left,  &ar, &ai)) return 0;
+        if (!eval_const_cexpr(node->u.binary.right, &br, &bi)) return 0;
+        switch (node->u.binary.op) {
+        case TOK_PLUS:
+            *re = ar + br; *im = ai + bi; break;
+        case TOK_MINUS:
+            *re = ar - br; *im = ai - bi; break;
+        case TOK_MUL:
+            *re = ar * br - ai * bi;
+            *im = ar * bi + ai * br;
+            break;
+        case TOK_DIV:
+            ab = br * br + bi * bi;
+            if (ab == 0.0) return 0;          /* 除零是 UB，不折叠 */
+            *re = (ar * br + ai * bi) / ab;
+            *im = (ai * br - ar * bi) / ab;
+            break;
+        default:
+            return 0;
+        }
+        if (node->type && ARK_IS_CX(node->type) &&
+            node->type->base && node->type->base->kind == TYPE_FLOAT) {
+            *re = (double)(float)*re;
+            *im = (double)(float)*im;
+        }
+        return 1;
+    default:
+        return 0;
+    }
+}
+#endif /* ARKCC_FEATURE_COMPLEX */
+
+
+/* 浮点常量 -> 整数类型，按 C99 6.3.1.4p1 向零截断。
+ *
+ * 越界（含 NaN/Inf）是 UB，这里**不发明一个值**：返回 0，让调用方报错。
+ * 这样 `int a[(int)1e30];` 停在"不是常量表达式"上，而不是悄悄变成某个整数。
+ * 无符号 64 位超过 LLONG_MAX 的情形同样拒绝（long long 装不下，硬转会得到
+ * 实现定义的值）。 */
+int fconst_to_int(double d, Type *t, long long *out) {
+    double lo = -9223372036854775808.0, hi = 9223372036854775807.0;
+    if (!(d == d)) return 0;                       /* NaN */
+    if (t && t->size > 0 && t->size < 8) {
+        switch (t->size) {
+        case 1: lo = t->is_unsigned ? 0.0 : -128.0;
+                hi = t->is_unsigned ? 255.0 : 127.0; break;
+        case 2: lo = t->is_unsigned ? 0.0 : -32768.0;
+                hi = t->is_unsigned ? 65535.0 : 32767.0; break;
+        default: lo = t->is_unsigned ? 0.0 : -2147483648.0;
+                 hi = t->is_unsigned ? 4294967295.0 : 2147483647.0; break;
+        }
+    } else if (t && t->is_unsigned) {
+        lo = 0.0;
+    }
+    if (!(d >= lo && d <= hi)) return 0;
+    *out = (long long)d;
+    return 1;
+}
+#endif /* ARKCC_FEATURE_FCONST_FOLD */
+
+Type *usual_arith_conv(Type *lt, Type *rt) {
+    /* complex wins over every real type; _Complex maps to _Complex double */
+    if (lt && ARK_IS_CX(lt)) return type_complex(type_double());
+    if (rt && ARK_IS_CX(rt)) return type_complex(type_double());
+    /* Step 1: floating point first */
+    if (lt && lt->kind == TYPE_DOUBLE) return type_double();
+    if (rt && rt->kind == TYPE_DOUBLE) return type_double();
+    if (lt && lt->kind == TYPE_FLOAT)  return type_float();
+    if (rt && rt->kind == TYPE_FLOAT)  return type_float();
+
+    /* Step 2: integer promotion */
+    lt = promote_integer(lt);
+    rt = promote_integer(rt);
+    if (!lt) return rt ? rt : type_int();
+    if (!rt) return lt;
+
+    /* Step 3: identical types */
+    if (lt->kind == rt->kind && lt->is_unsigned == rt->is_unsigned) return lt;
+
+    {
+        int rl = type_rank(lt);
+        int rr = type_rank(rt);
+        Type *hi, *lo;   /* higher rank / lower rank */
+        int hi_uns, lo_uns;
+
+        if (rl >= rr) { hi = lt; lo = rt; }
+        else          { hi = rt; lo = lt; }
+        hi_uns = hi->is_unsigned;
+        lo_uns = lo->is_unsigned;
+
+        /* Step 4: same rank -- same signedness already returned in step 3, so the
+         * pair is one signed and one unsigned; the unsigned type wins (C99 6.3.1.8).
+         * Note hi may be the signed one, hence the hi_uns || lo_uns test. */
+        if (rl == rr) {
+            int take_uns = (hi_uns || lo_uns);
+            switch (hi->kind) {
+                case TYPE_LLONG: return take_uns ? type_ullong() : type_llong();
+                case TYPE_LONG:  return take_uns ? type_ulong()  : type_long();
+                default:         return take_uns ? type_uint()   : type_int();
+            }
+        }
+
+        /* Step 5: different rank -- can the higher rank represent all lower values?
+         * Judge by byte width, not by rank: int=long=4B and llong=8B here, so
+         * long (rank 2) and int (rank 1) are the same width; a higher rank is not
+         * necessarily wider.
+         *   - higher unsigned: always represents every lower value -> take it;
+         *   - higher signed + lower signed: take the higher rank;
+         *   - higher signed + lower unsigned: only when the higher rank is strictly wider (llong 8B vs uint 4B), else unsigned higher. */
+        if (hi_uns || !lo_uns) {
+            /* Higher unsigned always wins; or lower signed (fits) -> take the higher type */
+            return hi;
+        }
+        {
+            int hi_bytes = (hi->kind == TYPE_LLONG) ? 8 : 4;
+            int lo_bytes = (lo->kind == TYPE_LLONG) ? 8 : 4;
+            if (hi_bytes > lo_bytes) {
+                /* Higher rank is wider (llong 8B vs uint 4B): signed can hold all unsigned lower values */
+                return hi;
+            }
+            /* Same width: higher signed cannot hold the lower unsigned range -> unsigned higher */
+            switch (hi->kind) {
+                case TYPE_LLONG: return type_ullong();
+                case TYPE_LONG:  return type_ulong();
+                default:         return type_uint();
+            }
+        }
+    }
+}
+
+/* Bug-I1: Determine whether a cast from src to dst would change the IR
+ * representation (i.e., is not a no-op on the target machine).
+ * Returns 1 if an explicit AST_CAST node must be inserted, 0 otherwise.
+ * - float <-> int:   always needs a cast (IR_I2F / IR_F2I)
+ * - int(32b) <-> ll(64b): needs a cast (widen / narrow stack slots)
+ * - same-size int <-> int: no-op (signedness change is represented in type only)
+ * - float <-> double:  needs one conversion instruction (VCVT or __aeabi_f2d/
+ *   d2f). Before ARKCC_FEATURE_CAST_F64F32 both precisions were treated as the
+ *   same representation, so `double d = f;` kept a 4-byte value on the stack
+ *   where 8 bytes were expected.
+ * - non-arithmetic types: no-op (pointer/struct/etc. casts are address passes) */
+static int cast_changes_repr(Type *src, Type *dst) {
+    int src_float, dst_float;
+    if (!src || !dst) return 0;
+    if (!type_is_arith(src) || !type_is_arith(dst)) {
+        /* A pointer is not arithmetic, but pointer -> integer is still a
+         * *width* change on a 32-bit target.  `long long f(long long);
+         * f(p);` needs the value widened to two words: without a cast node
+         * irgen emitted only its IR_ZEXT marker, which every machine
+         * backend treats as a no-op (it only ever fixed word *order*), so
+         * the call pushed one word while the argument mask said eight bytes
+         * and the callee read a stale frame word as the high half.
+         * Measured on ARM: f((char *)0x14) returned 37 instead of 41, and
+         * the same shape fed a 64-bit divide.  Narrowed to pointer ->
+         * integer so pointer -> pointer, array decay and composite casts
+         * keep the old address-pass behaviour (no cast node, no new IR). */
+        if (src && dst && src->kind == TYPE_PTR && type_is_integer(dst))
+            return type_size(src) != type_size(dst);
+        return 0;
+    }
+    src_float = (src->kind == TYPE_FLOAT || src->kind == TYPE_DOUBLE);
+    dst_float = (dst->kind == TYPE_FLOAT || dst->kind == TYPE_DOUBLE);
+    if (src_float && !dst_float) return 1;        /* float -> int */
+    if (!src_float && dst_float) return 1;        /* int -> float */
+#if ARKCC_FEATURE_CAST_F64F32
+    /* float 与 double 的机器表示不同（4 字节 vs 8 字节），必须插一条转换。
+     * 同类型同精度仍然是空操作。 */
+    if (src_float && dst_float) return (src->kind != dst->kind);
+#else
+    if (src_float && dst_float) return 0;          /* float <-> double: skip */
+#endif
+    /* both are integer types: cast only if size differs */
+    return (type_size(src) != type_size(dst));
+}
+
+/* Bug-I1: Insert an implicit AST_CAST wrapping `node` to convert it to
+ * `target` type, following C99 6.3 (assignment / usual arithmetic
+ * conversions). Returns `node` unchanged when no actual conversion is
+ * needed so that downstream IR is not polluted by redundant cast nodes. */
+static AstNode *sema_implicit_cast(AstNode *node, Type *target) {
+    if (!node || !target) return node;
+    if (!node->type) return node;
+    if (!cast_changes_repr(node->type, target)) return node;
+    return ast_cast(target, node, node->line);
+}
+
+int eval_const_expr(AstNode *node, long long *out_value) {
+    long long lv, rv;
+    if (!node || !out_value) return 0;
+    switch (node->kind) {
+        case AST_NUM:
+            /* Floating point constants are not folded here. */
+            if (node->type && (node->type->kind == TYPE_FLOAT || node->type->kind == TYPE_DOUBLE))
+                return 0;
+            *out_value = node->u.num_val;
+            return 1;
+        case AST_SIZEOF:
+            /* Still waiting for sema (the operand's type is not known yet):
+             * u.num_val has not been written, so it is not a constant. */
+            if (node->sizeof_operand) return 0;
+            *out_value = node->u.num_val;
+            return 1;
+        case AST_CAST:
+            /* cast: the value is passed through (no truncation here) */
+            if (eval_const_expr(node->u.unary.operand, out_value)) return 1;
+#if ARKCC_FEATURE_FCONST_FOLD
+            /* 显式转换到整型时，源可以是一个**浮点**常量表达式：C99 6.6p6 的
+             * 整数常量表达式允许"算术常量表达式 -> 整型"的转换，所以
+             * `(int)(2.5 * 4.0)` 就是 10。以前整棵浮点子树只是"不是常量"，
+             * 于是 `enum { E = (int)(1.5 + 1.5) }` 和 `int n = (int)(2.5*4);`
+             * 都编译不过，且报的是 "expected enum value (constant expression)"，
+             * 看不出真正原因。 */
+            {
+                double d;
+                if (node->type && type_is_integer(node->type) &&
+                    eval_const_fexpr(node->u.unary.operand, &d) &&
+                    fconst_to_int(d, node->type, out_value))
+                    return 1;
+            }
+#endif
+            return 0;
+        case AST_VAR: {
+            Symbol *s = sym_find(node->u.name);
+            if (s && s->kind == SYM_ENUM_CONST) {
+                *out_value = s->enum_value;
+                return 1;
+            }
+            return 0;
+        }
+        case AST_UNARY:
+            if (!eval_const_expr(node->u.unary.operand, &lv)) return 0;
+            switch (node->u.unary.op) {
+                case (int)TOK_MINUS: *out_value = -lv; return 1;
+                case (int)TOK_PLUS:  *out_value =  lv; return 1;
+                case (int)TOK_BNOT:  *out_value = ~lv; return 1;
+                case (int)TOK_NOT:   *out_value = !lv; return 1;
+                default: return 0;
+            }
+        case AST_BINARY:
+            if (!eval_const_expr(node->u.binary.left,  &lv)) return 0;
+            if (!eval_const_expr(node->u.binary.right, &rv)) return 0;
+            switch (node->u.binary.op) {
+                case (int)TOK_PLUS:  *out_value = lv +  rv; return 1;
+                case (int)TOK_MINUS: *out_value = lv -  rv; return 1;
+                case (int)TOK_MUL:   *out_value = lv *  rv; return 1;
+                case (int)TOK_DIV:   if (rv == 0) return 0; *out_value = lv / rv; return 1;
+                case (int)TOK_MOD:   if (rv == 0) return 0; *out_value = lv % rv; return 1;
+                case (int)TOK_BAND:  *out_value = lv &  rv; return 1;
+                case (int)TOK_BOR:   *out_value = lv |  rv; return 1;
+                case (int)TOK_BXOR:  *out_value = lv ^  rv; return 1;
+                case (int)TOK_SHL:   *out_value = lv << rv; return 1;
+                case (int)TOK_SHR:   *out_value = lv >> rv; return 1;
+                case (int)TOK_EQ:    *out_value = lv == rv; return 1;
+                case (int)TOK_NE:    *out_value = lv != rv; return 1;
+                case (int)TOK_LT:    *out_value = lv <  rv; return 1;
+                case (int)TOK_GT:    *out_value = lv >  rv; return 1;
+                case (int)TOK_LE:    *out_value = lv <= rv; return 1;
+                case (int)TOK_GE:    *out_value = lv >= rv; return 1;
+                case (int)TOK_AND:   *out_value = lv && rv; return 1;
+                case (int)TOK_OR:    *out_value = lv || rv; return 1;
+                default: return 0;
+            }
+        case AST_TERNARY: {
+            long long cv;
+            if (!eval_const_expr(node->u.ternary.cond, &cv)) return 0;
+            if (cv) return eval_const_expr(node->u.ternary.true_expr,  out_value);
+            else    return eval_const_expr(node->u.ternary.false_expr, out_value);
+        }
+        default:
+            return 0;
+    }
+}
+
+int sema_check(AstNode *prog) {
+    int i;
+    g_errors = 0;
+    sym_init();
+    if (!prog || prog->kind != AST_PROGRAM) return 0;
+    /* Builtins: pre-register the simple host libc functions so they are not reported as undefined */
+    {
+        const char *builtins[] = {
+            "printf","putchar","puts","strlen","strcmp","strcpy",
+            "memset","memcpy","abort","malloc","free",0
+        };
+        int k;
+        for (k = 0; builtins[k]; k++) {
+            Symbol *s = sym_add(SYM_FUNC, builtins[k], type_int(), 0);
+            s->param_count = -1; /* unknown */
+            s->is_variadic = 1;
+        }
+    }
+    for (i = 0; i < prog->u.program.decl_count; i++) {
+        sema_decl(prog->u.program.decls[i]);
+    }
+    return g_errors;
+}
+
+static void sema_func(AstNode *node) {
+    char *name = node->u.func.name;
+    Symbol *existing = sym_find_current(name);
+    Symbol *s;
+    int i;
+    if (existing) {
+        if (existing->kind != SYM_FUNC) {
+            err_code(node, 101, name);
+            return;
+        }
+        if (existing->is_defined && node->u.func.body) {
+            /* armcc __weak redefinition rule: a weak definition can be
+             * overridden by a later non-weak definition of the same name.
+             * Multiple weak definitions are allowed (first wins). A weak
+             * redefinition of an already-defined non-weak function is
+             * silently ignored. Two non-weak definitions remain an error. */
+            if (!existing->is_weak && !node->u.func.is_weak) {
+                DiagLoc loc = loc_of(node);
+                diag_report(247, DIAG_SEV_ERROR, &loc,
+                            qual_name("function", name), 0, 0);
+                g_errors++;
+                return;
+            }
+            if (!existing->is_weak && node->u.func.is_weak) {
+                /* Existing non-weak, new weak: ignore new weak definition. */
+                return;
+            }
+            if (existing->is_weak && !node->u.func.is_weak) {
+                /* Override weak definition: clear is_defined/is_weak so the
+                 * new non-weak body will be installed below as the canonical
+                 * definition. irgen skips the discarded weak AST node by
+                 * detecting symbol.is_weak != ast.is_weak. */
+                existing->is_defined = 0;
+                existing->is_weak = 0;
+            } else {
+                /* Both weak: ignore the new definition (first wins). */
+                return;
+            }
+        }
+        s = existing;
+    } else {
+        s = sym_add(SYM_FUNC, name, node->u.func.ret_type, 0);
+    }
+    s->param_count = node->u.func.param_count;
+    s->is_variadic = node->u.func.is_variadic;
+    /* Store parameter types so call sites can do 64-bit arg promotion
+     * (int -> long long) based on the PARAMETER type, not the arg type.
+     * Each params[i] is an AST_VAR_DECL whose u.var.var_type is the
+     * parameter's declared type. */
+    if (node->u.func.param_count > 0 && node->u.func.params) {
+        s->param_types = (Type **)mem_pool_alloc(sizeof(Type *) * node->u.func.param_count);
+        for (i = 0; i < node->u.func.param_count; i++) {
+            AstNode *pp = node->u.func.params[i];
+            s->param_types[i] = (pp && pp->u.var.var_type) ? pp->u.var.var_type : 0;
+        }
+    }
+    s->svc_num = node->u.func.svc_num;
+    /* Propagate the ARM Compiler 5 function attributes into the symbol table so irgen
+     * can copy them onto the IrFunc. OR is used so a declaration that carries the
+     * attributes keeps them when the definition itself carries none. */
+    if (node->u.func.is_irq)   s->is_irq   = 1;
+    if (node->u.func.is_weak)  s->is_weak  = 1;
+    if (node->u.func.is_naked) s->is_naked = 1;
+    if (node->u.func.is_used)  s->is_used  = 1;
+    if (node->u.func.is_unused) s->is_unused = 1;
+    if (node->u.func.is_asm_func) s->is_asm_func = 1;
+    if (node->u.func.forceinline) s->forceinline = 1;
+    if (node->u.func.alias_target) s->alias_target = node->u.func.alias_target;
+    /* Write back: the AST node also gets the merged attributes so irgen can use d->u.func.* */
+    node->u.func.is_irq   = s->is_irq;
+    node->u.func.is_weak  = s->is_weak;
+    node->u.func.is_naked = s->is_naked;
+    node->u.func.is_used  = s->is_used;
+    node->u.func.is_unused = s->is_unused;
+    node->u.func.forceinline = s->forceinline;
+    if (!node->u.func.alias_target) node->u.func.alias_target = s->alias_target;
+    if (node->u.func.body || node->u.func.is_asm_func ||
+        node->u.func.alias_target) {
+        s->is_defined = 1;
+    }
+    if (node->u.func.is_asm_func) {
+        /* __asm function body: no body-wide semantic checks */
+        return;
+    }
+
+    if (node->u.func.body) {
+        sym_enter_scope();
+        for (i = 0; i < node->u.func.param_count; i++) {
+            AstNode *pp = node->u.func.params[i];
+            if (sym_find_current(pp->u.var.name)) {
+                err_code(pp, 100, pp->u.var.name);
+            } else {
+                Symbol *psym = sym_add(SYM_PARAM, pp->u.var.name, pp->u.var.var_type, 0);
+                (void)psym;
+            }
+        }
+        sema_stmt(node->u.func.body);
+        sym_leave_scope();
+    }
+}
+
+static void sema_decl(AstNode *node) {
+    if (!node) return;
+    switch (node->kind) {
+        case AST_FUNC_DEF:
+        case AST_FUNC_DECL:
+        case AST_ASM_FUNC:
+            sema_func(node);
+            break;
+        case AST_VAR_DECL: {
+            char *name = node->u.var.name;
+            Symbol *existing;
+            if (!name) return;
+            existing = sym_find_current(name);
+            if (existing) {
+                /* Parser pre-registers globals as SYM_VAR at parse time so
+                 * sizeof(var)/sizeof(var[i]) can be resolved. Upgrade it to
+                 * SYM_GLOBAL here (the canonical kind for downstream irgen). */
+                if (existing->kind == SYM_VAR) {
+                    existing->kind = SYM_GLOBAL;
+                    existing->is_extern = node->u.var.is_extern;
+                    node->u.var.is_global = 1;
+                    if (node->u.var.init) {
+                        sema_expr(node->u.var.init);
+                        /* Bug-I1: Apply initialization conversion (C99 6.7.8):
+                         * cast the initializer to the variable's type. */
+                        node->u.var.init =
+                            sema_implicit_cast(node->u.var.init,
+                                               node->u.var.var_type);
+                    }
+                    break;
+                }
+                /* Allow extern declaration after any prior declaration (redundant but legal).
+                 * Allow definition after extern declaration (standard header/source pattern).
+                 * Only error on actual redefinition (two non-extern definitions). */
+                if (node->u.var.is_extern) return;
+                if (existing->is_extern) return;
+                err_code(node, 101, name);
+                return;
+            }
+            {
+                Symbol *sym = sym_add(SYM_GLOBAL, name, node->u.var.var_type, 0);
+                sym->is_extern = node->u.var.is_extern;
+            }
+            node->u.var.is_global = 1;
+            if (node->u.var.init) {
+                sema_expr(node->u.var.init);
+                /* Bug-I1: Apply initialization conversion (C99 6.7.8):
+                 * cast the initializer to the variable's type. */
+                node->u.var.init =
+                    sema_implicit_cast(node->u.var.init,
+                                       node->u.var.var_type);
+            }
+            /* The run-time length of a VLA is an expression of its own: it
+             * lives on the variable node, not in the initialiser, so it was
+             * the one sub-tree sema never visited.  irgen then saw nodes with
+             * no type and skipped the conversion a cast asked for -- measured:
+             * `double n=2; int a[(int)n];` multiplied the low word of the
+             * double by 4 and allocated 0 bytes instead of 8. */
+            if (node->u.var.is_vla && node->u.var.vla_size_expr)
+                sema_expr(node->u.var.vla_size_expr);
+            break;
+        }
+        case AST_TYPEDEF:
+            if (node->u.var.name)
+                sym_add(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
+            break;
+        case AST_BLOCK: {
+            int i;
+            for (i = 0; i < node->u.block.stmt_count; i++)
+                sema_decl(node->u.block.stmts[i]);
+            break;
+        }
+        default:
+            /* Nothing to do for this node kind. */
+            break;
+    }
+}
+
+static void sema_stmt(AstNode *node) {
+    if (!node) return;
+    switch (node->kind) {
+        case AST_FUNC_DECL:
+            /* Block-scope prototype (C99 6.2.2p5).  It registers the return
+             * type and the parameter types and emits nothing, so the
+             * statements after it type-check exactly as if the prototype had
+             * been written at file scope. */
+            sema_func(node);
+            break;
+        case AST_BLOCK: {
+            int i;
+            /* Declarations inside the block live in their own scope. */
+            if (!node->u.block.is_decl_list) sym_enter_scope();
+            for (i = 0; i < node->u.block.stmt_count; i++) {
+                sema_stmt(node->u.block.stmts[i]);
+            }
+            if (!node->u.block.is_decl_list) sym_leave_scope();
+            break;
+        }
+        case AST_VAR_DECL: {
+            char *name = node->u.var.name;
+            if (!name) break;
+            if (sym_find_current(name)) {
+                err_code(node, 101, name);
+            } else {
+                sym_add(SYM_VAR, name, node->u.var.var_type, 0);
+            }
+            if (node->u.var.init) {
+                sema_expr(node->u.var.init);
+                /* Bug-I1: Apply initialization conversion (C99 6.7.8):
+                 * cast the initializer to the variable's type. */
+                node->u.var.init =
+                    sema_implicit_cast(node->u.var.init,
+                                       node->u.var.var_type);
+            }
+            /* The run-time length of a VLA is an expression of its own: it
+             * lives on the variable node, not in the initialiser, so it was
+             * the one sub-tree sema never visited.  irgen then saw nodes with
+             * no type and skipped the conversion a cast asked for -- measured:
+             * `double n=2; int a[(int)n];` multiplied the low word of the
+             * double by 4 and allocated 0 bytes instead of 8. */
+            if (node->u.var.is_vla && node->u.var.vla_size_expr)
+                sema_expr(node->u.var.vla_size_expr);
+            break;
+        }
+        case AST_TYPEDEF:
+            if (node->u.var.name)
+                sym_add(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
+            break;
+        case AST_IF:
+            sema_expr(node->u.if_stmt.cond);
+            sema_stmt(node->u.if_stmt.then_stmt);
+            if (node->u.if_stmt.else_stmt) sema_stmt(node->u.if_stmt.else_stmt);
+            break;
+        case AST_WHILE:
+            sema_expr(node->u.while_stmt.cond);
+            sema_stmt(node->u.while_stmt.body);
+            break;
+        case AST_FOR:
+            sym_enter_scope();
+            if (node->u.for_stmt.init) {
+                if (node->u.for_stmt.init->kind == AST_VAR_DECL ||
+                    node->u.for_stmt.init->kind == AST_BLOCK)
+                    sema_stmt(node->u.for_stmt.init);
+                else
+                    sema_expr(node->u.for_stmt.init);
+            }
+            if (node->u.for_stmt.cond) sema_expr(node->u.for_stmt.cond);
+            if (node->u.for_stmt.step) sema_expr(node->u.for_stmt.step);
+            sema_stmt(node->u.for_stmt.body);
+            sym_leave_scope();
+            break;
+        case AST_DO_WHILE:
+            sema_stmt(node->u.while_stmt.body);
+            sema_expr(node->u.while_stmt.cond);
+            break;
+        case AST_SWITCH:
+            sema_expr(node->u.switch_stmt.expr);
+            sema_stmt(node->u.switch_stmt.body);
+            break;
+        case AST_CASE:
+        case AST_DEFAULT:
+            sema_stmt(node->u.case_stmt.stmt);
+            break;
+        case AST_LABEL:
+            sema_stmt(node->u.label_stmt.stmt);
+            break;
+        case AST_GOTO:
+            /* goto: targets are resolved by the backend, nothing to check here */
+            break;
+        case AST_RETURN:
+            if (node->u.unary.operand) sema_expr(node->u.unary.operand);
+            break;
+        case AST_BREAK:
+        case AST_CONTINUE:
+            break;
+        case AST_EXPR_STMT:
+            if (node->u.unary.operand) sema_expr(node->u.unary.operand);
+            break;
+        case AST_ASM:
+            /* asm statements need no semantic analysis */
+            break;
+        default:
+            sema_expr(node);
+            break;
+    }
+}
+
+/* Matching rule for _Generic associations.
+ *
+ * type_equal() is deliberately loose (it compares pointer *kinds* and skips
+ * the pointee for TYPE_FUNC), which is what the rest of the compiler wants.
+ * For _Generic it is too loose in one direction that matters: the parser
+ * records `int (*)(int)` as "pointer to the return type" plus is_func_ptr,
+ * so a plain `int *` association would otherwise be compatible with a
+ * function designator -- exactly the kind of silently wrong branch that
+ * _Generic must never take.  Compare the flag too, but only here. */
+/* Where pointer-to-function types keep their signature depends on how the
+ * type was built: the declarator path (decl_normalise in parser.c) compresses
+ * `pointer -> TYPE_FUNC` into a pointer carrying params/param_count/is_variadic,
+ * while sema's function-designator path builds `type_pointer(fs->type)` and
+ * leaves the signature on the TYPE_FUNC pointee.  Read both shapes so the
+ * comparison below does not depend on which one produced the type.
+ * A signature with param_count == 0 and no params array is an old-style
+ * `int (*)()` -- "no prototype" -- and is reported as such (pc = 0). */
+static void generic_sig_of(Type *t, Type ***params, int *pc, int *variadic) {
+    *params = 0; *pc = 0; *variadic = 0;
+    if (!t || t->kind != TYPE_PTR || !t->is_func_ptr) return;
+    if (t->params || t->param_count > 0) {
+        *params = t->params; *pc = t->param_count; *variadic = t->is_variadic;
+        return;
+    }
+    if (t->base && t->base->kind == TYPE_FUNC) {
+        *params = t->base->params; *pc = t->base->param_count;
+        *variadic = t->base->is_variadic;
+    }
+}
+
+static int generic_type_match(Type *a, Type *b) {
+    if (!a || !b) return 0;
+    if (!type_equal(a, b)) return 0;
+    if (a->kind == TYPE_PTR && b->kind == TYPE_PTR) {
+        Type **ap, **bp;
+        int apc, bpc, av, bv, i;
+        if (a->is_func_ptr != b->is_func_ptr) return 0;
+        if (!a->is_func_ptr) return 1;
+        /* Two function pointers of the same return type still differ when
+         * their parameter lists differ: `int (*)(int)` and `int (*)(double)`
+         * are not compatible types (6.7.6.3p15).  type_equal() stops at
+         * "pointer to int", which would silently pick the first branch.
+         * Only compare when both sides carry a prototype: an old-style
+         * `int (*)()` is not a prototype and compatibility there is a
+         * different (looser) rule, so leave it alone rather than invent it. */
+        generic_sig_of(a, &ap, &apc, &av);
+        generic_sig_of(b, &bp, &bpc, &bv);
+        if (apc > 0 && bpc > 0) {
+            if (apc != bpc) return 0;
+            if (av != bv) return 0;
+            for (i = 0; i < apc; i++)
+                if (!generic_type_match(ap[i], bp[i])) return 0;
+        }
+    }
+    return 1;
+}
+
+/* Prototype behind a *callee expression*.
+ *
+ * For a direct call the prototype is the callee Symbol's.  Through a function
+ * pointer it lives on the pointer's type -- but not always visibly:
+ *   - `fp(...)` where fp is a variable  -> the type walk finds it;
+ *   - `_Generic(...)(...)` / `(c ? f : f)(...)` / `(*fp)(...)`: the callee is a
+ *     generic / conditional / dereference node, and a function *designator*
+ *     has no pointer type at all -- the symbol table stores only a function's
+ *     return type, so `sema_expr(AST_VAR f)` answers `int`.
+ * Without this the arguments of every such call kept their own types, which is
+ * a C99 6.5.2.2p7 violation and produced a real wrong answer on ARM: an `int`
+ * argument stayed one stack word, the machine backends' IR_SEXT is a no-op,
+ * and the callee read the neighbouring argument as the high half of its
+ * long long. */
+/* The Symbol of the function a callee *expression* designates, or NULL when
+ * the callee really goes through a pointer value.
+ *
+ * A function designator has no pointer type: the symbol table stores a
+ * function's *return* type, so `sema_expr(AST_VAR f)` answers `int` for
+ * `void f(void)` and `int` for `unsigned long long f(void)` too.  Anywhere the
+ * call has to ask "what does this prototype say" -- the argument conversions
+ * and the result type -- the answer therefore has to come from the Symbol, not
+ * from the expression's type.  This is the callee shape `_Generic(...)(args)`
+ * and `(c ? f : g)(args)` end up in (the parser sees a non-identifier callee,
+ * and the _Generic node is squashed into the selected designator by sema), and
+ * through it a two-word result was being declared one word wide: measured on
+ * ARM as `atomic_load()` on an `unsigned long long` returning r0 only, with the
+ * high half compared away.  `*f` on a designator is a designator again
+ * (C99 6.5.3.2p4), so leading dereferences are peeled first. */
+static Symbol *sema_callee_func_sym(AstNode *callee) {
+    while (callee && callee->kind == AST_UNARY &&
+           callee->u.unary.op == (int)TOK_MUL && callee->u.unary.operand)
+        callee = callee->u.unary.operand;
+    if (callee && callee->kind == AST_TERNARY) {
+        Symbol *a = sema_callee_func_sym(callee->u.ternary.true_expr);
+        return a ? a : sema_callee_func_sym(callee->u.ternary.false_expr);
+    }
+    if (callee && callee->kind == AST_VAR) {
+        Symbol *s = sym_find(callee->u.name);
+        if (s && s->kind == SYM_FUNC) return s;
+    }
+    return 0;
+}
+
+static void sema_callee_proto(AstNode *callee, Type ***out_ptypes, int *out_n) {
+    Type *t;
+    Symbol *fs;
+    if (!callee) return;
+    fs = sema_callee_func_sym(callee);
+    if (fs) {
+        *out_ptypes = fs->param_types;
+        *out_n      = fs->param_count;
+        return;
+    }
+    t = callee->type;
+    while (t && t->kind == TYPE_PTR) {
+        if (t->is_func_ptr && t->params) {
+            *out_ptypes = t->params;
+            *out_n      = t->param_count;
+            return;
+        }
+        t = t->base;
+    }
+    if (t && t->kind == TYPE_FUNC && t->params) {
+        *out_ptypes = t->params;
+        *out_n      = t->param_count;
+    }
+}
+
+static Type *sema_expr(AstNode *node) {
+    if (node && node->kind == AST_GENERIC) {
+        /* C11 6.5.1.1p2: the controlling expression undergoes lvalue
+         * conversion, array-to-pointer and function-to-pointer conversion;
+         * the result is matched against the associations.  There is no
+         * promotion (char stays char, and there is no default promotion to
+         * int) -- _Generic is about the declared type, not about arithmetic. */
+        AstNode *node_ctrl = node->u.generic.ctrl;
+        AstNode *sel = node->u.generic.default_expr;
+        Type *ct = node_ctrl ? sema_expr(node_ctrl) : 0;
+        AstNode *ctrl_var = node_ctrl;
+        int i;
+        if (ct && ct->kind == TYPE_ARRAY) ct = type_pointer(ct->base);
+        else if (ct && ct->kind == TYPE_FUNC) ct = type_pointer(ct);
+        /* Function-to-pointer conversion (C11 6.5.1.1p2).  The symbol table
+         * keeps a function's *return* type, so sema_expr() answers `int` for
+         * a function designator; rebuild the pointer type here instead of
+         * letting the association list pick a data branch.  `*f` on a
+         * function designator yields a designator again (6.5.3.2p4), so the
+         * leading dereferences are peeled first. */
+        while (ctrl_var && ctrl_var->kind == AST_UNARY &&
+               ctrl_var->u.unary.op == (int)TOK_MUL && ctrl_var->u.unary.operand)
+            ctrl_var = ctrl_var->u.unary.operand;
+        if (ctrl_var && ctrl_var->kind == AST_UNARY &&
+            ctrl_var->u.unary.op == (int)TOK_BAND && ctrl_var->u.unary.operand &&
+            ctrl_var->u.unary.operand->kind == AST_VAR) {
+            /* `&f` on a function designator already has pointer-to-function
+             * type (6.5.3.2p3); sema_expr() only sees the return type. */
+            Symbol *fs = sym_find(ctrl_var->u.unary.operand->u.name);
+            if (fs && fs->kind == SYM_FUNC) {
+                ct = type_pointer(fs->type);
+                ct->is_func_ptr = 1;
+            }
+        } else if (ctrl_var && ctrl_var->kind == AST_VAR) {
+            Symbol *fs = sym_find(ctrl_var->u.name);
+            if (fs && fs->kind == SYM_FUNC) {
+                ct = type_pointer(fs->type);
+                ct->is_func_ptr = 1;
+            }
+        }
+        for (i = 0; i < node->u.generic.count; i++) {
+            if (generic_type_match(ct, node->u.generic.types[i])) {
+                sel = node->u.generic.exprs[i];
+                break;
+            }
+        }
+        if (!sel) {
+            /* C11 requires a diagnostic when no association is compatible and
+             * there is no default association.  Emitting a 0 would be a
+             * fabricated answer to "which branch". */
+            DiagLoc loc;
+            loc.file = 0;
+            loc.line = node->line;
+            loc.col  = node->col;
+            diag_report_msg(DIAG_SEV_ERROR, &loc,
+                            "no type in the _Generic association list matches "
+                            "the controlling expression, and there is no default",
+                            0, 0, 0);
+            node->kind = AST_NUM;
+            node->u.num_val = 0;
+            node->type = type_int();
+            return node->type;
+        }
+        /* Squash: the selected association becomes this node.  Everything
+         * downstream (irgen, agginit, backends) then sees an ordinary
+         * expression, so no stage needs to know _Generic exists. */
+        *node = *sel;
+        return sema_expr(node);
+    }
+
+    if (!node) return type_int();
+    switch (node->kind) {
+        case AST_NUM:
+            if (!node->type) node->type = type_int();
+            return node->type;
+        case AST_STR:
+            if (!node->type) node->type = type_pointer(type_char());
+            return node->type;
+        case AST_SIZEOF:
+            if (node->sizeof_is_vla) {
+                /* Runtime size: irgen reads the byte count the declaration
+                 * stored, so the operand stays in place for it. */
+                node->type = type_int();
+                return node->type;
+            }
+            if (node->sizeof_operand) {
+                /* The parser deferred this operand because it could not name
+                 * its type (member access, dereference, arithmetic, ...).
+                 * Evaluate it now and take the real size.  `sizeof(op->sym)`
+                 * with `char sym[512]` used to answer 4, which compiled the
+                 * assembler's `k < sizeof(op->sym) - 1` into a bound of 3. */
+                Type *ot = sema_expr(node->sizeof_operand);
+                int sz = ot ? type_size(ot) : 0;
+                if (ot && ot->is_vla) {
+                    /* The operand is a variably modified object but not a
+                     * plain variable, so there is no stored byte count to
+                     * read.  Report it rather than answer the pointer size. */
+                    if (node->sizeof_operand->kind == AST_VAR) {
+                        node->sizeof_is_vla = 1;
+                        node->type = type_int();
+                        return node->type;
+                    }
+                    {
+                        DiagLoc vloc = loc_of(node);
+                        diag_report_msg(DIAG_SEV_ERROR, &vloc,
+                            "'sizeof' of a variable-length array is only supported on a plain variable",
+                            0, 0, 0);
+                        g_errors++;
+                    }
+                    sz = 4;
+                }
+                if (sz <= 0) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                        "'sizeof' applied to an incomplete or untyped operand", 0, 0, 0);
+                    g_errors++;
+                    sz = 4;
+                }
+                node->u.num_val = sz;
+                node->sizeof_operand = 0;
+            }
+            node->type = type_int();
+            return node->type;
+        case AST_INIT_LIST: {
+            int i;
+            for (i = 0; i < node->u.init_list.item_count; i++) {
+                AstNode *it = node->u.init_list.items[i];
+                if (it && it->u.init_field.value) sema_expr(it->u.init_field.value);
+            }
+            node->type = type_int();
+            return node->type;
+        }
+        case AST_COMPOUND_LITERAL:
+            /* `(struct S){...}` carries its real type in lit_type; without
+             * this case sema fell into the default and retyped the node as
+             * int, so `((struct S){3,4}).b` looked the member up in int,
+             * got no field, and loaded offset 0 -- the value of .a.  A whole
+             * class of silent wrong answers: every member offset, array
+             * stride and cast decision hanging off a compound literal was
+             * decided from "int". */
+            node->type = node->u.compound_lit.lit_type
+                             ? node->u.compound_lit.lit_type : node->type;
+            if (node->u.compound_lit.init) sema_expr(node->u.compound_lit.init);
+            return node->type;
+        case AST_ASM:
+            node->type = type_void();
+            return node->type;
+        case AST_VAR: {
+            Symbol *s = sym_find(node->u.name);
+            if (!s) {
+                err_code(node, 20, node->u.name);
+                node->type = type_int();
+                return node->type;
+            }
+            node->type = s->type;
+            return node->type;
+        }
+        case AST_BINARY:
+        case AST_COMMA: {
+            Type *t = type_int();
+            sema_expr(node->u.binary.left);
+            sema_expr(node->u.binary.right);
+            if (node->kind == AST_COMMA) {
+                if (node->u.binary.right) t = node->u.binary.right->type ? node->u.binary.right->type : type_int();
+            } else {
+                int op = node->u.binary.op;
+                int is_cmp = (op == (int)TOK_EQ || op == (int)TOK_NE ||
+                              op == (int)TOK_LT || op == (int)TOK_GT ||
+                              op == (int)TOK_LE || op == (int)TOK_GE ||
+                              op == (int)TOK_AND || op == (int)TOK_OR);
+                Type *lt = node->u.binary.left  ? node->u.binary.left->type  : 0;
+                Type *rt = node->u.binary.right ? node->u.binary.right->type : 0;
+                Type *common = usual_arith_conv(lt, rt);
+                if (!is_cmp) {
+                    t = common;
+                    /* C99 6.5.6: the result of pointer arithmetic is a pointer
+                     * (`ptr +/- int`, `int + ptr`) or ptrdiff_t (`ptr - ptr`),
+                     * not the usual-arithmetic-conversion type. Without this a
+                     * chained expression such as `(p + 3) - p` loses the
+                     * pointer type and the element-size scaling never runs. */
+                    {
+                        int lp = lt && (lt->kind == TYPE_PTR || lt->kind == TYPE_ARRAY);
+                        int rp = rt && (rt->kind == TYPE_PTR || rt->kind == TYPE_ARRAY);
+                        if (op == (int)TOK_PLUS || op == (int)TOK_MINUS) {
+                            if (lp && rp) t = type_int();
+                            else if (lp)
+                                t = (lt->kind == TYPE_ARRAY) ? type_pointer(lt->base) : lt;
+                        }
+                    }
+                }
+                /* Bug-I1: Cast both operands to the common type so irgen sees
+                 * consistent operand types and emits proper IR_I2F / IR_F2I /
+                 * 64-bit widen instructions. Only for arithmetic operands;
+                 * pointer arithmetic (ptr + int) is left untouched. */
+                if (common && lt && rt &&
+                    type_is_arith(lt) && type_is_arith(rt)) {
+                    node->u.binary.left  = sema_implicit_cast(node->u.binary.left,  common);
+                    node->u.binary.right = sema_implicit_cast(node->u.binary.right, common);
+                }
+            }
+            node->type = t;
+            return node->type;
+        }
+        case AST_UNARY: {
+            Type *t = sema_expr(node->u.unary.operand);
+            if ((node->u.unary.op == (int)TOK_INC ||
+                 node->u.unary.op == (int)TOK_DEC) &&
+                t && t->is_atomic) {
+                err_atomic_rmw(node, "an increment or decrement",
+                               "atomic_fetch_add/sub()");
+            }
+            if (node->u.unary.op == (int)TOK_BAND) {
+                node->type = type_pointer(t);
+            } else if (node->u.unary.op == (int)TOK_MUL) {
+                if (t && t->kind == TYPE_PTR && t->is_func_ptr) {
+                    /* *fp where fp points to a function: the designator decays
+                     * straight back to the same pointer type (C99 6.5.3.2p4). */
+                    node->type = t;
+                } else if (t && (t->kind == TYPE_PTR || t->kind == TYPE_ARRAY))
+                    node->type = t->base;
+                else
+                    node->type = type_int();
+            } else {
+                node->type = t ? t : type_int();
+            }
+            return node->type;
+        }
+        case AST_CAST:
+            sema_expr(node->u.unary.operand);
+            return node->type;
+        case AST_ASSIGN:
+            sema_expr(node->u.binary.left);
+            sema_expr(node->u.binary.right);
+            if (node->u.binary.op != (int)TOK_ASSIGN &&
+                node->u.binary.left && node->u.binary.left->type &&
+                node->u.binary.left->type->is_atomic) {
+                err_atomic_rmw(node, "a compound assignment",
+                               "atomic_fetch_add/sub/and/or/xor()");
+            }
+            /* Bug-I1: Apply assignment conversion (C99 6.5.16.1): cast RHS
+             * to LHS type when the two differ meaningfully (e.g. int -> double,
+             * int -> long long). Same-size int<->int is a no-op cast. */
+            if (node->u.binary.left && node->u.binary.right) {
+                Type *lt = node->u.binary.left->type;
+                node->u.binary.right = sema_implicit_cast(node->u.binary.right, lt);
+            }
+            node->type = node->u.binary.left->type;
+            return node->type;
+        case AST_FUNC_CALL: {
+            Symbol *s = sym_find(node->u.call.name);
+            int i;
+            /* The parser only turns syntactic non-identifier callees into
+             * indirect calls (name "?indirect"). `fp(x)` where fp is a
+             * function pointer *variable* still arrives as a direct call
+             * named "fp", and sym_find returns the variable, not a function.
+             * Rewrite it to the indirect form here (the same shape the parser
+             * builds for `(*fp)(x)`), otherwise irgen's __smc/__svc matcher
+             * sees a symbol and mis-emits IR_SMC for the call. */
+            if (s && s->kind != SYM_FUNC && !node->u.call.callee) {
+                AstNode *callee = ast_var(node->u.call.name, node->line);
+                callee->col = node->col;
+                node->u.call.callee = callee;
+                node->u.call.name = mem_strdup("?indirect");
+                s = 0;
+            }
+            if (!s || s->kind != SYM_FUNC) {
+                /* Indirect call (callee is a function pointer expression):
+                 * must sema the callee so member offsets/types are resolved.
+                 * Direct calls to unknown functions: just sema the args. */
+                if (node->u.call.callee) {
+                    Type *ct = sema_expr(node->u.call.callee);
+                    Symbol *csym = sema_callee_func_sym(node->u.call.callee);
+                    /* Use callee's return type if it's a function pointer */
+                    if (csym) {
+                        /* A designator: the Symbol carries the return type,
+                         * which the expression's own type does not (see
+                         * sema_callee_func_sym). */
+                        node->type = csym->type;
+                    } else if (ct && ct->kind == TYPE_PTR && ct->base &&
+                        ct->base->kind == TYPE_FUNC) {
+                        node->type = ct->base->base;
+                    } else if (ct && ct->kind == TYPE_PTR && ct->is_func_ptr) {
+                        /* (*fp)(...): return type of the pointed-to function is
+                         * not tracked for function-pointer declarators, so the
+                         * call result defaults to int (as for any unprototyped
+                         * call). */
+                        node->type = ct->base ? ct->base : type_int();
+                    } else if (ct && ct->kind == TYPE_FUNC) {
+                        /* callee written as (*fp): the designator decays to
+                         * the function type itself; the return type is base. */
+                        node->type = ct->base;
+                    } else {
+                        node->type = type_int();
+                    }
+                } else {
+                    node->type = type_int();
+                }
+                {
+                    /* C99 6.5.2.2p7: every argument is converted to the type
+                     * of the corresponding parameter.  A *direct* call gets
+                     * that from s->param_types below; through a function
+                     * pointer the prototype lives on the callee's own type,
+                     * and nothing was converting the arguments at all.
+                     * Measured: with `typedef int (*fp_t)(int *, long long);`
+                     * the call `fp(&g, 500000)` left the int argument at one
+                     * stack word, the machine backends' IR_SEXT is a no-op (it
+                     * only ever had to fix the *word order* of a value that was
+                     * already two words), and the callee then read the
+                     * *address* argument as the high half of its long long
+                     * (ARM: g came out 1000000 instead of 1500000; a pure
+                     * `long long (*)(long long *, long long)` function pointer
+                     * walked off into an unmapped address).  Take the widths
+                     * from the prototype here, so every backend sees an
+                     * ordinary already-typed argument -- which is also what
+                     * the C standard says the argument *is*. */
+                    Type **ptypes = 0;
+                    int np = 0;
+                    sema_callee_proto(node->u.call.callee, &ptypes, &np);
+                    for (i = 0; i < node->u.call.arg_count; i++) {
+                        sema_expr(node->u.call.args[i]);
+                        if (ptypes && i < np)
+                            node->u.call.args[i] =
+                                sema_implicit_cast(node->u.call.args[i], ptypes[i]);
+                    }
+                }
+                return node->type;
+            }
+            for (i = 0; i < node->u.call.arg_count; i++) {
+                sema_expr(node->u.call.args[i]);
+                /* Bug-I1: Apply argument conversion (C99 6.5.2.2): cast each
+                 * argument to the corresponding parameter type when the
+                 * function has a prototype and the arg index is within the
+                 * named parameter list. Variadic args beyond the named list
+                 * get default argument promotion instead. */
+                if (s->param_types && i < s->param_count) {
+                    node->u.call.args[i] =
+                        sema_implicit_cast(node->u.call.args[i],
+                                           s->param_types[i]);
+                }
+            }
+            if (s->param_count >= 0 && !s->is_variadic &&
+                s->param_count != node->u.call.arg_count) {
+                /* armcc splits this by direction: #165 for too few, #140 for
+                 * too many (both measured, see docs/DIAGNOSTICS.md). */
+                DiagLoc wloc = loc_of(node);
+                if (node->u.call.arg_count < s->param_count) {
+                    diag_report(165, DIAG_SEV_ERROR, &wloc, 0, 0, 0);
+                } else {
+                    /* armcc points #140 at the first argument that has no
+                     * parameter, not at the call. */
+                    const AstNode *extra = node->u.call.args[s->param_count];
+                    if (extra && extra->col > 0) wloc = loc_of(extra);
+                    diag_report(140, DIAG_SEV_ERROR, &wloc, 0, 0, 0);
+                }
+            }
+            node->type = s->type;
+            return node->type;
+        }
+        case AST_ARRAY_ACCESS: {
+            Type *t = sema_expr(node->u.array_access.array);
+            sema_expr(node->u.array_access.index);
+            if (!t || (t->kind != TYPE_ARRAY && t->kind != TYPE_PTR)) {
+                /* Not an array or pointer: fall back to int so later passes can continue. */
+                node->type = type_int();
+                return node->type;
+            }
+            node->type = t->base;
+            return node->type;
+        }
+        case AST_MEMBER: {
+            Type *t = sema_expr(node->u.member.obj);
+            Type *st = t;
+            StructField *f;
+            if (node->u.member.is_arrow && t && t->kind == TYPE_PTR) st = t->base;
+            f = type_find_field(st, node->u.member.member);
+            if (f) {
+                node->u.member.offset = f->offset;
+                node->type = f->type;
+            } else {
+                node->type = type_int();
+            }
+            return node->type;
+        }
+        case AST_TERNARY: {
+            Type *tt, *ft, *common;
+            sema_expr(node->u.ternary.cond);
+            tt = sema_expr(node->u.ternary.true_expr);
+            ft = sema_expr(node->u.ternary.false_expr);
+            /* Bug-I1 (B6): C99 6.5.15 - the result type is the common type
+             * of the two branches after usual arithmetic conversions. Cast
+             * both branches to the common type so irgen produces consistent
+             * code. */
+            common = usual_arith_conv(tt, ft);
+            if (common && tt && ft &&
+                type_is_arith(tt) && type_is_arith(ft)) {
+                node->u.ternary.true_expr  = sema_implicit_cast(node->u.ternary.true_expr,  common);
+                node->u.ternary.false_expr = sema_implicit_cast(node->u.ternary.false_expr, common);
+                tt = common;
+            }
+            node->type = tt;
+            return node->type;
+        }
+        default:
+            node->type = type_int();
+            return node->type;
+    }
+}

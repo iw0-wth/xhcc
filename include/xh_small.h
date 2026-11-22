@@ -1,0 +1,35 @@
+/* xhcc bounded single-translation-unit profile. Included before all headers. */
+#ifndef XH_SMALL_H
+#define XH_SMALL_H
+#define XHCC 1
+#define ARKCC_PROFILE 1
+#define ARKCC_BACKEND_ARM 1
+#define ARKCC_BACKEND_X86_64 0
+#define ARKCC_BACKEND_RISCV32 0
+#define ARKCC_BACKEND_C 0
+#define ARK_POOL_SIZE (1024*1024)
+#define ARK_SRC_BUF_SIZE (32*1024)
+#define ARK_ASM_BUF_SIZE (128*1024)
+#define ARK_CODE_BUF_SIZE (32*1024)
+#define ARK_OBJ_BUF_SIZE (64*1024)
+#define ARK_LINK_BUF_SIZE (32*1024)
+#define PP_BUF_SIZE (64*1024)
+#define PP_INC_BUF (16*1024)
+#define PP_MAX_INC_DEPTH 8
+#define ARM_MAX_SYMBOLS 512
+#define ARM_MAX_RELOCS 512
+#define ARM_MAX_GVARS 128
+#define ARK_LINK_MAX_SYMS 64
+#define ARK_LINK_MAX_RELOCS 64
+#define ARK_LINK_MAX_OBJS 16
+#define ARK_PP_MAX_INC_DIRS 32
+#define ARK_MAX_PRE_DEFINES 64
+#define ARKCC_FEATURE_OBJ_IR 0
+#define ARKCC_FEATURE_IPO 0
+#define ARKCC_FEATURE_SCATTER 0
+#define ARKCC_FEATURE_DWARF 0
+#define ARKCC_FEATURE_DWARF_FULL 0
+#define ARKCC_FEATURE_OPT_INLINE 0
+#define ARKCC_FEATURE_OPT_VECTORIZE 0
+#define ARKCC_FEATURE_FPU_HW 0
+#endif
