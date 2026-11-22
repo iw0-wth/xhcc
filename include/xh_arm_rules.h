@@ -3,6 +3,8 @@
 #include "codegen.h"
 /* ARM text emission uses the common bounded external template VM.  Selection,
  * register/ABI bookkeeping, optimizers and Thumb encoding remain in C. */
+typedef struct {int word_bytes,core_regs,pair_words,pair_align,stack_align,saved_frame,sret_words;int scalar32_size,scalar32_align,scalar64_size,scalar64_align,indirect_limit,indirect_size,indirect_align;} XhArmAbi;
+const XhArmAbi *xh_arm_abi(void);
 void xh_arm_rules_reset(void);
 int xh_arm_rules_failed(void);
 void xh_arm_rule(AsmBuffer *b,const char *key);

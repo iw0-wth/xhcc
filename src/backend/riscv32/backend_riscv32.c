@@ -57,11 +57,11 @@ static const char *arg_reg_r(int i) {
  * is gone.  <stdarg.h> walks the image as a plain word pointer
  * (__ARK_VA_WORD_SLOTS, and __ARK_VA_PACKED_WORDS because this backend
  * numbers argument words without alignment holes). */
-#define RV_VA_WORDS     8
-#define RV_REGION_OFF   32
-#define RV_SAVE_RA_OFF  36
-#define RV_SAVE_S0_OFF  40
-#define RV_LOCAL_BASE   48
+#define RV_VA_WORDS (xh_rv_abi()->arg_registers)
+#define RV_REGION_OFF (xh_rv_abi()->region_offset)
+#define RV_SAVE_RA_OFF (xh_rv_abi()->saved_ra_offset)
+#define RV_SAVE_S0_OFF (xh_rv_abi()->saved_s0_offset)
+#define RV_LOCAL_BASE (xh_rv_abi()->local_base+xh_rv_abi()->extra_padding)
 
 /* Struct-returning call (sret) buffers a single function may reserve in its
  * frame are capped by ARK_MAX_SRET_FUNCS (arkcc_config.h): one buffer per call
@@ -116,7 +116,7 @@ static int rv_ret_is_two_words(Type *t) {
     if (t->kind == TYPE_LLONG || t->kind == TYPE_DOUBLE) return 1;
     if (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION) {
         sz = type_size(t);
-        return (sz > 4 && sz <= 8);
+        return (sz > xh_rv_abi()->word_bytes && sz <= xh_rv_abi()->indirect_threshold);
     }
     return 0;
 }
@@ -129,7 +129,7 @@ static int rv_ret_is_two_words(Type *t) {
 static int rv_ret_is_sret(Type *t) {
     if (!t) return 0;
     if (t->kind != TYPE_STRUCT && t->kind != TYPE_UNION) return 0;
-    return type_size(t) > 8;
+    return type_size(t) > xh_rv_abi()->indirect_threshold;
 }
 
 /* Storage size of a global, from its declared type.  0 when the name is not in
@@ -521,6 +521,7 @@ static IrProgram *xh_rv_prog;
 static int rv_emit(IrProgram *prog, char *out, int cap) {
     xh_rv_prog = prog;
     xh_rv_rules_reset();
+    if(xh_rv_abi_load())return -1;
     AsmBuffer buf;
     int fi;
     asmbuf_init(&buf);
@@ -879,7 +880,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
         int has_alloca = 0;
         for (i = 0; i < f->code_count; i++)
             if (f->code[i].op == IR_ALLOCA) { has_alloca = 1; break; }
-        int sp_size = (fsize + 15) & ~15;
+        int sp_size = xh_rv_align_stack(fsize);
         int va_named_words = 0;
         /* Words the named parameters occupy, counted exactly the way irgen
          * stamps the IR_GETARG slot numbers: a struct > 8 bytes travels as a
@@ -892,17 +893,17 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                 int sz = pt ? type_size(pt) : 4;
                 if (sz <= 0) sz = 4;
                 if (pt && (pt->kind == TYPE_STRUCT || pt->kind == TYPE_UNION))
-                    va_named_words += (sz > 8) ? 1 : ((sz > 4) ? 2 : 1);
+                    va_named_words += xh_rv_argument_words(sz,1);
                 else if (pt && pt->kind == TYPE_ARRAY)
                     va_named_words += 1;
                 else
-                    va_named_words += (sz >= 8) ? 2 : 1;
+                    va_named_words += xh_rv_argument_words(sz,0);
             }
             /* The hidden result pointer of an sret return occupies a0, so
              * every named parameter sits one word later and va_arg must start
              * one word later too. */
             if (sret_is) va_named_words += 1;
-            sp_size = (sp_size + 15) & ~15;
+            sp_size = xh_rv_align_stack(sp_size);
         }
 
         /* A file-scope `static` function is not a link symbol.  A flat image
@@ -2009,7 +2010,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                             b = 4 * 60;
                         }
                         abase[kk] = total;
-                        awords[kk] = (b + 3) / 4;
+                        awords[kk] = xh_rv_argument_words(b,0);
                         total += awords[kk];
                     }
                     /* The IR stack holds arg0 on top, and inside a 64-bit value
@@ -2057,7 +2058,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * the first argument word moves to a1 and only seven words
                      * fit in registers; the rest start at s0+0 as usual, one
                      * word later in the callee's own numbering. */
-                    inreg = sret_call ? 7 : 8;
+                    inreg = RV_VA_WORDS-(sret_call?1:0);
                     if (total < inreg) inreg = total;
                     for (kk = 0; kk < inreg; kk++) {
                         xh_rv_rule(&buf,"emit.fixed.0241");

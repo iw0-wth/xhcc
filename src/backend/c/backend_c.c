@@ -66,56 +66,65 @@ static void emit_str_literal(AsmBuffer *b, const char *data, int len) {
     asmbuf_putc(b, '"');
 }
 
-/* Emit a binary operator for the C backend.
- * The aux flag bit 0x100 marks an unsigned operation; because C99 integer
- * promotion rules make `int/unsigned` already unsigned, we only need an
- * explicit cast for unsigned int (32-bit) but not for unsigned long long (64-bit).
- * For the 32-bit path (IR_BINARY), we cast to (unsigned int); for the 64-bit
- * path (IR_64BINARY), 32-bit cast is unnecessary.
- * This matters for shifts and comparisons, e.g. int -1 vs unsigned 0xFFFFFFFF. */
-static void emit_binop(AsmBuffer *b, int op, int is64) {
-    int is_unsigned = (op & 0x100) != 0;
-    int base_op = op & ~0x100;
-    /* lhs op rhs form; operands are loaded into ark_a/ark_c before emission. */
-    switch (base_op) {
-        case (int)TOK_PLUS:  asmbuf_puts(b, xh_c_rule_text("tok_plus")); break;
-        case (int)TOK_MINUS: asmbuf_puts(b, xh_c_rule_text("tok_minus")); break;
-        case (int)TOK_MUL:   asmbuf_puts(b, xh_c_rule_text("tok_mul")); break;
-        case (int)TOK_DIV:   asmbuf_puts(b, xh_c_rule_text("tok_div")); break;
-        case (int)TOK_MOD:   asmbuf_puts(b, xh_c_rule_text("tok_mod")); break;
-        case (int)TOK_BAND:  asmbuf_puts(b, xh_c_rule_text("tok_band")); break;
-        case (int)TOK_BOR:   asmbuf_puts(b, xh_c_rule_text("tok_bor")); break;
-        case (int)TOK_BXOR:  asmbuf_puts(b, xh_c_rule_text("tok_bxor")); break;
-        case (int)TOK_SHL:   asmbuf_puts(b, xh_c_rule_text("tok_shl")); break;
-        case (int)TOK_SHR:
-            /* The cast must match the *operand* width: a 32-bit unsigned right
-             * shift has to clear the high bits of a 32-bit value, a 64-bit one
-             * must keep all 64.  ark_a is a long long in both cases, so without
-             * this the 64-bit form was truncated to 32 bits. */
-            if (is_unsigned) asmbuf_puts(b, is64 ? xh_c_rule_text("tok_shr")
-                                                : xh_c_rule_text("tok_shr_2"));
-            else             asmbuf_puts(b, xh_c_rule_text("tok_shr_3"));
-            break;
-        case (int)TOK_EQ:    asmbuf_puts(b, xh_c_rule_text("tok_eq")); break;
-        case (int)TOK_NE:    asmbuf_puts(b, xh_c_rule_text("tok_ne")); break;
-        case (int)TOK_LT:
-            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_lt"));
-            else             asmbuf_puts(b, xh_c_rule_text("tok_lt_2"));
-            break;
-        case (int)TOK_GT:
-            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_gt"));
-            else             asmbuf_puts(b, xh_c_rule_text("tok_gt_2"));
-            break;
-        case (int)TOK_LE:
-            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_le"));
-            else             asmbuf_puts(b, xh_c_rule_text("tok_le_2"));
-            break;
-        case (int)TOK_GE:
-            if (is_unsigned) asmbuf_puts(b, xh_c_rule_text("tok_ge"));
-            else             asmbuf_puts(b, xh_c_rule_text("abi_tok_ge_2"));
-            break;
-        default:             xh_c_rules_error("unsupported C binary operation"); break;
+/* Decode host-known IR schema to semantic facts. Package records own the
+ * lowering selection, complete emitted sequence and matching stack effect. */
+static const char *c_operation(int token) {
+    switch (token) {
+        case TOK_PLUS: return "ADD";
+        case TOK_MINUS: return "SUB";
+        case TOK_MUL: return "MUL";
+        case TOK_DIV: return "DIV";
+        case TOK_MOD: return "MOD";
+        case TOK_BAND: return "BAND";
+        case TOK_BOR: return "BOR";
+        case TOK_BXOR: return "BXOR";
+        case TOK_SHL: return "SHL";
+        case TOK_SHR: return "SHR";
+        case TOK_EQ: return "EQ";
+        case TOK_NE: return "NE";
+        case TOK_LT: return "LT";
+        case TOK_GT: return "GT";
+        case TOK_LE: return "LE";
+        case TOK_GE: return "GE";
+        case TOK_BNOT: return "BNOT";
+        case TOK_NOT: return "NOT";
+        default: return 0;
     }
+}
+static int c_semantic(IrInst *I, AsmBuffer *out, int *delta) {
+    const char *family, *op = 0, *sign;
+    int width;
+    switch (I->op) {
+        case IR_BINARY: case IR_64BINARY:
+            family = "binary"; op = c_operation(I->aux & ~0x100);
+            width = I->op == IR_BINARY ? 32 : 64; sign = I->aux & 0x100 ? "u" : "s";
+            break;
+        case IR_DIV: case IR_MOD:
+            family = "direct"; op = I->op == IR_DIV ? "DIV" : "MOD";
+            width = 32; sign = I->aux ? "u" : "s"; break;
+        case IR_64CMP:
+            family = "compare"; op = c_operation(I->aux & ~0x100);
+            width = 64; sign = I->aux & 0x100 ? "u" : "s"; break;
+        case IR_FCMP:
+            family = "compare"; op = c_operation(I->aux & ~(0x200 | IR_AUX_COMPLEX));
+            width = I->aux & IR_AUX_COMPLEX ? 128 : 64;
+            sign = I->aux & IR_AUX_COMPLEX ? "complex" : "real"; break;
+        case IR_FADD: case IR_FSUB: case IR_FMUL: case IR_FDIV:
+            family = "float";
+            op = I->op == IR_FADD ? "ADD" : I->op == IR_FSUB ? "SUB" : I->op == IR_FMUL ? "MUL" : "DIV";
+            if (I->op == IR_FADD && (I->aux & 0xF00) == 0x900) op = "EXP";
+            width = I->aux & IR_AUX_COMPLEX ? 128 : 64;
+            sign = I->aux & IR_AUX_COMPLEX ? "complex" : "real"; break;
+        case IR_UNARY:
+            family = "unary";
+            if (I->aux & IR_AUX_COMPLEX) { op = "CONJ"; width = 128; sign = "complex"; }
+            else if (I->val == 1) { op = "NEG"; width = 64; sign = "real"; }
+            else { op = c_operation(I->aux); if (I->aux == TOK_MINUS) op = "NEG"; width = 64; sign = "s"; }
+            break;
+        default: return 0;
+    }
+    if (!op) { xh_c_rules_error("unsupported C semantic operation"); return -1; }
+    return xh_c_semantic_select(family, op, width, sign, out, delta) ? -1 : 1;
 }
 
 static void emit_func_proto(AsmBuffer *b, IrFunc *f) {
@@ -387,6 +396,8 @@ static int c_type_is_aggregate(Type *t) {
 /* Compute the stack-effect delta of a single IR instruction.
  * Positive = pushes, negative = pops, zero = no net change. */
 static int ir_stack_delta(IrInst *I) {
+    int delta, selected = c_semantic(I, 0, &delta);
+    if (selected) return selected > 0 ? delta : 0;
     switch (I->op) {
         case IR_PUSH_INT:
         case IR_PUSH_VAR:
@@ -395,7 +406,6 @@ static int ir_stack_delta(IrInst *I) {
         case IR_PUSH_GLOBAL:
         case IR_PUSH_GLOBAL_ADDR:
         case IR_PUSH_FUNC:
-        case IR_TRUNC:
         case IR_PUSH_FLOAT:
         case IR_64PUSH:
         case IR_DUP:
@@ -424,6 +434,7 @@ static int ir_stack_delta(IrInst *I) {
         case IR_SIMD_ADD8:
         case IR_SIMD_SUB8:
             return -1;
+        case IR_TRUNC:
         case IR_UNARY:
         case IR_F2I:
         case IR_I2F:
@@ -597,7 +608,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
     AsmBuffer buf;
     int fi;
     int main_idx = -1;
-    if (xh_c_rules_begin()) return -1;
+    if (xh_c_rules_begin()) { if (cap > 0) out[0] = 0; return -1; }
     asmbuf_init(&buf);
 
     asmbuf_puts(&buf, xh_c_rule_text("file_header"));
@@ -1044,6 +1055,11 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
         for (i = 0; i < f->code_count; i++) {
             IrInst *I = &f->code[i];
             asmbuf_puts(&buf, xh_c_rule_text("module_ir_cmp_jmp_eq_69"));
+            {
+                int delta, selected = c_semantic(I, &buf, &delta);
+                if (selected < 0) { if (cap > 0) out[0] = 0; return -1; }
+                if (selected) { asmbuf_putc(&buf, '\n'); continue; }
+            }
             switch (I->op) {
                 case IR_FUNC_BEGIN:
                 case IR_FUNC_END:
@@ -1284,76 +1300,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     asmbuf_puts(&buf, xh_c_rule_text("ir_store_idx_8"));
                     break;
                 }
-                case IR_BINARY:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_binary"));
-                    emit_binop(&buf, I->aux, 0);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_FADD:
-                    if ((I->aux & 0xF00) == 0x900) {
-                        /* cexp intrinsic: aux = TOK_PLUS | 0x900 (complex bit
-                         * 0x800 plus the 0x100 sub-op selector). */
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fadd"));
-                    } else if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fadd_2"));
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fadd_3"));
-                    }
-                    break;
-                case IR_FSUB:
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fsub"));
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fsub_2"));
-                    }
-                    break;
-                case IR_FMUL:
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fmul"));
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fmul_2"));
-                    }
-                    break;
-                case IR_FDIV:
-                    /* Float division follows IEEE754: x/0.0 = +/-inf or NaN.
-                     * The result feeds isnan/isinf classification paths; we keep
-                     * the division at IR_FDIV rather than IR_BINARY+emit_binop. */
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fdiv"));
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_fdiv_2"));
-                    }
-                    break;
-                case IR_FCMP: {
-                    /* Mask out the aux double bit (0x200) and pick the comparison op.
-                     * C99 floats use the same comparison regardless of width. */
-                    int op = I->aux & ~(0x200 | IR_AUX_COMPLEX);
-                    const char *cop = xh_c_rule_text("ir_fcmp");
-                    switch (op) {
-                        case (int)TOK_EQ: cop = xh_c_rule_text("ir_fcmp"); break;
-                        case (int)TOK_NE: cop = xh_c_rule_text("tok_ne_2"); break;
-                        case (int)TOK_LT: cop = xh_c_rule_text("tok_lt_3");  break;
-                        case (int)TOK_GT: cop = xh_c_rule_text("tok_gt_3");  break;
-                        case (int)TOK_LE: cop = xh_c_rule_text("tok_le_3"); break;
-                        case (int)TOK_GE: cop = xh_c_rule_text("abi_tok_ge_38"); break;
-                        default: xh_c_rules_error("unsupported C comparison operation"); break;
-                    }
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        /* C99 6.5.9: the only comparison operators defined for
-                         * complex operands are == and !=, and they compare both
-                         * parts (NaN propagating exactly like the real case). */
-                        if (op == (int)TOK_NE) {
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_39"));
-                        } else {
-                            asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_40"));
-                        }
-                        break;
-                    }
-                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_41"));
-                    asmbuf_puts(&buf, cop);
-                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_42"));
-                    break;
-                }
                 case IR_F2I:
                     if (I->aux & IR_AUX_COMPLEX) {
                         /* Complex -> double extractions. aux & 0x300 selects:
@@ -1442,26 +1388,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                         asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
                     }
                     break;
-                case IR_UNARY: {
-                    int op = I->aux & ~IR_AUX_COMPLEX;
-                    int is_float = (I->val == 1);
-                    if (I->aux & IR_AUX_COMPLEX) {
-                        /* Complex unary conj: 1 complex in -> 1 complex out. */
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_unary"));
-                    } else if (is_float) {
-                        /* Float negation: respects IEEE754 sign bit (handles -0.0/NaN).
-                         * Uses the stk[].f member to preserve the sign bit semantics. */
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_unary_2"));
-                    } else {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_unary_3"));
-                        if (op == (int)TOK_MINUS) asmbuf_puts(&buf, xh_c_rule_text("ir_unary_4"));
-                        else if (op == (int)TOK_BNOT) asmbuf_puts(&buf, xh_c_rule_text("ir_unary_5"));
-                        else if (op == (int)TOK_NOT)  asmbuf_puts(&buf, xh_c_rule_text("ir_unary_6"));
-                        else xh_c_rules_error("unsupported C unary operation");
-                        asmbuf_putc(&buf, ';');
-                    }
-                    break;
-                }
                 case IR_LABEL:
                     xh_c_rule_ints(&buf, "ir_label_value", I->val, 0);
                     break;
@@ -1699,58 +1625,12 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     break;
                 }
                 /* === Signed/unsigned 32-bit division: aux=0 signed, aux=1 unsigned === */
-                case IR_DIV:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
-                    if (I->aux) asmbuf_puts(&buf, xh_c_rule_text("ir_div_2"));
-                    else        asmbuf_puts(&buf, xh_c_rule_text("ir_div_3"));
-                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                    break;
-                case IR_MOD:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
-                    if (I->aux) asmbuf_puts(&buf, xh_c_rule_text("ir_mod"));
-                    else        asmbuf_puts(&buf, xh_c_rule_text("ir_mod_2"));
-                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_21"));
-                    break;
-                /* === 64-bit operations: C uses long long natively === */
                 case IR_64PUSH:
                     /* val=high 32 bits, aux=low 32 bits; assemble into a long long. */
                     xh_c_rule_ints(&buf, "ir_64push_value", I->val, 0);
                     asmbuf_int(&buf, I->aux);
                     asmbuf_puts(&buf, xh_c_rule_text("ir_64push"));
                     break;
-                case IR_64BINARY:
-                    /* Same as IR_BINARY but a/c are long long, preserving 64-bit. */
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_binary"));
-                    emit_binop(&buf, I->aux, 1);
-                    asmbuf_putc(&buf, ';');
-                    break;
-                case IR_64CMP: {
-                    /* aux bit 0x100 marks an unsigned comparison (unsigned long long).
-                     * Signed -1 vs unsigned ULLONG_MAX would compare differently;
-                     * EQ/NE are bit-equal regardless of sign, but LT/LE/GT/GE differ. */
-                    int is_unsigned = (I->aux & 0x100) != 0;
-                    int op = I->aux & ~0x100;
-                    const char *cop = xh_c_rule_text("ir_fcmp");
-                    const char *lcast = is_unsigned ? xh_c_rule_text("ir_64cmp") : xh_c_rule_text("ir_64cmp_2");
-                    const char *rcast = is_unsigned ? xh_c_rule_text("ir_64cmp_3") : xh_c_rule_text("ir_64cmp_4");
-                    switch (op) {
-                        case (int)TOK_EQ: cop = xh_c_rule_text("ir_fcmp"); break;
-                        case (int)TOK_NE: cop = xh_c_rule_text("tok_ne_2"); break;
-                        case (int)TOK_LT: cop = xh_c_rule_text("tok_lt_3");  break;
-                        case (int)TOK_GT: cop = xh_c_rule_text("tok_gt_3");  break;
-                        case (int)TOK_LE: cop = xh_c_rule_text("tok_le_3"); break;
-                        case (int)TOK_GE: cop = xh_c_rule_text("abi_tok_ge_38"); break;
-                        default: xh_c_rules_error("unsupported C comparison operation"); break;
-                    }
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_div"));
-                    asmbuf_puts(&buf, lcast);
-                    asmbuf_puts(&buf, xh_c_rule_text("type_ptr_3"));
-                    asmbuf_puts(&buf, cop);
-                    asmbuf_puts(&buf, xh_c_rule_text("type_ptr_3"));
-                    asmbuf_puts(&buf, rcast);
-                    asmbuf_puts(&buf, xh_c_rule_text("abi_tok_ge_43"));
-                    break;
-                }
                 /* === Stack-based memcpy: pop order = dst, then src === */
                 case IR_MEMCPY:
                     xh_c_rule_ints(&buf, "ir_memcpy_value", I->val, 0);

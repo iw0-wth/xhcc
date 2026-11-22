@@ -167,6 +167,21 @@ class ArmRules(unittest.TestCase):
             self.assertEqual(values,[32,8])
         self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
 
+    def test_abi_descriptor_self_calls_varargs_and_contract_rejection(self):
+        compiler=ROOT/'build/wasm/xhcc.wasm';before=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-abi-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'abi.c';source.write_text('#include <stdarg.h>\nlong long mixed(int a,long long b,int c,long long d,int e){return a+b+c+d+e;}\nlong long variadic(int tag,...){va_list ap;long long a,b;int c;va_start(ap,tag);a=va_arg(ap,long long);c=va_arg(ap,int);b=va_arg(ap,long long);va_end(ap);return tag+a+c+b;}\nstruct Pair{int a,b;};int pair(int a,struct Pair p,int z){return a+p.a+p.b+z;}\nint entry(void){struct Pair p;p.a=11;p.b=13;return (int)mixed(1,0x100000002LL,3,0x200000004LL,5)+(int)variadic(7,0x100000008LL,9,0x20000000aLL)+pair(3,p,17);}\n')
+            elf=self.compile_link(work,source,packages,'abi');self.assertEqual(self.execute(elf),93)
+            path=pkg/'arm.rules';base=path.read_text()
+            for bad in ['4 3 2 8 8 16 1','4 4 2 8 4 16 1','4 4 2 8 8 12 1','4 4 2 8 8 16 1 0','4 -4 2 8 8 16 1']:
+                path.write_text(base.replace('text 4 4 2 8 8 16 1\n','text '+bad+'\n',1));obj=work/'bad.o'
+                if obj.exists():obj.unlink()
+                p=self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT),ok=False)
+                self.assertIn('AAPCS',p.stderr);self.assertFalse(obj.exists())
+        self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

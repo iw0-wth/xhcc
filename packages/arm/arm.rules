@@ -1686,3 +1686,15 @@ end
 rule map.MLS
 text MLS
 end
+rule abi.layout
+text 4 4 2 8 8 16 1
+end
+rule abi.scalar32
+text 4 4
+end
+rule abi.scalar64
+text 8 8
+end
+rule abi.indirect
+text 8 4 4
+end

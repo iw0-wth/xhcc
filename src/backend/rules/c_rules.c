@@ -4,6 +4,7 @@
 #include "common.h"
 #include "diag.h"
 #include <stdio.h>
+#include <string.h>
 
 static int c_failed;
 static XhCAbi abi;
@@ -403,13 +404,105 @@ static const char *const required[] = {
     "ir_simd_sub8_3",
     "ir_simd_sub8_4",
 };
+/* Bounded semantic record table. Records describe lowering selection, complete
+ * sequence reference and actual C-slot effect, not fragments of operator text. */
+#define C_SELECT_LIMIT 192
+typedef struct { char family[12], op[12], sign[12], key[96]; int width, pop, push; } CSelect;
+static CSelect selectors[C_SELECT_LIMIT];
+static int selector_count;
+static char operands[6][32];
+static int semantic_word(const char **cursor, char *out, int cap) {
+    const char *p = *cursor; int n = 0;
+    while (*p == ' ' || *p == '\t') p++;
+    while (*p && *p != ' ' && *p != '\t' && *p != '\n') {
+        if (n >= cap - 1) return -1;
+        out[n++] = *p++;
+    }
+    out[n] = 0; *cursor = p; return n;
+}
+static int semantic_number(const char *p, int max, int *out) {
+    int n = 0;
+    if (!*p) return -1;
+    while (*p) { if (*p < '0' || *p > '9' || n > max) return -1; n = n*10 + *p++-'0'; }
+    if (n > max) return -1; *out = n; return 0;
+}
+static int semantic_load(void) {
+    const char *p = xh_template_get("c", "semantic.selectors");
+    const char *args; int i;
+    selector_count = 0;
+    if (!p || strncmp(p, "CSELECT 1\n", 10)) goto invalid;
+    p += 10;
+    while (*p) {
+        CSelect *record; char width[8], pop[8], push[8], extra[2];
+        if (selector_count >= C_SELECT_LIMIT || *p == '\n') goto invalid;
+        record = &selectors[selector_count];
+        if (semantic_word(&p,record->family,sizeof(record->family)) < 1 ||
+            semantic_word(&p,record->op,sizeof(record->op)) < 1 ||
+            semantic_word(&p,width,sizeof(width)) < 1 ||
+            semantic_word(&p,record->sign,sizeof(record->sign)) < 1 ||
+            semantic_word(&p,record->key,sizeof(record->key)) < 1 ||
+            semantic_word(&p,pop,sizeof(pop)) < 1 ||
+            semantic_word(&p,push,sizeof(push)) < 1 ||
+            semantic_word(&p,extra,sizeof(extra)) != 0 ||
+            semantic_number(width,128,&record->width) ||
+            semantic_number(pop,2,&record->pop) || semantic_number(push,1,&record->push)) goto invalid;
+        if ((record->width != 32 && record->width != 64 && record->width != 128) ||
+            (!ark_streq(record->family,"binary") && !ark_streq(record->family,"compare") &&
+             !ark_streq(record->family,"unary") && !ark_streq(record->family,"float") && !ark_streq(record->family,"direct")) ||
+            (!ark_streq(record->sign,"s") && !ark_streq(record->sign,"u") &&
+             !ark_streq(record->sign,"real") && !ark_streq(record->sign,"complex"))) goto invalid;
+        {
+            static const char *const known[] = {"ADD","SUB","MUL","DIV","MOD","BAND","BOR","BXOR","SHL","SHR","EQ","NE","LT","GT","LE","GE","NEG","BNOT","NOT","CONJ","EXP"};
+            int found = 0, j;
+            for (j=0;j<(int)(sizeof(known)/sizeof(known[0]));j++) if (ark_streq(record->op,known[j])) found = 1;
+            if (!found) goto invalid;
+        }
+        if (record->push != 1 || record->pop != (ark_streq(record->family,"unary") || ark_streq(record->op,"EXP") ? 1 : 2)) goto invalid;
+        for (i=0;i<selector_count;i++) if (record->width == selectors[i].width &&
+            ark_streq(record->family,selectors[i].family) && ark_streq(record->op,selectors[i].op) && ark_streq(record->sign,selectors[i].sign)) goto invalid;
+        if (!xh_template_get("c",record->key)) goto invalid;
+        selector_count++;
+        if (*p == '\n') p++; else if (*p) goto invalid;
+    }
+    if (!selector_count) goto invalid;
+    args = xh_template_get("c","semantic.operands");
+    if (!args) goto invalid;
+    for (i=0;i<6;i++) {
+        int j;
+        if (semantic_word(&args,operands[i],sizeof(operands[i])) < 1) goto invalid;
+        for (j=0;operands[i][j];j++) if (!((operands[i][j]>='a'&&operands[i][j]<='z') ||
+            (operands[i][j]>='A'&&operands[i][j]<='Z') || operands[i][j]=='_' ||
+            (j>0 && operands[i][j]>='0'&&operands[i][j]<='9'))) goto invalid;
+    }
+    { char extra[2]; if (semantic_word(&args,extra,sizeof(extra)) != 0) goto invalid; }
+    return 0;
+invalid:
+    xh_c_rules_error("invalid C semantic selector records or stack effects");
+    return -1;
+}
+int xh_c_semantic_select(const char *family,const char *operation,int width,const char *sign,AsmBuffer *output,int *delta) {
+    int i;
+    for (i=0;i<selector_count;i++) {
+        CSelect *r = &selectors[i];
+        if (r->width == width && ark_streq(r->family,family) && ark_streq(r->op,operation) && ark_streq(r->sign,sign)) {
+            const char *args[6]; int j;
+            *delta = r->push-r->pop;
+            if (!output) return 0;
+            for (j=0;j<6;j++) args[j] = operands[j];
+            return xh_c_rule_emit(output,r->key,args,6);
+        }
+    }
+    xh_c_rules_error("required C semantic lowering selection is missing");
+    return -1;
+}
+
 int xh_c_rules_begin(void) {
     int i;
     c_failed = 0;
     for (i = 0; i < (int)(sizeof(required)/sizeof(required[0])); i++) {
         if (!xh_template_get("c", required[i])) { c_failed = 1; return -1; }
     }
-    if (load_abi()) return -1;
+    if (load_abi() || semantic_load()) return -1;
     /* This data record is indexed by a nibble in the literal encoder. */
     if (ark_strlen(xh_template_get("c", "escape_hex_digits")) != 16) {
         diag_tool(DIAG_SEV_ERROR, "c templates", "hex digit template must contain exactly 16 bytes", 0,0,0,0,0,0);

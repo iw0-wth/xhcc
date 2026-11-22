@@ -2,7 +2,7 @@
 from pathlib import Path
 import argparse, os, shutil, subprocess, sys
 ROOT=Path(__file__).resolve().parents[1]
-TARGETS={'all':(0,'universal'),'arm':(1,'arm'),'riscv32':(2,'riscv32'),'x86':(3,'x86'),'x86_64':(4,'x86_64'),'c':(5,'c')}
+TARGETS={'all':(0,'all'),'arm':(1,'arm'),'riscv32':(2,'riscv32'),'x86':(3,'x86'),'x86_64':(4,'x86_64'),'c':(5,'c')}
 if os.name=='nt':
     pd=Path(sys.executable).parent
     os.environ['PATH']=os.pathsep.join([str(pd),str(pd/'Library/bin'),os.environ.get('PATH','')])

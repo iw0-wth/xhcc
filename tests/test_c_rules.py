@@ -60,17 +60,20 @@ class CRules(unittest.TestCase):
         else:
             self.assertNotEqual(process.returncode, 0, process.stdout + process.stderr)
             self.assertFalse(output.exists(), process.stdout + process.stderr)
-            self.assertIn('template', process.stderr.lower())
+            self.assertRegex(process.stderr.lower(), r'template|semantic')
         return output
 
     def test_external_arithmetic_changes_generated_c_and_execution_same_sha(self):
         before = hashlib.sha256(COMPILER.read_bytes()).digest()
         base = self.compile(self.original, 'base')
-        changed = self.original.replace('text (ark_a + ark_c)', 'text (ark_a - ark_c)', 1)
+        changed = self.original.replace('binary ADD 32 s seq.binary.ADD.32.s 2 1',
+                                        'binary ADD 32 s seq.binary.SUB.32.s 2 1', 1)
         self.assertNotEqual(changed, self.original)
         variant = self.compile(changed, 'variant')
         self.assertIn('(ark_a + ark_c)', base.read_text(encoding='utf-8'))
         self.assertIn('(ark_a - ark_c)', variant.read_text(encoding='utf-8'))
+        self.assertIn('text (ark_a + ark_c)', changed)  # old fragment remains unchanged
+        self.assertNotIn('(ark_a + ark_c)', variant.read_text(encoding='utf-8'))
         self.assertNotEqual(base.read_bytes(), variant.read_bytes())
         self.assertEqual(hashlib.sha256(COMPILER.read_bytes()).digest(), before)
         compiler = os.environ.get('XH_C_NATIVE_CC') or shutil.which('gcc')
@@ -172,6 +175,22 @@ class CRules(unittest.TestCase):
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
 
+    def test_semantic_selector_records_reject_invalid_and_missing(self):
+        row = 'binary ADD 32 s seq.binary.ADD.32.s 2 1'
+        variants = [
+            self.original.replace('CSELECT 1', 'CSELECT 999', 1),
+            self.original.replace(row, row + r'\n' + row, 1),
+            self.original.replace(row, row.replace(' 2 1', ' 0 1'), 1),
+            self.original.replace(row, row.replace('seq.binary.ADD.32.s', 'missing.sequence'), 1),
+            self.original.replace(row, row.replace('ADD 32', 'UNKNOWN 32'), 1),
+            self.original.replace(row, row.replace(' 32 ', ' 999 '), 1),
+            self.original.replace('text ' + row + r'\n' + '\n', '', 1),
+        ]
+        for index, bad in enumerate(variants):
+            with self.subTest(index=index):
+                self.assertNotEqual(bad, self.original)
+                self.compile(bad, 'selector_invalid', success=False)
+
     def test_placeholder_and_output_bounds_fail(self):
         # Caller supplies only two numeric args. A valid VM placeholder that is
         # outside this call's arity must fail when the instruction is emitted.
@@ -209,6 +228,14 @@ int main(int argc,char**argv){
  IrProgram prog={0};IrFunc f={0};IrFunc*funcs[1]={&f};IrInst inst={0};static char out[100000];int n;
  prog.funcs=funcs;prog.func_count=1;f.name="entry";f.code=&inst;f.code_count=1;
  inst.op=IR_PUSH_INT;inst.val=7;
+ if(!strcmp(argv[1],"effects")){
+  int a,b,c,d;if(xh_c_rules_begin())return 2;
+  inst.op=IR_TRUNC;a=ir_stack_delta(&inst);
+  inst.op=IR_BINARY;inst.aux=TOK_PLUS;b=ir_stack_delta(&inst);
+  inst.op=IR_FADD;inst.aux=0x900;c=ir_stack_delta(&inst);
+  inst.op=IR_UNARY;inst.aux=TOK_MINUS;inst.val=0;d=ir_stack_delta(&inst);
+  printf("%d %d %d %d\n",a,b,c,d);return a==0&&b==-1&&c==0&&d==0?0:1;
+ }
  if(!strcmp(argv[1],"ir"))inst.op=(IrOp)99999;
  else if(!strcmp(argv[1],"binary")){inst.op=IR_BINARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"unary")){inst.op=IR_UNARY;inst.aux=99999;}
@@ -246,6 +273,12 @@ class CBackendRejections(unittest.TestCase):
                                   '-o', str(cls.wasm)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
         if process.returncode:
             raise AssertionError(process.stderr)
+
+    def test_trunc_and_selected_variant_stack_effects(self):
+        result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), 'effects'],
+                                cwd=ROOT, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), '0 -1 0 0')
 
     def test_invalid_ir_operator_and_type_limits_reject_without_output(self):
         for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array']:

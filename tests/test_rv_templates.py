@@ -25,6 +25,17 @@ class RvTemplates(unittest.TestCase):
   for name,values,expected in [('neg',[0,1,0xffffffff,0x80000000],lambda x:-x),('inv',[0,1,0xffffffff,0x80000000],lambda x:~x),('zero',[0,1,0xffffffff],lambda x:int(x==0)),('s8',[0,127,128,255,256,0xffffffff],lambda x:(x&255)-256 if x&128 else x&255),('u8',[0,255,256,0xffffffff],lambda x:x&255),('s16',[32767,32768,65535,65536,0xffffffff],lambda x:(x&65535)-65536 if x&32768 else x&65535),('u16',[65535,65536,0xffffffff],lambda x:x&65535)]:
    for value in values:self.assertEqual(self.execute(exe,name,value),expected(value)&0xffffffff,(name,value))
   self.assertEqual(self.execute(exe,'memory'),59943);self.assertEqual(self.execute(exe,'index'),220);self.assertEqual(self.execute(exe,'farframe'),23)
+ def test_abi_long_arguments_varargs_and_safe_frame_variant(self):
+  source='''#include <stdarg.h>
+int ten(int a,int b,int c,int d,int e,int f,int g,int h,int i,int j){return a+b+c+d+e+f+g+h+i+j;} long long wide(long long a,int b,long long c,int d,int e,int f,int g){return a+b+c+d+e+f+g;} int sum(int count,...){va_list ap;int i,total=0;va_start(ap,count);for(i=0;i<count;i++)total+=va_arg(ap,int);va_end(ap);return total;} struct T{int a,b,c;}; struct T make(int x){struct T t={x,x+1,x+2};return t;} int entry(void){int(*fp)(int,int,int,int,int,int,int,int,int,int)=ten;struct T t=make(10);return fp(1,2,3,4,5,6,7,8,9,10)+sum(10,1,2,3,4,5,6,7,8,9,10)+(int)wide(4294967296LL,2,5LL,3,4,5,6)+t.a+t.b+t.c;}'''
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-abi-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text()
+   baseline=self.compile(source,'abi0',root);self.assertEqual(self.execute(baseline),168)
+   rules.write_text(original.replace('rule frame.extra_padding\ntext 0\n','rule frame.extra_padding\ntext 32\n'));padded=self.compile(source,'abi32',root);self.assertEqual(self.execute(padded),168);self.assertNotEqual(baseline.read_bytes(),padded.read_bytes())
+   for old,new in [('rule abi.arg_registers\ntext 8\n','rule abi.arg_registers\ntext 4\n'),('rule frame.extra_padding\ntext 0\n','rule frame.extra_padding\ntext 7\n'),('rule classify.wide_words\ntext 2\n','rule classify.wide_words\ntext 1\n')]:
+    rules.write_text(original.replace(old,new));path=OUT/'invalidabi.c';path.write_text('int entry(void){return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'invalidabi.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('external policy',p.stderr)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

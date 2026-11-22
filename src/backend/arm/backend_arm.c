@@ -4676,7 +4676,7 @@ static void emit_prologue(AsmBuffer *b, const char *fn_name, int local_size,
     if (va_pad > 0) {
         int r;
         xh_arm_rule(b, "text.0057");
-        for (r = va_lo; r < 4; r++) {
+        for (r = va_lo; r < xh_arm_abi()->core_regs; r++) {
             if (r != va_lo) xh_arm_rule(b, "text.0056");
             xh_arm_rule(b, "text.0068");
             asmbuf_int(b, r);
@@ -5468,6 +5468,7 @@ static unsigned custom_sect_alloc(const char *section_name, int sz) {
 }
 
 static void gvar_assign(IrProgram *prog) {
+    const XhArmAbi *abi=xh_arm_abi();
     unsigned data_sram = g_data_base;   /* .data origin (scatter +RW or 0x20000000) */
     unsigned bss_sram;                  /* .bss origin (computed below) */
     int gi;
@@ -5520,7 +5521,7 @@ static void gvar_assign(IrProgram *prog) {
         /* Zero-initialized scalars go to .bss */
         if (!g->init_aggregate && !g->init_str && !g->init_sym && !g->is_float && g->init_int == 0) continue;
         sz = g->type ? type_size(g->type) : 4;
-        if (sz <= 0) sz = 4;
+        if (sz <= 0) sz = abi->scalar32_size;
         /* SCT-1/SCT-3: custom section globals get their address from the
          * scatter exec region rather than the default .data pool. */
         if (g->section && g_scatter_loaded) {
@@ -5584,7 +5585,7 @@ static void gvar_assign(IrProgram *prog) {
             }
         }
         sz = g->type ? type_size(g->type) : 4;
-        if (sz <= 0) sz = 4;
+        if (sz <= 0) sz = abi->scalar32_size;
         /* SCT-1/SCT-3: custom section globals get their address from the
          * scatter exec region rather than the default .bss pool. */
         if (g->section && g_scatter_loaded) {
@@ -5902,6 +5903,7 @@ static int is_va_ptr_sym(const char *name) {
  * `f(1LL, 2LL, 3LL)` summed the wrong halves (measured in unicorn). */
 static int aapcs_assign(const int *sizes, const int *aligns, int n,
                         int ncrn_start, int *reg, int *soff) {
+    const XhArmAbi *abi=xh_arm_abi();
     int ncrn = ncrn_start;
     int nsaa = 0;
     int slot = 0;
@@ -5922,31 +5924,31 @@ static int aapcs_assign(const int *sizes, const int *aligns, int n,
          * (`vf(a, b, c, (struct A4){b, c})` puts b in r3 and c on the stack),
          * so it takes the same word-by-word fill as a >8-byte composite; only
          * the 8-byte-aligned pair is all-or-nothing. */
-        int a8 = aligns ? (aligns[i] >= 8) : (sizes[i] == 8);
-        int w = (sizes[i] > 0) ? (sizes[i] + 3) / 4 : 1;
+        int a8 = aligns ? (aligns[i] >= abi->pair_align) : (sizes[i] == abi->scalar64_size);
+        int w = (sizes[i] > 0) ? (sizes[i] + abi->word_bytes-1) / abi->word_bytes : 1;
         int j;
         if (a8) {
-            if (ncrn < 4 && (ncrn & 1)) ncrn++;      /* even core register */
-            if (ncrn >= 4) nsaa = (nsaa + 7) & ~7;   /* 8-aligned stack slot */
+            if (ncrn < abi->core_regs && (ncrn % abi->pair_words)) ncrn++;      /* even core register */
+            if (ncrn >= abi->core_regs) nsaa = (nsaa + abi->pair_align-1) & ~(abi->pair_align-1);   /* 8-aligned stack slot */
         }
-        if (w == 2 && a8) {
+        if (w == abi->pair_words && a8) {
             int r = ncrn;                    /* even, from the step above */
-            if (r <= 2) {
+            if (r <= abi->core_regs-abi->pair_words) {
                 reg[slot] = r;
                 reg[slot + 1] = r + 1;
                 soff[slot] = -1;
                 soff[slot + 1] = -1;
-                ncrn = r + 2;
+                ncrn = r + abi->pair_words;
             } else {
-                ncrn = 4;                       /* nothing else in a register */
-                nsaa = (nsaa + 7) & ~7;         /* 8-byte aligned on the stack */
+                ncrn = abi->core_regs;                       /* nothing else in a register */
+                nsaa = (nsaa + abi->pair_align-1) & ~(abi->pair_align-1);         /* 8-byte aligned on the stack */
                 reg[slot] = -1;
                 reg[slot + 1] = -1;
                 soff[slot] = nsaa;
-                soff[slot + 1] = nsaa + 4;
-                nsaa += 8;
+                soff[slot + 1] = nsaa + abi->word_bytes;
+                nsaa += abi->scalar64_size;
             }
-            slot += 2;
+            slot += abi->pair_words;
         } else {
             /* One word, an align-4 pair, or a composite of any size: the words
              * fill the remaining core register(s) and then the stack in order.
@@ -5955,13 +5957,13 @@ static int aapcs_assign(const int *sizes, const int *aligns, int n,
              * stack.  An 8-byte-aligned composite already got its stack hole
              * from the a8 step above. */
             for (j = 0; j < w; j++) {
-                if (ncrn < 4) {
+                if (ncrn < abi->core_regs) {
                     reg[slot] = ncrn++;
                     soff[slot] = -1;
                 } else {
                     reg[slot] = -1;
                     soff[slot] = nsaa;
-                    nsaa += 4;
+                    nsaa += abi->word_bytes;
                 }
                 slot += 1;
             }
@@ -5995,6 +5997,7 @@ static void arm_put_escaped_str(AsmBuffer *b, const char *s) {
 #include "arm_listing.inc"
 #endif
 static char *codegen_arm(IrProgram *prog) {
+    const XhArmAbi *abi=xh_arm_abi();
     AsmBuffer buf;
     int fi;
 #if ARKCC_FEATURE_DWARF
@@ -6385,7 +6388,7 @@ static char *codegen_arm(IrProgram *prog) {
          * top of the frame (between the last variable and saved regs); all
          * r6-relative offsets remain valid because the prologue SUB and the
          * stack-arg offset computation both use this padded value. */
-        local_size = (local_size + 7) & ~7;
+        local_size = (local_size + abi->stack_align-1) & ~(abi->stack_align-1);
         /* NCRN / nsaa have to be known before the prologue, because the
          * prologue decides how many argument words to save.  This block used to
          * sit in the body loop; nothing in it emits code, so it simply moved
@@ -6406,28 +6409,28 @@ static char *codegen_arm(IrProgram *prog) {
             for (pj = 0; pj < f->param_count && pj < 64; pj++) {
                 Type *pt = (f->param_types && pj < f->param_count)
                            ? f->param_types[pj] : 0;
-                int sz = pt ? type_size(pt) : 4;
-                int al = pt ? type_align(pt) : 4;
-                if (sz <= 0) sz = 4;
+                int sz = pt ? type_size(pt) : abi->scalar32_size;
+                int al = pt ? type_align(pt) : abi->scalar32_align;
+                if (sz <= 0) sz = abi->scalar32_size;
                 /* A struct passed by value travels as a pointer word, and so
                  * does a four-word _Complex value (irgen materialises it in a
                  * temporary and passes its address, matching IR_GETARG's
                  * >8-byte memcpy path).  Those are one ordinary word, so their
                  * alignment does not round anything. */
-                if (pt && (pt->kind == TYPE_STRUCT || pt->kind == TYPE_UNION) && sz > 8) {
-                    sz = 4;
-                    al = 4;
+                if (pt && (pt->kind == TYPE_STRUCT || pt->kind == TYPE_UNION) && sz > abi->indirect_limit) {
+                    sz = abi->indirect_size;
+                    al = abi->indirect_align;
                 }
-                if (pt && ARK_IS_CX(pt) && sz > 8) {
-                    sz = 4;
-                    al = 4;
+                if (pt && ARK_IS_CX(pt) && sz > abi->indirect_limit) {
+                    sz = abi->indirect_size;
+                    al = abi->indirect_align;
                 }
                 psz[pj] = sz;
                 pal[pj] = al;
             }
             g_va_nsaa = aapcs_assign(psz, pal,
                                     (f->param_count < 64) ? f->param_count : 64,
-                                    is_sret ? 1 : 0, aapcs_map, aapcs_soff);
+                                    is_sret ? abi->sret_words : 0, aapcs_map, aapcs_soff);
             /* Words used by the named parameters, and where the variadic
              * words start.
              *
@@ -6452,7 +6455,7 @@ static char *codegen_arm(IrProgram *prog) {
                     else if (aapcs_map[pj2] > maxreg) maxreg = aapcs_map[pj2];
                 }
                 g_va_named_words = nw;
-                g_va_ncrn = any_stack ? 4 : maxreg + 1;
+                g_va_ncrn = any_stack ? abi->core_regs : maxreg + 1;
                 if (is_sret && g_va_ncrn < 1) g_va_ncrn = 1;  /* r0 = sret */
                 /* Only the register words that can still hold a variadic
                  * argument are saved: r_k .. r3 with k = NCRN rounded DOWN to
@@ -6480,10 +6483,10 @@ static char *codegen_arm(IrProgram *prog) {
                  * Measured cost per signature: int f(int a, ...) 16 B,
                  * int f(int a, int b, ...) 8 B, four named words 0 B. */
                 if (f->is_variadic && !f->is_naked) {
-                    va_lo = g_va_ncrn & ~1;
-                    if (va_lo > 4) va_lo = 4;
-                    g_va_epilogue_pad = 4 * (4 - va_lo);
-                    va_start_slot = (g_va_ncrn >= 4) ? (g_va_nsaa / 4)
+                    va_lo = g_va_ncrn & ~(abi->pair_words-1);
+                    if (va_lo > abi->core_regs) va_lo = abi->core_regs;
+                    g_va_epilogue_pad = abi->word_bytes * (abi->core_regs - va_lo);
+                    va_start_slot = (g_va_ncrn >= abi->core_regs) ? (g_va_nsaa / abi->word_bytes)
                                                      : (g_va_ncrn - va_lo);
                 }
             }
@@ -6695,7 +6698,7 @@ static char *codegen_arm(IrProgram *prog) {
                      * caller's stack argument block sits 16 bytes higher. */
                     /* Stack arguments start above the saved registers and
                      * above whatever the prologue pushed for the va region. */
-                    int argbase = local_size + 16 + g_va_epilogue_pad;
+                    int argbase = local_size + abi->saved_frame + g_va_epilogue_pad;
                     /* The variadic region is spilled once in the prologue
                      * (contiguous words, see "va region spill" above), so
                      * these IR requests -- one per argument word, stamped
@@ -8435,10 +8438,10 @@ static char *codegen_arm(IrProgram *prog) {
                         for (i = 0; i < 192; i++) { aslot_reg[i] = -1; aslot_soff[i] = -1; }
                         for (kk = 0; kk < real_args && kk < 64; kk++) {
                             int b = wires ? (wires[kk] & 0xFFFF)
-                                          : (((argmask >> (2 * kk + 1)) & 1) ? 8 : 4);
+                                          : (((argmask >> (2 * kk + 1)) & 1) ? abi->scalar64_size : abi->scalar32_size);
                             int w;
-                            if (b < 4) b = 4;
-                            w = (b + 3) / 4;
+                            if (b < abi->word_bytes) b = abi->word_bytes;
+                            w = (b + abi->word_bytes-1) / abi->word_bytes;
                             asz[kk] = b;
                             asplit[kk] = 0;
                             /* bit 16 of a wires[] entry says "this argument
@@ -8446,7 +8449,7 @@ static char *codegen_arm(IrProgram *prog) {
                              * table the old rule is reproduced exactly: an
                              * 8-byte wire was the only even-padded shape. */
                             aal[kk] = (wires ? (((wires[kk] >> 16) & 1) != 0)
-                                             : (b >= 8)) ? 8 : 4;
+                                             : (b >= abi->scalar64_size)) ? abi->scalar64_align : abi->scalar32_align;
                             abase[kk] = sl;
                             awords[kk] = w;
                             sl += w;
@@ -8461,7 +8464,7 @@ static char *codegen_arm(IrProgram *prog) {
                         }
                         nsaa = aapcs_assign(asz, aal,
                                             (real_args < 64) ? real_args : 64,
-                                            is_sret_call ? 1 : 0,
+                                            is_sret_call ? abi->sret_words : 0,
                                             aslot_reg, aslot_soff);
                         /* Pop the register arguments.  They are always the
                          * leading ones: once an argument is placed on the stack
@@ -9236,7 +9239,7 @@ static char *codegen_arm(IrProgram *prog) {
             addr = gvar_find(g->name);
             if (addr == 0) continue;
             sz = g->type ? type_size(g->type) : 4;
-            if (sz <= 0) sz = 4;
+            if (sz <= 0) sz = abi->scalar32_size;
 
             if (g->is_float) {
                 /* Float/double initialization: convert to bit pattern.
@@ -9635,7 +9638,7 @@ static char *codegen_arm(IrProgram *prog) {
                 continue;
             }
             sz = g->type ? type_size(g->type) : 4;
-            if (sz <= 0) sz = 4;
+            if (sz <= 0) sz = abi->scalar32_size;
             /* Choose section: custom section > no-init (.bss) > const (.rodata) > .data */
             if (g->section) {
                 want_custom = g->section;

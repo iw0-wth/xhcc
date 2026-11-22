@@ -1118,3 +1118,419 @@ end
 rule escape_literal_boundary
 text ""
 end
+
+# Finite semantic selection records v1: family operation width sign template pop push.
+rule semantic.selectors
+text CSELECT 1\n
+text binary ADD 32 s seq.binary.ADD.32.s 2 1\n
+text binary SUB 32 s seq.binary.SUB.32.s 2 1\n
+text binary MUL 32 s seq.binary.MUL.32.s 2 1\n
+text binary DIV 32 s seq.binary.DIV.32.s 2 1\n
+text binary MOD 32 s seq.binary.MOD.32.s 2 1\n
+text binary BAND 32 s seq.binary.BAND.32.s 2 1\n
+text binary BOR 32 s seq.binary.BOR.32.s 2 1\n
+text binary BXOR 32 s seq.binary.BXOR.32.s 2 1\n
+text binary SHL 32 s seq.binary.SHL.32.s 2 1\n
+text binary SHR 32 s seq.binary.SHR.32.s 2 1\n
+text binary EQ 32 s seq.binary.EQ.32.s 2 1\n
+text binary NE 32 s seq.binary.NE.32.s 2 1\n
+text binary LT 32 s seq.binary.LT.32.s 2 1\n
+text binary GT 32 s seq.binary.GT.32.s 2 1\n
+text binary LE 32 s seq.binary.LE.32.s 2 1\n
+text binary GE 32 s seq.binary.GE.32.s 2 1\n
+text compare EQ 64 s seq.compare.EQ.64.s 2 1\n
+text compare NE 64 s seq.compare.NE.64.s 2 1\n
+text compare LT 64 s seq.compare.LT.64.s 2 1\n
+text compare GT 64 s seq.compare.GT.64.s 2 1\n
+text compare LE 64 s seq.compare.LE.64.s 2 1\n
+text compare GE 64 s seq.compare.GE.64.s 2 1\n
+text binary ADD 32 u seq.binary.ADD.32.u 2 1\n
+text binary SUB 32 u seq.binary.SUB.32.u 2 1\n
+text binary MUL 32 u seq.binary.MUL.32.u 2 1\n
+text binary DIV 32 u seq.binary.DIV.32.u 2 1\n
+text binary MOD 32 u seq.binary.MOD.32.u 2 1\n
+text binary BAND 32 u seq.binary.BAND.32.u 2 1\n
+text binary BOR 32 u seq.binary.BOR.32.u 2 1\n
+text binary BXOR 32 u seq.binary.BXOR.32.u 2 1\n
+text binary SHL 32 u seq.binary.SHL.32.u 2 1\n
+text binary SHR 32 u seq.binary.SHR.32.u 2 1\n
+text binary EQ 32 u seq.binary.EQ.32.u 2 1\n
+text binary NE 32 u seq.binary.NE.32.u 2 1\n
+text binary LT 32 u seq.binary.LT.32.u 2 1\n
+text binary GT 32 u seq.binary.GT.32.u 2 1\n
+text binary LE 32 u seq.binary.LE.32.u 2 1\n
+text binary GE 32 u seq.binary.GE.32.u 2 1\n
+text compare EQ 64 u seq.compare.EQ.64.u 2 1\n
+text compare NE 64 u seq.compare.NE.64.u 2 1\n
+text compare LT 64 u seq.compare.LT.64.u 2 1\n
+text compare GT 64 u seq.compare.GT.64.u 2 1\n
+text compare LE 64 u seq.compare.LE.64.u 2 1\n
+text compare GE 64 u seq.compare.GE.64.u 2 1\n
+text binary ADD 64 s seq.binary.ADD.64.s 2 1\n
+text binary SUB 64 s seq.binary.SUB.64.s 2 1\n
+text binary MUL 64 s seq.binary.MUL.64.s 2 1\n
+text binary DIV 64 s seq.binary.DIV.64.s 2 1\n
+text binary MOD 64 s seq.binary.MOD.64.s 2 1\n
+text binary BAND 64 s seq.binary.BAND.64.s 2 1\n
+text binary BOR 64 s seq.binary.BOR.64.s 2 1\n
+text binary BXOR 64 s seq.binary.BXOR.64.s 2 1\n
+text binary SHL 64 s seq.binary.SHL.64.s 2 1\n
+text binary SHR 64 s seq.binary.SHR.64.s 2 1\n
+text binary EQ 64 s seq.binary.EQ.64.s 2 1\n
+text binary NE 64 s seq.binary.NE.64.s 2 1\n
+text binary LT 64 s seq.binary.LT.64.s 2 1\n
+text binary GT 64 s seq.binary.GT.64.s 2 1\n
+text binary LE 64 s seq.binary.LE.64.s 2 1\n
+text binary GE 64 s seq.binary.GE.64.s 2 1\n
+text binary ADD 64 u seq.binary.ADD.64.u 2 1\n
+text binary SUB 64 u seq.binary.SUB.64.u 2 1\n
+text binary MUL 64 u seq.binary.MUL.64.u 2 1\n
+text binary DIV 64 u seq.binary.DIV.64.u 2 1\n
+text binary MOD 64 u seq.binary.MOD.64.u 2 1\n
+text binary BAND 64 u seq.binary.BAND.64.u 2 1\n
+text binary BOR 64 u seq.binary.BOR.64.u 2 1\n
+text binary BXOR 64 u seq.binary.BXOR.64.u 2 1\n
+text binary SHL 64 u seq.binary.SHL.64.u 2 1\n
+text binary SHR 64 u seq.binary.SHR.64.u 2 1\n
+text binary EQ 64 u seq.binary.EQ.64.u 2 1\n
+text binary NE 64 u seq.binary.NE.64.u 2 1\n
+text binary LT 64 u seq.binary.LT.64.u 2 1\n
+text binary GT 64 u seq.binary.GT.64.u 2 1\n
+text binary LE 64 u seq.binary.LE.64.u 2 1\n
+text binary GE 64 u seq.binary.GE.64.u 2 1\n
+text unary NEG 64 s seq.unary.NEG.64.s 1 1\n
+text unary BNOT 64 s seq.unary.BNOT.64.s 1 1\n
+text unary NOT 64 s seq.unary.NOT.64.s 1 1\n
+text unary NEG 64 real seq.unary.NEG.64.real 1 1\n
+text unary CONJ 128 complex seq.unary.CONJ.128.complex 1 1\n
+text float ADD 64 real seq.float.ADD.64.real 2 1\n
+text float ADD 128 complex seq.float.ADD.128.complex 2 1\n
+text float SUB 64 real seq.float.SUB.64.real 2 1\n
+text float SUB 128 complex seq.float.SUB.128.complex 2 1\n
+text float MUL 64 real seq.float.MUL.64.real 2 1\n
+text float MUL 128 complex seq.float.MUL.128.complex 2 1\n
+text float DIV 64 real seq.float.DIV.64.real 2 1\n
+text float DIV 128 complex seq.float.DIV.128.complex 2 1\n
+text float EXP 128 complex seq.float.EXP.128.complex 1 1\n
+text compare EQ 64 real seq.compare.EQ.64.real 2 1\n
+text compare NE 64 real seq.compare.NE.64.real 2 1\n
+text compare LT 64 real seq.compare.LT.64.real 2 1\n
+text compare GT 64 real seq.compare.GT.64.real 2 1\n
+text compare LE 64 real seq.compare.LE.64.real 2 1\n
+text compare GE 64 real seq.compare.GE.64.real 2 1\n
+text compare EQ 128 complex seq.compare.EQ.128.complex 2 1\n
+text compare NE 128 complex seq.compare.NE.128.complex 2 1\n
+text direct DIV 32 s seq.direct.DIV.32.s 2 1\n
+text direct DIV 32 u seq.direct.DIV.32.u 2 1\n
+text direct MOD 32 s seq.direct.MOD.32.s 2 1\n
+text direct MOD 32 u seq.direct.MOD.32.u 2 1\n
+end
+rule semantic.operands
+text ark_a ark_c ark_fa ark_fc ark_ca ark_cc
+end
+rule seq.binary.ADD.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} + ${1});
+end
+rule seq.binary.SUB.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} - ${1});
+end
+rule seq.binary.MUL.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} * ${1});
+end
+rule seq.binary.DIV.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} / ${1} : 0);
+end
+rule seq.binary.MOD.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} % ${1} : 0);
+end
+rule seq.binary.BAND.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} & ${1});
+end
+rule seq.binary.BOR.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} | ${1});
+end
+rule seq.binary.BXOR.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} ^ ${1});
+end
+rule seq.binary.SHL.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} << ${1});
+end
+rule seq.binary.SHR.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} >> ${1});
+end
+rule seq.binary.EQ.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} == ${1});
+end
+rule seq.binary.NE.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} != ${1});
+end
+rule seq.binary.LT.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} < ${1});
+end
+rule seq.binary.GT.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} > ${1});
+end
+rule seq.binary.LE.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} <= ${1});
+end
+rule seq.binary.GE.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} >= ${1});
+end
+rule seq.compare.EQ.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} == ${1}) ? 1 : 0;
+end
+rule seq.compare.NE.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} != ${1}) ? 1 : 0;
+end
+rule seq.compare.LT.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} < ${1}) ? 1 : 0;
+end
+rule seq.compare.GT.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} > ${1}) ? 1 : 0;
+end
+rule seq.compare.LE.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} <= ${1}) ? 1 : 0;
+end
+rule seq.compare.GE.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} >= ${1}) ? 1 : 0;
+end
+rule seq.binary.ADD.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} + ${1});
+end
+rule seq.binary.SUB.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} - ${1});
+end
+rule seq.binary.MUL.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} * ${1});
+end
+rule seq.binary.DIV.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} / ${1} : 0);
+end
+rule seq.binary.MOD.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} % ${1} : 0);
+end
+rule seq.binary.BAND.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} & ${1});
+end
+rule seq.binary.BOR.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} | ${1});
+end
+rule seq.binary.BXOR.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} ^ ${1});
+end
+rule seq.binary.SHL.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} << ${1});
+end
+rule seq.binary.SHR.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) >> ${1});
+end
+rule seq.binary.EQ.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} == ${1});
+end
+rule seq.binary.NE.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} != ${1});
+end
+rule seq.binary.LT.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) < ((unsigned int)${1}));
+end
+rule seq.binary.GT.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) > ((unsigned int)${1}));
+end
+rule seq.binary.LE.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) <= ((unsigned int)${1}));
+end
+rule seq.binary.GE.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) >= ((unsigned int)${1}));
+end
+rule seq.compare.EQ.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) == ((unsigned long long)${1})) ? 1 : 0;
+end
+rule seq.compare.NE.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) != ((unsigned long long)${1})) ? 1 : 0;
+end
+rule seq.compare.LT.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) < ((unsigned long long)${1})) ? 1 : 0;
+end
+rule seq.compare.GT.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) > ((unsigned long long)${1})) ? 1 : 0;
+end
+rule seq.compare.LE.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) <= ((unsigned long long)${1})) ? 1 : 0;
+end
+rule seq.compare.GE.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) >= ((unsigned long long)${1})) ? 1 : 0;
+end
+rule seq.binary.ADD.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} + ${1});
+end
+rule seq.binary.SUB.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} - ${1});
+end
+rule seq.binary.MUL.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} * ${1});
+end
+rule seq.binary.DIV.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} / ${1} : 0);
+end
+rule seq.binary.MOD.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} % ${1} : 0);
+end
+rule seq.binary.BAND.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} & ${1});
+end
+rule seq.binary.BOR.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} | ${1});
+end
+rule seq.binary.BXOR.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} ^ ${1});
+end
+rule seq.binary.SHL.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} << ${1});
+end
+rule seq.binary.SHR.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} >> ${1});
+end
+rule seq.binary.EQ.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} == ${1});
+end
+rule seq.binary.NE.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} != ${1});
+end
+rule seq.binary.LT.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} < ${1});
+end
+rule seq.binary.GT.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} > ${1});
+end
+rule seq.binary.LE.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} <= ${1});
+end
+rule seq.binary.GE.64.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} >= ${1});
+end
+rule seq.binary.ADD.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} + ${1});
+end
+rule seq.binary.SUB.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} - ${1});
+end
+rule seq.binary.MUL.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} * ${1});
+end
+rule seq.binary.DIV.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} / ${1} : 0);
+end
+rule seq.binary.MOD.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} % ${1} : 0);
+end
+rule seq.binary.BAND.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} & ${1});
+end
+rule seq.binary.BOR.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} | ${1});
+end
+rule seq.binary.BXOR.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} ^ ${1});
+end
+rule seq.binary.SHL.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} << ${1});
+end
+rule seq.binary.SHR.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned long long)${0}) >> ${1});
+end
+rule seq.binary.EQ.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} == ${1});
+end
+rule seq.binary.NE.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} != ${1});
+end
+rule seq.binary.LT.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) < ((unsigned int)${1}));
+end
+rule seq.binary.GT.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) > ((unsigned int)${1}));
+end
+rule seq.binary.LE.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) <= ((unsigned int)${1}));
+end
+rule seq.binary.GE.64.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (((unsigned int)${0}) >= ((unsigned int)${1}));
+end
+rule seq.unary.NEG.64.s
+text ${0} = stk[--sp].i; stk[sp++].i = (-${0});
+end
+rule seq.unary.BNOT.64.s
+text ${0} = stk[--sp].i; stk[sp++].i = (~${0});
+end
+rule seq.unary.NOT.64.s
+text ${0} = stk[--sp].i; stk[sp++].i = (!${0});
+end
+rule seq.unary.NEG.64.real
+text ${3} = stk[--sp].f; stk[sp++].f = (-${3});
+end
+rule seq.unary.CONJ.128.complex
+text ${4} = stk[--sp].c; stk[sp++].c = conj(${4});
+end
+rule seq.float.ADD.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].f = ${2} + ${3};
+end
+rule seq.float.ADD.128.complex
+text ${5} = stk[--sp].c; ${4} = stk[--sp].c; stk[sp++].c = ${4} + ${5};
+end
+rule seq.float.SUB.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].f = ${2} - ${3};
+end
+rule seq.float.SUB.128.complex
+text ${5} = stk[--sp].c; ${4} = stk[--sp].c; stk[sp++].c = ${4} - ${5};
+end
+rule seq.float.MUL.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].f = ${2} * ${3};
+end
+rule seq.float.MUL.128.complex
+text ${5} = stk[--sp].c; ${4} = stk[--sp].c; stk[sp++].c = ${4} * ${5};
+end
+rule seq.float.DIV.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].f = ${2} / ${3};
+end
+rule seq.float.DIV.128.complex
+text ${5} = stk[--sp].c; ${4} = stk[--sp].c; stk[sp++].c = ${4} / ${5};
+end
+rule seq.float.EXP.128.complex
+text ${4} = stk[--sp].c; stk[sp++].c = cexp(${4});
+end
+rule seq.compare.EQ.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].i = (${2} == ${3}) ? 1 : 0;
+end
+rule seq.compare.NE.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].i = (${2} != ${3}) ? 1 : 0;
+end
+rule seq.compare.LT.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].i = (${2} < ${3}) ? 1 : 0;
+end
+rule seq.compare.GT.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].i = (${2} > ${3}) ? 1 : 0;
+end
+rule seq.compare.LE.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].i = (${2} <= ${3}) ? 1 : 0;
+end
+rule seq.compare.GE.64.real
+text ${3} = stk[--sp].f; ${2} = stk[--sp].f; stk[sp++].i = (${2} >= ${3}) ? 1 : 0;
+end
+rule seq.compare.EQ.128.complex
+text ${5} = stk[--sp].c; ${4} = stk[--sp].c; stk[sp++].i = ((__real__ ${4} == __real__ ${5}) && (__imag__ ${4} == __imag__ ${5})) ? 1 : 0;
+end
+rule seq.compare.NE.128.complex
+text ${5} = stk[--sp].c; ${4} = stk[--sp].c; stk[sp++].i = ((__real__ ${4} != __real__ ${5}) || (__imag__ ${4} != __imag__ ${5})) ? 1 : 0;
+end
+rule seq.direct.DIV.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} / ${1});
+end
+rule seq.direct.DIV.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = ((unsigned)${0} / (unsigned)${1});
+end
+rule seq.direct.MOD.32.s
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} % ${1});
+end
+rule seq.direct.MOD.32.u
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = ((unsigned)${0} % (unsigned)${1});
+end

@@ -24,6 +24,35 @@ helpers and preserves the stack contract. Binary scalar32 operation selection
 continues through the separate XHSELECT v2 sequence table, and instruction
 encoding/relocation formulas continue through their own external VMs.
 
+## Finite ABI and frame policies
+
+The same package table now includes required numeric contracts: word size,
+argument-register count, packed argument words, frame stack alignment, variadic
+register-image offset, saved ra/s0 offsets, local header size, indirect aggregate
+threshold, and scalar/wide/indirect word classifications. The C adapter parses
+bounded decimal values and validates the supported ILP32 contract before any
+code generation. Caller register allocation and argument word classification,
+callee variadic named-word counts, frame sizing/alignment and return/sret size
+classification consume the parsed values.
+
+Current supported values remain word=4, argument registers=8, packed words=1,
+frame alignment=16, argument image offset=32, saved ra=36, saved s0=40, local
+header=48, and indirect threshold=8. Their classifier outputs are 1/2/1 words.
+Metadata cannot silently change this native calling convention.
+`frame.extra_padding` is a safe internal layout policy, 0..256 in multiples of
+16: it inserts a gap between saved state and local storage while all local
+address calculations use the resulting frame size. It does not move the
+variadic image or caller-visible stack parameters. Changing this policy can
+change generated frame instructions without changing function ABI.
+
+The compiler's existing call lowering is retained. In particular, validating a
+16-byte frame alignment policy is not a claim that every intermediate call-site
+stack shape is fully interoperable with arbitrary external psABI code. Native
+argument normalization, aggregate lowering and frontend IR still bound the
+supported convention. The runtime self-call/long-argument/variadic/sret tests
+cover that implemented convention; external-tool ABI interoperability needs
+separate target-runtime gates.
+
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for
 their native engine family. The shared template VM enforces syntax, bounds,

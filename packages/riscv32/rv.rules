@@ -1041,3 +1041,42 @@ end
 rule emit.choice.0047
 text     slt t4, t2, t0\n
 end
+rule abi.word_bytes
+text 4
+end
+rule abi.arg_registers
+text 8
+end
+rule abi.stack_alignment
+text 16
+end
+rule abi.packed_words
+text 1
+end
+rule frame.region_offset
+text 32
+end
+rule frame.saved_ra_offset
+text 36
+end
+rule frame.saved_s0_offset
+text 40
+end
+rule frame.local_base
+text 48
+end
+rule frame.extra_padding
+text 0
+end
+rule classify.indirect_threshold
+text 8
+end
+rule classify.scalar_words
+text 1
+end
+rule classify.wide_words
+text 2
+end
+rule classify.indirect_words
+text 1
+end
