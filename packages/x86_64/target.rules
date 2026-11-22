@@ -1,0 +1,25 @@
+XHTARGET 1
+id x86_64
+engine x86_64
+abi sysv-lp64
+pointer 8
+long 8
+int 4
+longlong 8
+slot 8
+va_mode sysv
+vararg_words 0
+complex 0
+object_machine 62
+object_class 64
+endian little
+armcc_asm 0
+native_asm 1
+arm_immediates 0
+macro __x86_64__ 1
+macro __amd64__ 1
+macro __LP64__ 1
+macro _LP64 1
+complex_words 4
+slot64_ptrs 1
+ir_word_bytes 4

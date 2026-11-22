@@ -10195,6 +10195,13 @@ static void arm_encode32_args(ArmAsm *a,const char *key,const int *args,int coun
     out16(a,word>>16);out16(a,word&65535u);
 }
 
+static int arm_patch_narrow_a(ArmAsm*a,int site,const char*key,int target){
+    XhRelocContext ctx={0};ctx.symbol=(uint64_t)(int64_t)target;ctx.place=(uint64_t)(int64_t)site;
+    if(xh_relocation_apply("arm",key,a->out,(size_t)a->out_cap,(size_t)site,&ctx)){
+        a->hard_errors++;a->error_count++;return -1;
+    }return 0;
+}
+
 static void add_label_a(ArmAsm *a, const char *name, int addr) {
     if (a->label_count >= a->label_cap) {
         int nc = a->label_cap == 0 ? 32 : a->label_cap * 2;
@@ -10345,30 +10352,13 @@ static int arm_decide_branches(ArmAsm *a) {
 /* Emit the 16-bit form.  arm_decide_branches() guarantees the range; a
  * violation here means the plan and the layout disagree, which would be a
  * wrong branch, so it is reported instead of encoded. */
-static void emit_b16_a(ArmAsm *a, int cond, int target) {
-    int off = target - a->pc - 4;
-    if (cond < 0) {
-        if (off < -2048 || off > 2046 || (off & 1)) {
-            diag_tool(DIAG_SEV_ERROR, "arkcc",
-                      "internal layout error: shrunk B does not fit its "
-                      "16-bit range", 0,0,0,0,0,0);
-            a->hard_errors++;
-            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
-            return;
-        }
-        arm_encode16(a,"B_T1",(off>>1)&2047,0,0,0,1);
-    } else {
-        if (off < -256 || off > 254 || (off & 1)) {
-            diag_tool(DIAG_SEV_ERROR, "arkcc",
-                      "internal layout error: shrunk Bcc does not fit its "
-                      "16-bit range", 0,0,0,0,0,0);
-            a->hard_errors++;
-            arm_encode16(a,"FIXED_BF00",0,0,0,0,0);
-            return;
-        }
-        arm_encode16(a,"BCC_T1",(off>>1)&255,cond,0,0,2);
-    }
+static void emit_b16_a(ArmAsm*a,int cond,int target){
+    int site=a->pc;
+    if(cond<0)arm_encode16(a,"B_T1",0,0,0,0,1);
+    else arm_encode16(a,"BCC_T1",0,cond,0,0,2);
+    arm_patch_narrow_a(a,site,cond<0?"THM_B16":"THM_BCC16",target);
 }
+
 #endif
 
 /* .set symbol management (absolute addresses) */
@@ -12529,60 +12519,15 @@ static void pass2_a(ArmAsm *a) {
                 out16(a, 0x4080u | (type << 6) | ((rn & 7) << 3) | (rd & 7));
             }
         }
-        else if (strieq_a(first, "ADR")) {
-            /* --asm-extra: ADR Rd, label -- T1, imm8*4 relative to Align(PC,4). */
-            int rd = parse_reg_a(&p);
-            char name[64];
-            eat_comma_a(&p);
-            read_label_name_a(&p, name, sizeof(name));
-            {
-                int addr = find_label_a(a, name);
-                if (addr < 0) {
-                    add_ref_a(a, a->pc, name, 7);
-                    out16(a, 0xA000u | ((rd & 7) << 8));
-                } else {
-                    int base = (a->pc + 4) & ~3;
-                    int off = addr - base;
-                    if (off < 0 || off > 1020 || (off & 3) != 0) {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "ADR target %sq is %s bytes from the aligned PC; "
-                                  "the 16-bit form covers 0..1020 in steps of 4",
-                                  name, diag_num(b1, off), 0,0,0,0);
-                        a->hard_errors++;
-                    }
-                    out16(a, 0xA000u | ((rd & 7) << 8) | (unsigned)((off >> 2) & 0xFF));
-                }
-            }
+        else if(strieq_a(first,"ADR")||strieq_a(first,"CBZ")||strieq_a(first,"CBNZ")){
+            int adr=strieq_a(first,"ADR"),nz=strieq_a(first,"CBNZ");
+            int rd=parse_reg_a(&p),site=a->pc,addr;char name[64];
+            eat_comma_a(&p);read_label_name_a(&p,name,sizeof name);addr=find_label_a(a,name);
+            arm_encode16(a,adr?"ADR_PLACEHOLDER":nz?"CBNZ_PLACEHOLDER":"CBZ_PLACEHOLDER",rd,0,0,0,1);
+            if(addr<0)add_ref_a(a,site,name,adr?7:nz?9:8);
+            else arm_patch_narrow_a(a,site,adr?"THM_ADR16":nz?"THM_CBNZ16":"THM_CBZ16",addr);
         }
-        else if (strieq_a(first, "CBZ") || strieq_a(first, "CBNZ")) {
-            /* --asm-extra: CBZ/CBNZ Rd, label -- T1, forward only, 0..62 bytes.
-             * imm5 = offset/2 with bit 5 carried in bit 9 of the halfword. */
-            int is_nz = strieq_a(first, "CBNZ");
-            int rd = parse_reg_a(&p);
-            char name[64];
-            eat_comma_a(&p);
-            read_label_name_a(&p, name, sizeof(name));
-            {
-                int addr = find_label_a(a, name);
-                if (addr < 0) {
-                    add_ref_a(a, a->pc, name, is_nz ? 9 : 8);
-                    out16(a, (is_nz ? 0xB900u : 0xB100u) | (rd & 7));
-                } else {
-                    int off = addr - (a->pc + 4);
-                    if (off < 0 || off > 62 || (off & 1) != 0) {
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "CBZ/CBNZ target %sq is out of the 16-bit forward "
-                                  "range (0..62 bytes, even)", name, 0,0,0,0,0);
-                        a->hard_errors++;
-                    } else {
-                        unsigned imm5 = (unsigned)(off >> 1);
-                        out16(a, (is_nz ? 0xB900u : 0xB100u) |
-                                 ((imm5 & 0x20u) << 4) | ((imm5 & 0x1Fu) << 3) | (rd & 7));
-                    }
-                }
-            }
-        }
+
         else if (strieq_a(first, "LDMIA") || strieq_a(first, "STMIA") ||
                  strieq_a(first, "LDM") || strieq_a(first, "STM") ||
                  strieq_a(first, "LDMDB") || strieq_a(first, "STMDB")) {
@@ -13776,21 +13721,7 @@ static void resolve_refs_a(ArmAsm *a) {
                 g_arm_unresolved_first = r->name;
             continue;
         }
-        if (r->type == 7) {
-            /* --asm-extra ADR T1: imm8*4 is relative to Align(pc+4, 4). */
-            int base = (r->pc + 4) & ~3;
-            int off = addr - base;
-            unsigned hi = (unsigned)a->out[r->pc] | ((unsigned)a->out[r->pc + 1] << 8);
-            if (off < 0 || off > 1020 || (off & 3) != 0) {
-                diag_tool(DIAG_SEV_ERROR, "arkcc",
-                          "ADR target %sq is out of the 16-bit range (0..1020, "
-                          "step 4)", r->name, 0,0,0,0,0);
-                a->hard_errors++;
-            } else {
-                hi = (hi & 0xFF00u) | (unsigned)((off >> 2) & 0xFF);
-                a->out[r->pc]     = (unsigned char)(hi & 0xFF);
-                a->out[r->pc + 1] = (unsigned char)((hi >> 8) & 0xFF);
-            }
+        if(r->type==7){arm_patch_narrow_a(a,r->pc,"THM_ADR16",addr);
         } else if (r->type == 10 || r->type == 11) {
             /* LDR rd, =sym for a symbol defined in another object: the
              * placeholder was MOVW/MOVT of g_flash_base, so rewrite the pair
@@ -13809,21 +13740,7 @@ static void resolve_refs_a(ArmAsm *a) {
             a->out[r->pc + 5] = (unsigned char)((hi2 >> 8) & 0xFF);
             a->out[r->pc + 6] = (unsigned char)(lo2 & 0xFF);
             a->out[r->pc + 7] = (unsigned char)((lo2 >> 8) & 0xFF);
-        } else if (r->type == 8 || r->type == 9) {
-            /* --asm-extra CBZ (8) / CBNZ (9): forward only, 0..62, even. */
-            int off = addr - (r->pc + 4);
-            unsigned hi = (unsigned)a->out[r->pc] | ((unsigned)a->out[r->pc + 1] << 8);
-            if (off < 0 || off > 62 || (off & 1) != 0) {
-                diag_tool(DIAG_SEV_ERROR, "arkcc",
-                          "CBZ/CBNZ target %sq is out of the 16-bit forward range",
-                          r->name, 0,0,0,0,0);
-                a->hard_errors++;
-            } else {
-                unsigned imm5 = (unsigned)(off >> 1);
-                hi = (hi & 0xF8C0u) | ((imm5 & 0x20u) << 4) | ((imm5 & 0x1Fu) << 3);
-                a->out[r->pc]     = (unsigned char)(hi & 0xFF);
-                a->out[r->pc + 1] = (unsigned char)((hi >> 8) & 0xFF);
-            }
+        }else if(r->type==8||r->type==9){arm_patch_narrow_a(a,r->pc,r->type==8?"THM_CBZ16":"THM_CBNZ16",addr);
         } else if (r->type==1||r->type==2||r->type==3) {
             if(arm_patch_branch(a->out,a->out_cap,r->pc,r->type,addr,r->pc)){
                 a->hard_errors++;a->error_count++;
@@ -13836,15 +13753,9 @@ static void resolve_refs_a(ArmAsm *a) {
             a->out[r->pc + 1] = (unsigned char)((addr >> 8) & 0xFF);
             a->out[r->pc + 2] = (unsigned char)((addr >> 16) & 0xFF);
             a->out[r->pc + 3] = (unsigned char)((addr >> 24) & 0xFF);
-        } else {
-            /* type=0: legacy 16-bit branch (B/B<cond>), patch 2 bytes.
-             * Kept for safety; new code uses type 2/3 above. */
-            int offset = (addr - r->pc - 4) >> 1;
-            unsigned hi = (unsigned)a->out[r->pc] | ((unsigned)a->out[r->pc + 1] << 8);
-            if ((hi & 0xF000) == 0xE000) hi = (hi & 0xF800) | (offset & 0x7FF);
-            else                          hi = (hi & 0xFF00) | (offset & 0xFF);
-            a->out[r->pc]     = hi & 0xFF;
-            a->out[r->pc + 1] = (hi >> 8) & 0xFF;
+        }else{
+            unsigned hi=(unsigned)a->out[r->pc]|((unsigned)a->out[r->pc+1]<<8);
+            arm_patch_narrow_a(a,r->pc,(hi&0xf800)==0xe000?"THM_B16":"THM_BCC16",addr);
         }
     }
 }

@@ -59,6 +59,20 @@ class ArmRelocation(unittest.TestCase):
             data=branch(key,0,3)
             for delta in [-limit-2,limit,1]:self.assertEqual(self.apply(key,data,s=0x2000000+4+delta,p=0x2000000,ok=False),data)
             invalid=data[:1]+bytes([0])+data[2:];self.assertEqual(self.apply(key,invalid,s=10,ok=False),invalid)
+    def test_narrow_boundaries_preservation_and_atomicity(self):
+        for key,opcode,low,high,align in [('THM_B16',0xe000,-2048,2046,2),('THM_BCC16',0xd500,-256,254,2),('THM_ADR16',0xa300,0,1020,4),('THM_CBZ16',0xb103,0,126,2),('THM_CBNZ16',0xb903,0,126,2)]:
+            initial=opcode.to_bytes(2,'little');place=0x1002;base=((place+4)&~3) if key=='THM_ADR16' else place+4
+            for delta in [low,0,align,high]:
+                got=int.from_bytes(self.apply(key,initial,s=base+delta,p=place),'little')
+                if key=='THM_B16':want=opcode|((delta>>1)&2047)
+                elif key=='THM_BCC16':want=opcode|((delta>>1)&255)
+                elif key=='THM_ADR16':want=opcode|(delta>>2)
+                else:want=opcode|(((delta>>1)&31)<<3)|(((delta>>1)&32)<<4)
+                self.assertEqual(got,want,(key,delta))
+            for delta in [low-align,high+align,1]:self.assertEqual(self.apply(key,initial,s=base+delta,p=place,ok=False),initial)
+            invalid=b'\x00\x00';self.assertEqual(self.apply(key,invalid,s=base,p=place,ok=False),invalid)
+            self.assertEqual(self.apply(key,initial,s=base,p=place,length=1,ok=False),initial)
+
     def test_mov_pair_matches_gnu_assembled_bytes(self):
         sys.path.insert(0,str(ROOT/'build/test-deps'))
         from elftools.elf.elffile import ELFFile
@@ -94,6 +108,25 @@ class ArmRelocation(unittest.TestCase):
             from unicorn.arm_const import UC_ARM_REG_R0,UC_ARM_REG_LR,UC_ARM_REG_SP
             uc=Uc(UC_ARCH_ARM,UC_MODE_THUMB|UC_MODE_MCLASS);uc.mem_map(0x10000,0x20000);uc.mem_map(0x700000,0x20000);uc.mem_write(0x10000,outputs[0]);uc.reg_write(UC_ARM_REG_SP,0x71f000);uc.reg_write(UC_ARM_REG_LR,0x2f001);uc.emu_start(0x10001,0x2f000,count=10000)
             self.assertEqual(uc.reg_read(UC_ARM_REG_R0),17)
+        self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
+
+    def test_actual_compiler_narrow_formula_variant_same_sha(self):
+        import tempfile,shutil
+        sys.path.insert(0,str(ROOT/'build/test-deps'))
+        from elftools.elf.elffile import ELFFile
+        compiler=ROOT/'build/wasm/xhcc.wasm';before=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-compiler-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'source.c';source.write_text('__asm int entry(void){\nB .Ldest\nNOP\n.Ldest:\nMOV r0, #17\nBX lr\n}\n')
+            path=pkg/'relocation.rules';base=path.read_text();start=base.index('rule THM_B16 2');end=base.index('\nend',start)
+            changed=base[:start]+base[start:end].replace('const r3 4','const r3 8',1)+base[end:];self.assertNotEqual(base,changed);outputs=[]
+            for i,text in enumerate([base,changed]):
+                path.write_text(text);obj=work/(str(i)+'.o')
+                proc=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(packages),'variant-gcc','-O0','-fopt-branch','-c',str(source.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True)
+                self.assertEqual(proc.returncode,0,proc.stderr)
+                with obj.open('rb') as f:outputs.append(ELFFile(f).get_section_by_name('.text').data())
+            self.assertEqual(outputs[0][:2],bytes.fromhex('00e0'));self.assertEqual(outputs[1][:2],bytes.fromhex('fee7'));self.assertNotEqual(outputs[0],outputs[1])
         self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),before)
 
     def test_external_formula_variant_same_vm_sha(self):

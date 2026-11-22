@@ -56,12 +56,14 @@ class HostTests(unittest.TestCase):
         self.assertEqual(json.loads(trace), {'event': 'execute', 'module': str(self.compiler), 'package': 'selected', 'worker_count': 1})
 
     def test_copied_configuration_package_needs_no_wasm(self):
-        source = self.package(engine='rv32-rule-v1', encoding='encoding.rules', selection='selection.rules', templates='arm.rules', object='object.rules', relocations='relocation.rules')
+        source = self.package(engine='rv32-rule-v1', encoding='encoding.rules', selection='selection.rules', templates='arm.rules', object='object.rules', relocations='relocation.rules', cpus='cpus.rules', target_description='target.rules')
         (source / 'encoding.rules').write_text('external rule fixture\n')
         (source / 'selection.rules').write_text('external selector fixture\n')
         (source / 'arm.rules').write_text('external template fixture\n')
         (source / 'object.rules').write_text('external object descriptor fixture\n')
         (source / 'relocation.rules').write_text('external relocation metadata fixture\n')
+        (source / 'cpus.rules').write_text('external CPU descriptor fixture\n')
+        (source / 'target.rules').write_text('external target descriptor fixture\n')
         copy = self.root / 'copy'
         shutil.copytree(source, copy)
         path = copy / 'package.ini'
@@ -79,6 +81,10 @@ class HostTests(unittest.TestCase):
         self.assertEqual((copy / 'arm.rules').read_text(), 'external template fixture\n')
         self.assertEqual((copy / 'object.rules').read_text(), 'external object descriptor fixture\n')
         self.assertEqual((copy / 'relocation.rules').read_text(), 'external relocation metadata fixture\n')
+        self.assertEqual((copy / 'cpus.rules').read_text(), 'external CPU descriptor fixture\n')
+        self.assertEqual((copy / 'target.rules').read_text(), 'external target descriptor fixture\n')
+        self.assertEqual(host.manifest(path)['cpus'], 'cpus.rules')
+        self.assertEqual(host.manifest(path)['target_description'], 'target.rules')
         self.assertEqual(host.manifest(path)['relocations'], 'relocation.rules')
         self.assertEqual(host.manifest(path)['object'], 'object.rules')
         self.assertEqual(host.manifest(path)['templates'], 'arm.rules')
@@ -106,7 +112,7 @@ class HostTests(unittest.TestCase):
         self.package('duplicate', 'chosen')
         with self.assertRaisesRegex(ValueError, 'alias'):
             host.discover(self.root)
-        for key, value in [('include', '../outside'), ('options', '/absolute'), ('encoding', '../outside.rules'), ('encoding', 'C:/escape.rules'), ('selection', '../outside.rules'), ('selection', '/absolute.rules'), ('templates', '../outside.rules'), ('templates', 'C:/escape.rules'), ('object', '../outside.rules'), ('object', '/absolute.rules'), ('relocations', '../outside.rules'), ('relocations', '/absolute.rules'), ('include', 'sub\\path'), ('dialect', 'unknown'), ('module', 'backend.wasm')]:
+        for key, value in [('include', '../outside'), ('options', '/absolute'), ('encoding', '../outside.rules'), ('encoding', 'C:/escape.rules'), ('selection', '../outside.rules'), ('selection', '/absolute.rules'), ('templates', '../outside.rules'), ('templates', 'C:/escape.rules'), ('object', '../outside.rules'), ('object', '/absolute.rules'), ('relocations', '../outside.rules'), ('relocations', '/absolute.rules'), ('cpus', '../outside.rules'), ('cpus', '/absolute.rules'), ('target_description', '../outside.rules'), ('target_description', 'C:/escape.rules'), ('include', 'sub\\path'), ('dialect', 'unknown'), ('module', 'backend.wasm')]:
             name = 'invalid' + str(len(list(self.root.iterdir())))
             directory = self.package(name, name, **{key: value})
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
@@ -114,7 +120,7 @@ class HostTests(unittest.TestCase):
 
     def test_requires_syntax_only_and_legacy_default(self):
         valid = ['package.options.v1,encoding.fields.v1,selection.scalar32.v1',
-                 'selection.scalar32.v2,object.elf32,object.elf64,codegen.templates.v1,object.descriptor.v1,relocation.vm.v1', 'future.capability.v99']
+                 'selection.scalar32.v2,object.elf32,object.elf64,codegen.templates.v1,object.descriptor.v1,relocation.vm.v1,cpu.descriptor.v1,target.descriptor.v1', 'future.capability.v99']
         for index, requires in enumerate(valid):
             directory = self.package('valid' + str(index), 'valid' + str(index), requires=requires)
             self.assertEqual(host.manifest(directory / 'package.ini')['requires'], requires)

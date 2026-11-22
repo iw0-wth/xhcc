@@ -1,0 +1,22 @@
+XHTARGET 1
+id x86
+engine x86
+abi sysv-ilp32
+pointer 4
+long 4
+int 4
+longlong 8
+slot 4
+va_mode word_packed
+vararg_words 0
+complex 0
+object_machine 3
+object_class 32
+endian little
+armcc_asm 0
+native_asm 1
+arm_immediates 0
+macro __i386__ 1
+complex_words 4
+slot64_ptrs 0
+ir_word_bytes 4

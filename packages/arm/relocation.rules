@@ -316,3 +316,105 @@ or r1 r1 r14
 write r0 0 2
 write r1 2 2
 end
+rule THM_B16 2
+read r0 0 2
+checkmask r0 0xf800 0xe000
+set r1 S
+set r2 P
+const r3 4
+add r2 r2 r3
+sub r1 r1 r2
+range r1 12 signed
+align r1 2
+const r3 0xf800
+and r0 r0 r3
+shr r1 r1 1
+const r3 0x7ff
+and r1 r1 r3
+or r0 r0 r1
+write r0 0 2
+end
+rule THM_BCC16 2
+read r0 0 2
+checkmask r0 0xf000 0xd000
+set r1 S
+set r2 P
+const r3 4
+add r2 r2 r3
+sub r1 r1 r2
+range r1 9 signed
+align r1 2
+const r3 0xff00
+and r0 r0 r3
+shr r1 r1 1
+const r3 0xff
+and r1 r1 r3
+or r0 r0 r1
+write r0 0 2
+end
+rule THM_ADR16 2
+read r0 0 2
+checkmask r0 0xf800 0xa000
+set r1 S
+set r2 P
+const r3 4
+add r2 r2 r3
+const r3 0xfffffffffffffffc
+and r2 r2 r3
+sub r1 r1 r2
+range r1 10 unsigned
+align r1 4
+const r3 0xff00
+and r0 r0 r3
+shr r1 r1 2
+const r3 0xff
+and r1 r1 r3
+or r0 r0 r1
+write r0 0 2
+end
+rule THM_CBZ16 2
+read r0 0 2
+checkmask r0 0xfd00 0xb100
+set r1 S
+set r2 P
+const r3 4
+add r2 r2 r3
+sub r1 r1 r2
+range r1 7 unsigned
+align r1 2
+const r3 0xfd07
+and r0 r0 r3
+shr r1 r1 1
+const r3 31
+and r2 r1 r3
+shl r2 r2 3
+or r0 r0 r2
+const r3 32
+and r1 r1 r3
+shl r1 r1 4
+or r0 r0 r1
+write r0 0 2
+end
+rule THM_CBNZ16 2
+read r0 0 2
+checkmask r0 0xfd00 0xb900
+set r1 S
+set r2 P
+const r3 4
+add r2 r2 r3
+sub r1 r1 r2
+range r1 7 unsigned
+align r1 2
+const r3 0xfd07
+and r0 r0 r3
+shr r1 r1 1
+const r3 31
+and r2 r1 r3
+shl r2 r2 3
+or r0 r0 r2
+const r3 32
+and r1 r1 r3
+shl r1 r1 4
+or r0 r0 r1
+write r0 0 2
+end

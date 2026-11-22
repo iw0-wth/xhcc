@@ -1364,3 +1364,15 @@ rule BCC_PLACEHOLDER 1 0xf0008000
 arg 0 4 0 1
 bits 0 0 4 22
 end
+rule ADR_PLACEHOLDER 1 0xa000
+arg 0 3 0 1
+bits 0 0 3 8
+end
+rule CBZ_PLACEHOLDER 1 0xb100
+arg 0 3 0 1
+bits 0 0 3 0
+end
+rule CBNZ_PLACEHOLDER 1 0xb900
+arg 0 3 0 1
+bits 0 0 3 0
+end

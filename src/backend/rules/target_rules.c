@@ -1,0 +1,32 @@
+/* Finite target metadata. IDs and predefines are package data; engine family
+ * remains native code. ABI validation prevents metadata from mislabeling code. */
+#include "xh_target_rules.h"
+#include "flash_fs.h"
+#include "diag.h"
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+typedef struct{char engine[32],path[512];}Path;
+static Path paths[8];static int npaths;static XhTargetDescriptor*cache;
+static const char*pathof(const char*e){int i;for(i=0;i<npaths;i++)if(!strcmp(paths[i].engine,e)&&paths[i].path[0])return paths[i].path;if(!strcmp(e,"arm"))return "packages/arm/target.rules";if(!strcmp(e,"riscv32"))return "packages/riscv32/target.rules";if(!strcmp(e,"x86"))return "packages/x86/target.rules";if(!strcmp(e,"x86_64"))return "packages/x86_64/target.rules";if(!strcmp(e,"c"))return "packages/c/target.rules";return "<target.rules>";}
+static int error(const char*e,const char*m){diag_tool(DIAG_SEV_ERROR,pathof(e?e:""),m,0,0,0,0,0,0);return -1;}
+void xh_target_rules_release(void){free(cache);cache=0;}
+int xh_target_rules_set_path(const char*e,const char*p){int i;size_t n=p?strlen(p):0;if(!e||!*e||strlen(e)>=32||n>=512)return -1;for(i=0;i<npaths;i++)if(!strcmp(paths[i].engine,e))break;if(i==npaths){if(npaths==8)return error(e,"too many target descriptor registrations");strcpy(paths[i].engine,e);paths[i].path[0]=0;npaths++;}if(strcmp(paths[i].path,p?p:"")){if(cache&&!strcmp(cache->engine,e))xh_target_rules_release();if(n)memcpy(paths[i].path,p,n);paths[i].path[n]=0;}return 0;}
+static int number(const char*s,unsigned*v){char*end;unsigned long long n;if(!s||!*s||*s=='-')return -1;errno=0;n=strtoull(s,&end,0);if(*end||errno==ERANGE||n>0xffffffffULL)return -1;*v=(unsigned)n;return 0;}
+static char*token(char**p){char*s=*p,*begin;while(*s==' '||*s=='\t'||*s=='\r')s++;if(!*s)return 0;begin=s;while(*s&&*s!=' '&&*s!='\t'&&*s!='\r')s++;if(*s)*s++=0;*p=s;return begin;}
+static int target_id(const char*s){if(!s||!*s)return 0;for(;*s;s++)if(!((*s>='a'&&*s<='z')||(*s>='A'&&*s<='Z')||(*s>='0'&&*s<='9')||*s=='_'||*s=='.'||*s=='-'))return 0;return 1;}
+static int identifier(const char*s){int first=1;if(!s||!*s)return 0;for(;*s;s++){if(!((*s>='a'&&*s<='z')||(*s>='A'&&*s<='Z')||*s=='_'||(!first&&*s>='0'&&*s<='9')))return 0;first=0;}return 1;}
+int xh_target_rules_validate(const XhTargetDescriptor*d,const char*e){unsigned ptr,lng,slot,machine,cls,words,cx;const char*abi,*va;if(!d||!e||strcmp(d->engine,e))return -1;if(!strcmp(e,"arm")){ptr=lng=slot=4;machine=40;cls=32;abi="eabi5";va="word_aligned";words=1;cx=1;}else if(!strcmp(e,"riscv32")){ptr=lng=slot=4;machine=243;cls=32;abi="ilp32";va="word_packed";words=1;cx=1;}else if(!strcmp(e,"x86")){ptr=lng=slot=4;machine=3;cls=32;abi="sysv-ilp32";va="word_packed";words=0;cx=0;}else if(!strcmp(e,"x86_64")){ptr=lng=slot=8;machine=62;cls=64;abi="sysv-lp64";va="sysv";words=0;cx=0;}else if(!strcmp(e,"c")){ptr=lng=4;slot=8;machine=0;cls=0;abi="host-c";va="ordinal";words=0;cx=1;}else return error(e,"unknown native engine family in target descriptor");if(d->pointer_bytes!=ptr||d->long_bytes!=lng||d->int_bytes!=4||d->long_long_bytes!=8||d->slot_bytes!=slot||d->object_machine!=machine||d->object_class!=cls||!d->little_endian||strcmp(d->abi,abi)||strcmp(d->va_mode,va)||d->vararg_words!=words||d->complex_enabled>cx||d->armcc_asm!=(unsigned)(!strcmp(e,"arm")||!strcmp(e,"c"))||d->native_asm!=(unsigned)(strcmp(e,"c")!=0)||d->arm_immediates!=(unsigned)!strcmp(e,"arm")||d->complex_words!=(unsigned)(!strcmp(e,"c")?1:4)||d->slot64_ptrs!=(unsigned)!strcmp(e,"x86_64")||d->ir_word_bytes!=(unsigned)(!strcmp(e,"c")?8:4))return error(e,"target descriptor disagrees with supported engine ABI/data model");return 0;}
+const XhTargetDescriptor*xh_target_rules_get(const char*engine){int size,n,header=0;unsigned seen=0;char*text,*line;XhTargetDescriptor*d;if(!engine||!*engine||strlen(engine)>=32)return 0;if(cache&&!strcmp(cache->engine,engine))return cache;xh_target_rules_release();size=fs_file_size(pathof(engine));if(size<1||size>16384){error(engine,"target descriptor missing or oversized");return 0;}text=malloc((size_t)size+1);d=calloc(1,sizeof(*d));if(!text||!d){free(text);free(d);return 0;}n=fs_read_file(pathof(engine),text,size+1);if(n!=size||memchr(text,0,(size_t)size))goto bad;line=text;while(*line){char*end=strchr(line,'\n'),*comment,*p,*w[4];int count=0;unsigned bit=0,*value=0;if(end)*end=0;comment=strchr(line,'#');if(comment)*comment=0;p=line;while(count<4&&(w[count]=token(&p))!=0)count++;if(!count)goto advance;if(!header){if(count!=2||strcmp(w[0],"XHTARGET")||strcmp(w[1],"1"))goto bad;header=1;goto advance;}
+ if(!strcmp(w[0],"macro")){int i;if(count!=3||!identifier(w[1])||strlen(w[1])>=64||strlen(w[2])>=96||d->macro_count==XH_TARGET_MAX_MACROS)goto bad;for(i=0;i<d->macro_count;i++)if(!strcmp(d->macros[i].name,w[1]))goto bad;strcpy(d->macros[d->macro_count].name,w[1]);strcpy(d->macros[d->macro_count++].value,w[2]);goto advance;}
+ if(count!=2)goto bad;
+ if(!strcmp(w[0],"id")){bit=1;if(strlen(w[1])>=sizeof(d->id)||!target_id(w[1]))goto bad;strcpy(d->id,w[1]);}
+ else if(!strcmp(w[0],"engine")){bit=2;if(strlen(w[1])>=sizeof(d->engine)||strcmp(w[1],engine))goto bad;strcpy(d->engine,w[1]);}
+ else if(!strcmp(w[0],"abi")){bit=4;if(strlen(w[1])>=sizeof(d->abi))goto bad;strcpy(d->abi,w[1]);}
+ else if(!strcmp(w[0],"va_mode")){bit=8;if(strlen(w[1])>=sizeof(d->va_mode))goto bad;strcpy(d->va_mode,w[1]);}
+ else if(!strcmp(w[0],"endian")){bit=16;if(strcmp(w[1],"little"))goto bad;d->little_endian=1;}
+ else {static const char*names[]={"pointer","long","int","longlong","slot","vararg_words","complex","object_machine","object_class","armcc_asm","native_asm","arm_immediates","complex_words","slot64_ptrs","ir_word_bytes"};unsigned*values[]={&d->pointer_bytes,&d->long_bytes,&d->int_bytes,&d->long_long_bytes,&d->slot_bytes,&d->vararg_words,&d->complex_enabled,&d->object_machine,&d->object_class,&d->armcc_asm,&d->native_asm,&d->arm_immediates,&d->complex_words,&d->slot64_ptrs,&d->ir_word_bytes};int i;for(i=0;i<15;i++)if(!strcmp(w[0],names[i])){bit=32u<<i;value=values[i];break;}if(!value||number(w[1],value))goto bad;}
+ if(seen&bit)goto bad;seen|=bit;
+ advance:if(!end)break;line=end+1;}
+ if(!header||seen!=1048575||!d->id[0]||xh_target_rules_validate(d,engine))goto bad;free(text);cache=d;return d;
+ bad:free(text);free(d);error(engine,"invalid target descriptor version, schema, duplicate or ABI");return 0;}

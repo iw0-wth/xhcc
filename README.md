@@ -49,7 +49,7 @@ D:\miniconda3\python.exe tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o
 
 RV32使用共享字段编码VM，R/I/S/B/U/J布局在外部 `encoding.rules`；标量32位算术、位运算、移位、比较及有符号/无符号除法取模的IR选择与寄存器模板在 `selection.rules`，v2每条规则最多8步且兼容v1。规则按需读取有界缓存。当前是**后端数据化第一阶段**：其余IR选择、ABI、通用寄存器分配、汇编助记符及重定位仍有C实现，任意全新ISA还不能只写目标名就实现。外部规则变体测试会在主程序SHA256不变时改变实际指令和执行结果。配置版本不匹配或规则越界必须失败。
 
-ARM、i386、AMD64和C也使用同一个XHTEMPLATE引擎读取外部发射模板，ARM额外迁出123条Thumb编码规则，x86迁出opcode/REP/REX表，C迁出ABI契约和帧/栈政策。所有目标都已有真实包规则路径，但复杂ABI、优化、部分选择及重定位算法仍编译在主程序中。详细清单见 `docs/backend-externalization.md`，不能将当前状态等同于全部后端算法完全外置。
+ARM、i386、AMD64和C也使用同一个XHTEMPLATE引擎读取外部发射模板，ARM额外迁出194条Thumb编码规则，x86迁出opcode/REP/REX表，C迁出ABI契约和帧/栈政策。CPU名称/别名/能力与目标数据布局也由cpus.rules和target.rules提供，主前端按现有引擎契约消费并验证。所有目标都已有真实包规则路径，但复杂ABI、优化、部分选择及剩余重定位算法仍编译在主程序中。详细清单见 `docs/backend-externalization.md`，不能将当前状态等同于全部后端算法完全外置。
 
 外部资源按需读取；取消的子Wasm/共享stage实验不属于生产构建。协议与映射格式见 `docs/package-protocol.md`。
 

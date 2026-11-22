@@ -21,6 +21,9 @@
 #include "config.h"
 #include "arkcc_config.h"
 #include "type.h"   /* type_set_pack/type_get_pack drive #pragma pack handling. */
+#ifdef XHCC
+#include "xh_target_rules.h"
+#endif
 #include "diag.h"   /* codes, caret positioning, summary line. */
 #ifdef XHCC
 #include <stdio.h>
@@ -2295,6 +2298,14 @@ char *preproc_process(const char *src) {
     pp_check_final_newline(src_ptr, 0);
 #endif
 #ifdef XHCC
+    {
+        static const char *engines[]={"arm","x86","x86_64","riscv32","c"};
+        const XhTargetDescriptor *td=xh_target_rules_get(engines[g_target_id>=0&&g_target_id<5?g_target_id:0]);
+        int mi;
+        if(!td){out[0]=0;return out;}
+        {char identity[68];identity[0]='"';for(mi=0;td->id[mi]&&mi<64;mi++)identity[mi+1]=td->id[mi];identity[mi+1]='"';identity[mi+2]=0;preproc_define("__XHCC_TARGET_ID__",identity);}
+        for(mi=0;mi<td->macro_count;mi++)preproc_define(td->macros[mi].name,td->macros[mi].value);
+    }
     {
         int fi;
         for (fi = 0; fi < xh_forced_count; ++fi) {

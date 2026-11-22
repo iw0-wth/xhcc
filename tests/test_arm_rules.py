@@ -42,7 +42,7 @@ class ArmRules(unittest.TestCase):
     def test_external_sequences_and_dynamic_constants_change_execution_same_sha(self):
         compiler=ROOT/'build/wasm/xhcc.wasm';before=hashlib.sha256(compiler.read_bytes()).digest()
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-rules-') as tmp:
-            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';pkg.mkdir(parents=True);(pkg/'include').mkdir()
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
             manifest=(ROOT/'packages/arm/package.ini').read_text()
             manifest=manifest.replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc')
             if 'templates=' not in manifest:manifest+='\ntemplates=arm.rules\n'
@@ -130,6 +130,21 @@ class ArmRules(unittest.TestCase):
                     with path.open('rb') as f:return ELFFile(f).get_section_by_name('.text').data()
                 expected=section(ref)
                 self.assertEqual(section(obj)[:len(expected)],expected,'short='+str(short))
+
+    def test_adr_cbz_cbnz_gnu_boundaries(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
+            work=Path(tmp)
+            for op,reg,deltas in [('ADR','r3',[0,4,1020]),('CBZ','r4',[0,2,62,64,126]),('CBNZ','r5',[0,2,62,64,126])]:
+                for delta in deltas:
+                    # Instruction is at offset0, aligned PC=4. Target at4+delta.
+                    body=op+' '+reg+', .Ltarget\n.space '+str(delta+2)+'\n.Ltarget:\nBX lr\n'
+                    source=work/'case.c';gas=work/'case.s';obj=work/'xh.o';ref=work/'gnu.o'
+                    source.write_text('__asm int entry(void){\n'+body+'}\n');gas.write_text('.syntax unified\n.thumb\n.global entry\n.thumb_func\nentry:\n'+body)
+                    self.command(sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','--asm-extra','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+                    self.command(GNU/'arm-none-eabi-as.exe','-mcpu=cortex-m3','-mthumb',gas,'-o',ref)
+                    def first(path):
+                        with path.open('rb') as f:return ELFFile(f).get_section_by_name('.text').data()[:2]
+                    self.assertEqual(first(obj),first(ref),(op,delta))
 
     def test_vfp_arithmetic_executes(self):
         from unicorn.arm_const import UC_ARM_REG_C1_C0_2,UC_ARM_REG_FPEXC

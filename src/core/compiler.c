@@ -26,6 +26,7 @@
 #ifdef XHCC
 #include "xh_request.h"
 #include "xh_relocation.h"
+#include "xh_target_rules.h"
 #endif
 /* Note: <stdio.h> intentionally NOT included - all file I/O goes through
  * fs_read_file/fs_write_file (flash_fs abstraction) to avoid pulling in
@@ -1958,6 +1959,19 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
         }
     }
 
+#ifdef XHCC
+    {
+        const ArkBackend *vbe=opts->target?ark_backend_find(opts->target):ark_backend_default();
+        const XhTargetDescriptor *td=vbe?xh_target_rules_get(vbe->name):0;
+        if(!td)return ARK_ERR_ARG;
+        preproc_undef("__ARK_VA_WORD_SLOTS");preproc_undef("__ARK_VA_PACKED_WORDS");preproc_undef("__ARK_VA_SYSV");
+        g_ir_va_slot_region=ark_streq(td->va_mode,"ordinal");
+        g_ir_vararg_words=(int)td->vararg_words;
+        if(ark_streq(td->va_mode,"word_aligned")||ark_streq(td->va_mode,"word_packed"))preproc_define("__ARK_VA_WORD_SLOTS","1");
+        if(ark_streq(td->va_mode,"word_packed"))preproc_define("__ARK_VA_PACKED_WORDS","1");
+        if(ark_streq(td->va_mode,"sysv"))preproc_define("__ARK_VA_SYSV","1");
+    }
+#endif
     /* --split_sections/-ffunction-sections: sync runtime switch to g_config,
      * so ARM/C backends emit a separate section before each function. */
     if (opts->split_sections) g_config.split_sections = 1;
@@ -2163,23 +2177,41 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * struct layout and array indexing use the correct pointer width.
      * The C backend runs on the host (8-byte pointers on 64-bit); ARM/RISC-V32
      * use 4-byte pointers; x86_64 uses 8-byte pointers. */
-    type_set_ptr_size(be->pointer_size);
 #ifdef XHCC
-    type_set_long_size(ark_streq(be->name,"x86_64")?8:4);
-    g_irgen_armcc_asm = ark_streq(be->name,"arm")||ark_streq(be->name,"c");
-    g_irgen_native_asm = !ark_streq(be->name,"c");
-    g_irgen_arm_asm_immediates = ark_streq(be->name,"arm");
+    {
+        const XhTargetDescriptor *td=xh_target_rules_get(be->name);
+        if(!td)return ARK_ERR_ARG;
+        type_set_ptr_size((int)td->pointer_bytes);
+        type_set_long_size((int)td->long_bytes);
+        g_irgen_armcc_asm=(int)td->armcc_asm;
+        g_irgen_native_asm=(int)td->native_asm;
+        g_irgen_arm_asm_immediates=(int)td->arm_immediates;
+    }
+#else
+    type_set_ptr_size(be->pointer_size);
 #endif
     /* C 后端使用 8 字节 long long 虚拟栈槽，irgen 无需生成 32→64 位
      * widen/narrow 序列（DUP+PUSH+LT+NEG）或 64 位条件 BOR 合并。 */
+#ifdef XHCC
+    {const XhTargetDescriptor *td=xh_target_rules_get(be->name);if(!td)return ARK_ERR_ARG;irgen_set_64bit_slots(td->ir_word_bytes==8);}
+#else
     irgen_set_64bit_slots(ark_streq(be->name, "c"));
+#endif
     /* x86-64: a pointer is 8 bytes but occupies a single stack word.  Only
      * that target needs the IR_AUX_SLOT64 marker; everywhere else the flag
      * stays 0 and the emitted IR is unchanged. */
+#ifdef XHCC
+    {const XhTargetDescriptor *td=xh_target_rules_get(be->name);if(!td)return ARK_ERR_ARG;irgen_set_slot64_ptrs((int)td->slot64_ptrs);}
+#else
     irgen_set_slot64_ptrs(ark_streq(be->name, "x86_64"));
+#endif
     /* The C backend stores a complex value in one 8-byte slot; the machine
      * backends carry four 32-bit words on the expression stack. */
+#ifdef XHCC
+    {const XhTargetDescriptor *td=xh_target_rules_get(be->name);if(!td)return ARK_ERR_ARG;irgen_set_complex_words((int)td->complex_words);}
+#else
     irgen_set_complex_words(ark_streq(be->name, "c") ? 1 : 4);
+#endif
     /* #pragma pack is applied by the lexer at the position it appears, so the
      * parser must start from the default alignment no matter what the
      * preprocessor (or a previous translation unit) left behind. */

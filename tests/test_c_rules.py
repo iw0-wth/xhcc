@@ -30,6 +30,7 @@ class CRules(unittest.TestCase):
         cls.package = cls.package_root / 'c_variant'
         cls.package.mkdir(parents=True)
         (cls.package / 'include').mkdir()
+        shutil.copy2(ROOT / 'packages/c/target.rules', cls.package / 'target.rules')
         manifest = (ROOT / 'packages/c/package.ini').read_text(encoding='utf-8')
         manifest = manifest.replace('id=c\n', 'id=c_variant\n').replace('tools=xh-c-gcc', 'tools=c-variant-gcc')
         if not re.search(r'^templates=', manifest, re.M):

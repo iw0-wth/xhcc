@@ -374,10 +374,7 @@ static int diagnostic_policy(const char *a) {
 static int validate_cpu(ArkOptions *o, int arm_flags) {
   if (!strcmp(o->target, "arm")) {
     const CpuInfo *cpu = cpu_lookup(o->cpu);
-    if (!cpu || (!strcmp(cpu->name, "Cortex-M0") ||
-                 !strcmp(cpu->name, "Cortex-M0+") ||
-                 !strcmp(cpu->name, "Cortex-M1") ||
-                 !strcmp(cpu->name, "Cortex-M23")))
+    if (!cpu || !cpu->thumb2)
       return fail("ARM backend requires a Thumb-2 CPU (M3/M4/M7/M33): %s",
                   o->cpu ? o->cpu : "(none)");
     o->cpu = cpu->name;
@@ -934,11 +931,11 @@ int xh_driver_main(int argc, char **argv) {
   if (softfp) {
     const CpuInfo *cpu = cpu_lookup(o->cpu);
     if (!cpu || !cpu->has_fpu) { result = fail("softfp requires a CPU with an FPU", 0); goto done; }
-    if (!fpu) fpu = !strcmp(cpu->name, "Cortex-M4") ? "fpv4-sp-d16" :
+    if (!fpu) fpu = cpu->fpu_version == 4 ? "fpv4-sp-d16" :
                     cpu->has_fpu_dp ? "fpv5-d16" : "fpv5-sp-d16";
-    if ((!strcmp(cpu->name, "Cortex-M4") && strcmp(fpu, "fpv4-sp-d16")) ||
-        (!strcmp(cpu->name, "Cortex-M7") && strcmp(fpu, "fpv5-d16") && strcmp(fpu, "fpv5-sp-d16")) ||
-        (!strcmp(cpu->name, "Cortex-M33") && strcmp(fpu, "fpv5-sp-d16"))) {
+    if ((cpu->fpu_version == 4 && strcmp(fpu, "fpv4-sp-d16")) ||
+        (cpu->fpu_version == 5 && strcmp(fpu, "fpv5-sp-d16") &&
+          (!cpu->has_fpu_dp || strcmp(fpu, "fpv5-d16")))) {
       result = fail("FPU does not match selected CPU: %s", fpu); goto done;
     }
     g_config.enable_fpu_hw = 1;
