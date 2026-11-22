@@ -10,7 +10,7 @@ Each package is an immediate child directory of the package root and contains UT
 
 ```ini
 version=3
-id=arm-cortex-m3
+id=arm
 tools=arm-none-eabi-gcc,armcc
 target=arm
 cpu=cortex-m3

@@ -1,4 +1,45 @@
 XHRELOC 1
+# RV32 pair consumes actual image-relative S/P coordinates. Opcode and range
+# checks run before atomically committing both instruction words.
+rule RV_AUIPC_PAIR 8
+read r0 0 4
+read r1 4 4
+checkmask r0 0x7f 0x17
+checkanymask r1 0x7f 0x13 0x67
+set r2 S
+set r3 A
+add r2 r2 r3
+set r3 P
+sub r2 r2 r3
+const r3 0x800
+add r4 r2 r3
+asr r4 r4 12
+range r4 20 signed
+shl r5 r4 12
+sub r6 r2 r5
+range r6 12 signed
+const r7 0xfffff
+and r4 r4 r7
+shl r4 r4 12
+const r7 0xfff
+and r0 r0 r7
+or r0 r0 r4
+and r6 r6 r7
+shl r6 r6 20
+const r7 0xfffff
+and r1 r1 r7
+or r1 r1 r6
+write r0 0 4
+write r1 4 4
+end
+rule RV_ABS32 4
+set r0 S
+set r1 B
+add r0 r0 r1
+set r1 A
+add r0 r0 r1
+write r0 0 4
+end
 rule ABS32 4
 set r0 S
 set r1 A

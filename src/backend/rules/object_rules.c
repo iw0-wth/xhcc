@@ -9,7 +9,7 @@
 #define MAX_BYTES 8192
 typedef struct{char target[32],path[512];}Path;
 static Path paths[8];static int npaths;static XhObjectTarget*cache;
-static const char*pathof(const char*t){int i;for(i=0;i<npaths;i++)if(!strcmp(paths[i].target,t)&&paths[i].path[0])return paths[i].path;if(!strcmp(t,"arm"))return "packages/arm-cortex-m3/object.rules";if(!strcmp(t,"riscv32"))return "packages/riscv32/object.rules";if(!strcmp(t,"x86"))return "packages/x86/object.rules";if(!strcmp(t,"x86_64"))return "packages/x86_64/object.rules";return "<object.rules>";}
+static const char*pathof(const char*t){int i;for(i=0;i<npaths;i++)if(!strcmp(paths[i].target,t)&&paths[i].path[0])return paths[i].path;if(!strcmp(t,"arm"))return "packages/arm/object.rules";if(!strcmp(t,"riscv32"))return "packages/riscv32/object.rules";if(!strcmp(t,"x86"))return "packages/x86/object.rules";if(!strcmp(t,"x86_64"))return "packages/x86_64/object.rules";return "<object.rules>";}
 static int error(const char*t,const char*m){diag_tool(DIAG_SEV_ERROR,pathof(t),m,0,0,0,0,0,0);return -1;}
 void xh_object_rules_release(void){free(cache);cache=0;}
 int xh_object_rules_set_path(const char*t,const char*p){int i;size_t n=p?strlen(p):0;if(!t||!*t||strlen(t)>=32||n>=512)return -1;for(i=0;i<npaths;i++)if(!strcmp(paths[i].target,t))break;if(i==npaths){if(npaths==8)return error(t,"too many object target registrations");strcpy(paths[i].target,t);paths[i].path[0]=0;npaths++;}if(strcmp(paths[i].path,p?p:"")){if(cache&&!strcmp(cache->target,t))xh_object_rules_release();if(n)memcpy(paths[i].path,p,n);paths[i].path[n]=0;}return 0;}

@@ -19,6 +19,7 @@
 #include "codegen.h"
 #include "xh_arm_rules.h"
 #include "xh_rules.h"
+#include "xh_relocation.h"
 #include "memory.h"
 #include "platform.h"
 #include "common.h"
@@ -11368,26 +11369,17 @@ static void check_no_index_writeback_a(ArmAsm *a, const char **p) {
     }
 }
 
-static void emit_bl_a(ArmAsm *a,int target){
-    int off2=(target-a->pc-4)>>1;
-    int sign=(off2>>23)&1;
-    int j1=(~(((off2>>22)&1)^sign))&1;
-    int j2=(~(((off2>>21)&1)^sign))&1;
-    arm_encode32(a,"BL_T1",off2&0xffffff,j1,j2,0,3);
+int arm_patch_branch(unsigned char*,int,int,int,int,int);
+static void emit_branch_vm_a(ArmAsm *a,int kind,int cond,int target){
+    int site=a->pc;
+    if(kind==1){arm_encode16(a,"FIXED_F000",0,0,0,0,0);arm_encode16(a,"FIXED_D000",0,0,0,0,0);}
+    else if(kind==2){arm_encode16(a,"FIXED_F000",0,0,0,0,0);arm_encode16(a,"FIXED_9000",0,0,0,0,0);}
+    else arm_encode32(a,"BCC_PLACEHOLDER",cond,0,0,0,1);
+    if(arm_patch_branch(a->out,a->out_cap,site,kind,target,site)){a->hard_errors++;a->error_count++;}
 }
-
-static void emit_b_w_a(ArmAsm *a,int target){
-    int off2=(target-a->pc-4)>>1;
-    int sign=(off2>>23)&1;
-    int j1=(~(((off2>>22)&1)^sign))&1;
-    int j2=(~(((off2>>21)&1)^sign))&1;
-    arm_encode32(a,"B_T4",off2&0xffffff,j1,j2,0,3);
-}
-
-static void emit_bcond_w_a(ArmAsm *a,int cond,int target){
-    int off2=(target-a->pc-4)>>1;
-    arm_encode32(a,"BCC_T3",off2&0xfffff,cond,0,0,2);
-}
+static void emit_bl_a(ArmAsm*a,int target){emit_branch_vm_a(a,1,0,target);}
+static void emit_b_w_a(ArmAsm*a,int target){emit_branch_vm_a(a,2,0,target);}
+static void emit_bcond_w_a(ArmAsm*a,int cond,int target){emit_branch_vm_a(a,3,cond,target);}
 
 static int read_label_name_a(const char **p, char *buf, int cap) {
     int n = 0;
@@ -13751,6 +13743,7 @@ static const char  *g_arm_unresolved_first = 0;
 static void mov_imm_encode_a(int is_movt, int rd, unsigned imm,
                             unsigned *hi, unsigned *lo);
 
+int arm_patch_branch(unsigned char*,int,int,int,int,int);
 static void resolve_refs_a(ArmAsm *a) {
     int i;
     g_arm_unresolved = 0;
@@ -13831,26 +13824,10 @@ static void resolve_refs_a(ArmAsm *a) {
                 a->out[r->pc]     = (unsigned char)(hi & 0xFF);
                 a->out[r->pc + 1] = (unsigned char)((hi >> 8) & 0xFF);
             }
-        } else if (r->type == 1) {
-            /* BL: 32-bit, re-emit at saved pc */
-            int saved = a->pc;
-            a->pc = r->pc;
-            emit_bl_a(a, addr);
-            a->pc = saved;
-        } else if (r->type == 2) {
-            /* B.W: 32-bit unconditional, re-emit at saved pc */
-            int saved = a->pc;
-            a->pc = r->pc;
-            emit_b_w_a(a, addr);
-            a->pc = saved;
-        } else if (r->type == 3) {
-            /* B<cond>.W: 32-bit conditional, recover cond from placeholder hi word */
-            unsigned hi = (unsigned)a->out[r->pc] | ((unsigned)a->out[r->pc + 1] << 8);
-            int cond = (hi >> 6) & 0xF;
-            int saved = a->pc;
-            a->pc = r->pc;
-            emit_bcond_w_a(a, cond, addr);
-            a->pc = saved;
+        } else if (r->type==1||r->type==2||r->type==3) {
+            if(arm_patch_branch(a->out,a->out_cap,r->pc,r->type,addr,r->pc)){
+                a->hard_errors++;a->error_count++;
+            }
         } else if (r->type == 4) {
             /* Bug-A5: R_ARM_ABS32 - 4-byte absolute address reference
              * (e.g. .word funcname in .init_array/.fini_array).
@@ -14154,51 +14131,21 @@ static void mov_imm_encode_a(int is_movt, int rd, unsigned imm,
     *lo = (imm3 << 12) | ((unsigned)(rd & 0xF) << 8) | imm8;
 }
 
-/* Decode a MOVW/MOVT halfword pair back to imm16 + Rd.
- * Returns 0 on success, -1 if `hi` is not the MOVW/MOVT opcode the encoder
- * emits or `lo` does not look like its second halfword. */
-static int mov_imm_decode_a(unsigned hi, unsigned lo,
-                           int *is_movt, int *rd, unsigned *imm) {
-    unsigned base = hi & 0xFBF0u;
-    if (base != 0xF240u && base != 0xF2C0u) return -1;
-    if ((lo & 0x8000u) != 0) return -1;          /* bit15 must be 0 */
-    *is_movt = (base == 0xF2C0u);
-    *rd = (int)((lo >> 8) & 0xFu);
-    *imm = ((hi & 0xFu) << 12) | (((hi >> 10) & 1u) << 11) |
-           (((lo >> 12) & 7u) << 8) | (lo & 0xFFu);
-    return 0;
+/* Target patch validation, old-immediate gather and atomic scatter live in
+ * external bounded XHRELOC rules; wrappers provide buffer bounds and context. */
+int arm_patch_movw_movt(unsigned char *code,int code_len,int off,int delta){
+    XhRelocContext ctx={0};
+    if(code_len<0||off<0)return -1;
+    ctx.symbol=(unsigned)delta;
+    return xh_relocation_apply("arm","MOVW_MOVT_DELTA",code,(size_t)code_len,(size_t)off,&ctx);
 }
-
-/* --reloc-data: shift the MOVW/MOVT pair at `off` by `delta`.
- *
- * Returns 0 when both halfwords were rewritten, -1 when the bytes are not the
- * pair the assembler marked (different register, wrong opcode, truncated
- * image).  The caller must refuse to write the image in that case: the object
- * was built without --reloc-data, and its baked address would stay stale. */
-int arm_patch_movw_movt(unsigned char *code, int code_len, int off, int delta) {
-    unsigned hi, lo, hi2, lo2, loimm = 0, hiimm = 0, imm;
-    int is_movt = 0, rd = 0, is_movt2 = 0, rd2 = 0;
-    if (off < 0 || off + 8 > code_len) return -1;
-    hi  = (unsigned)code[off]     | ((unsigned)code[off + 1] << 8);
-    lo  = (unsigned)code[off + 2] | ((unsigned)code[off + 3] << 8);
-    hi2 = (unsigned)code[off + 4] | ((unsigned)code[off + 5] << 8);
-    lo2 = (unsigned)code[off + 6] | ((unsigned)code[off + 7] << 8);
-    if (mov_imm_decode_a(hi, lo, &is_movt, &rd, &loimm) != 0) return -1;
-    if (is_movt) return -1;                       /* pair must start with MOVW */
-    if (mov_imm_decode_a(hi2, lo2, &is_movt2, &rd2, &hiimm) != 0) return -1;
-    if (!is_movt2 || rd2 != rd) return -1;        /* must be MOVT of the same Rd */
-    imm = (loimm | (hiimm << 16)) + (unsigned)delta;
-    mov_imm_encode_a(0, rd, imm & 0xFFFFu, &hi, &lo);
-    mov_imm_encode_a(1, rd, (imm >> 16) & 0xFFFFu, &hi2, &lo2);
-    code[off]     = (unsigned char)(hi & 0xFF);
-    code[off + 1] = (unsigned char)((hi >> 8) & 0xFF);
-    code[off + 2] = (unsigned char)(lo & 0xFF);
-    code[off + 3] = (unsigned char)((lo >> 8) & 0xFF);
-    code[off + 4] = (unsigned char)(hi2 & 0xFF);
-    code[off + 5] = (unsigned char)((hi2 >> 8) & 0xFF);
-    code[off + 6] = (unsigned char)(lo2 & 0xFF);
-    code[off + 7] = (unsigned char)((lo2 >> 8) & 0xFF);
-    return 0;
+int arm_patch_branch(unsigned char *code,int code_len,int off,int kind,int target,int place){
+    XhRelocContext ctx={0};const char *key;
+    if(code_len<0||off<0)return -1;
+    key=kind==1?"THM_BL":kind==2?"THM_BW":kind==3?"THM_BCOND":0;
+    if(!key)return -1;
+    ctx.symbol=(uint64_t)(int64_t)target;ctx.place=(uint64_t)(int64_t)place;
+    return xh_relocation_apply("arm",key,code,(size_t)code_len,(size_t)off,&ctx);
 }
 
 /* Unresolved references of the last assembly (see resolve_refs_a). */

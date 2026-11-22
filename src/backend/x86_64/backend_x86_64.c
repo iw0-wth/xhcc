@@ -28,6 +28,8 @@
 #include "agginit.h"
 #include "xh_x86_rules.h"
 #include "xh_rules.h"
+#include "xh_relocation.h"
+extern int g_xhcc_elf_mode;
 #include <stdio.h>
 /* On host, <stdlib.h> provides getenv() for the ARKCC_DUMP_SYMS symbol map
  * (see x86_assemble_mode); on STM32 getenv() does not exist. */
@@ -4314,7 +4316,7 @@ static void xa_modrm_mem(X86Asm *a, int reg_field, X86Operand *mem) {
             int sc = (mem->scale == xh_x86_number("encoding.scale.two")) ? xh_x86_number("encoding.scale.code_two") : (mem->scale == xh_x86_number("encoding.scale.four")) ? xh_x86_number("encoding.scale.code_four") : (mem->scale == xh_x86_number("encoding.scale.eight")) ? xh_x86_number("encoding.scale.code_eight") : xh_x86_number("encoding.scale.code_one");
             xa_field_byte(a,"SIB",sc,si,sb,0,3);
         }
-        xa_add_ref(a, a->pc, mem->sym, 4);
+        xa_add_ref_a(a, a->pc, mem->sym, 4, disp);
         xa_emit32(a, disp);
         return;
     }
@@ -5296,54 +5298,27 @@ static void pass2_x(X86Asm *a) {
 /* --- resolve_refs: patch forward references --- */
 static void resolve_refs_x(X86Asm *a) {
     int i;
-    for (i = 0; i < a->ref_count; i++) {
-        X86AsmRef *r = &a->refs[i];
-        int addr = xa_find_label(a, r->name);
-        if (addr < 0) {
-            /* Unresolved: will be handled as a cross-object relocation.
-             * Types 4/5 overwrite the site, so an addend cannot survive in
-             * them -- hand the linker the addend-carrying variants instead. */
-            if (r->addend != 0) {
-                r->type = (r->type == 5) ? X86_RELOC_PC32_ADDEND
-                                         : X86_RELOC_ABS32_ADDEND;
-            }
+    /* Native ELF relocations retain symbolic local references as well; its
+     * writer records the full explicit addend and clears each placeholder. */
+    if(a->obj && g_xhcc_elf_mode)return;
+    for(i=0;i<a->ref_count;i++){
+        X86AsmRef *r=&a->refs[i];
+        int addr=xa_find_label(a,r->name),pc=r->type==5 || r->type==X86_RELOC_PC32_ADDEND;
+        XhRelocContext context;
+        const char *rule;
+        if(addr<0){
+            if(r->addend)r->type=pc?X86_RELOC_PC32_ADDEND:X86_RELOC_ABS32_ADDEND;
             continue;
         }
-        if (r->type == 5) {
-            /* PC-relative disp32: disp = target + addend - (ref_pc + 4) */
-            int disp = addr + r->addend - (r->pc + 4);
-            if (!a->dry_run) {
-                a->out[r->pc]     = (unsigned char)(disp & 0xFF);
-                a->out[r->pc + 1] = (unsigned char)((disp >> 8) & 0xFF);
-                a->out[r->pc + 2] = (unsigned char)((disp >> 16) & 0xFF);
-                a->out[r->pc + 3] = (unsigned char)((disp >> 24) & 0xFF);
-            }
-        } else if (r->type == 4) {
-            /* Absolute 32-bit address.  Inside a -c object every address is
-             * object-relative, and the linker places the object at a base it
-             * chooses later, so the stored value alone is not the answer the
-             * image needs: it must be raised by that object's base.  The value
-             * is still written here (it is the offset the relocation is relative
-             * to), and the reference is re-typed as X86_RELOC_SELF_BASE so
-             * x86_save_relocs exports it instead of dropping it as "resolved".
-             * Measured before this: "const char *msg = \"hello\";" in one
-             * object left the pointer word at 0 in the linked image, i.e. every
-             * string and every address-taken global in every object was wrong
-             * by exactly the object base -- silently, since the link "succeeded". */
-            /* The image is loaded at X86_IMAGE_BASE (0 for i386, 0x400000 for
-             * x86_64: code is RIP-relative and needs no base, but a stored
-             * pointer does).  Inside a -c object the linker adds the base it
-             * placed this object at, so only the image base goes in here. */
-            addr += r->addend;
-            addr += a->mode64 ? (int)X86_IMAGE_BASE : 0;
-            if (!a->dry_run) {
-                a->out[r->pc]     = (unsigned char)(addr & 0xFF);
-                a->out[r->pc + 1] = (unsigned char)((addr >> 8) & 0xFF);
-                a->out[r->pc + 2] = (unsigned char)((addr >> 16) & 0xFF);
-                a->out[r->pc + 3] = (unsigned char)((addr >> 24) & 0xFF);
-            }
-            if (a->obj) r->type = X86_RELOC_SELF_BASE;
+        context.symbol=(uint64_t)(unsigned)addr;
+        context.addend=(uint64_t)(int64_t)r->addend;
+        context.place=(uint64_t)(unsigned)r->pc;
+        context.image_base=a->mode64?(uint64_t)X86_IMAGE_BASE:0;
+        rule=pc?(r->width==8?"PC64":"PC32"):(r->width==8?"LOCAL_ABS64":"LOCAL_ABS32");
+        if(!a->dry_run && xh_relocation_apply(a->mode64?"x86_64":"x86",rule,a->out,(size_t)a->pc,(size_t)r->pc,&context)){
+            a->error_count++;continue;
         }
+        if(!pc && a->obj)r->type=X86_RELOC_SELF_BASE;
     }
 }
 

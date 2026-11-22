@@ -1,0 +1,318 @@
+XHRELOC 1
+rule ABS32 4
+set r0 S
+set r1 A
+add r0 r0 r1
+range r0 32 unsigned
+write r0 0 4
+end
+rule PC32 4
+set r0 S
+set r1 A
+add r0 r0 r1
+set r1 P
+sub r0 r0 r1
+const r1 4
+sub r0 r0 r1
+range r0 32 signed
+write r0 0 4
+end
+rule ABS64 8
+set r0 S
+set r1 A
+add r0 r0 r1
+write r0 0 8
+end
+rule PC64 8
+set r0 S
+set r1 A
+add r0 r0 r1
+set r1 P
+sub r0 r0 r1
+const r1 4
+sub r0 r0 r1
+range r0 64 signed
+write r0 0 8
+end
+rule ABS32_ADD 4
+set r0 S
+read r1 0 4
+add r0 r0 r1
+write r0 0 4
+end
+rule PC32_ADD 4
+set r0 S
+read r1 0 4
+add r0 r0 r1
+set r2 P
+sub r0 r0 r2
+const r2 4
+sub r0 r0 r2
+write r0 0 4
+end
+rule MOVW_MOVT_DELTA 8
+read r0 0 2
+read r1 2 2
+read r2 4 2
+read r3 6 2
+checkmask r0 0xfbf0 0xf240
+checkmask r2 0xfbf0 0xf2c0
+checkmask r1 0x8000 0
+checkmask r3 0x8000 0
+shr r4 r1 8
+const r15 0xf
+and r4 r4 r15
+shr r5 r3 8
+const r15 0xf
+and r5 r5 r15
+eq r4 r5
+const r6 0x0
+shr r7 r0 0
+const r15 0xf
+and r7 r7 r15
+shl r7 r7 12
+or r6 r6 r7
+shr r7 r0 10
+const r15 0x1
+and r7 r7 r15
+shl r7 r7 11
+or r6 r6 r7
+shr r7 r1 12
+const r15 0x7
+and r7 r7 r15
+shl r7 r7 8
+or r6 r6 r7
+shr r7 r1 0
+const r15 0xff
+and r7 r7 r15
+shl r7 r7 0
+or r6 r6 r7
+shr r7 r2 0
+const r15 0xf
+and r7 r7 r15
+shl r7 r7 28
+or r6 r6 r7
+shr r7 r2 10
+const r15 0x1
+and r7 r7 r15
+shl r7 r7 27
+or r6 r6 r7
+shr r7 r3 12
+const r15 0x7
+and r7 r7 r15
+shl r7 r7 24
+or r6 r6 r7
+shr r7 r3 0
+const r15 0xff
+and r7 r7 r15
+shl r7 r7 16
+or r6 r6 r7
+set r7 S
+add r6 r6 r7
+const r15 0xffffffff
+and r6 r6 r15
+const r15 0xfbf0
+and r0 r0 r15
+const r15 0xf00
+and r1 r1 r15
+shr r14 r6 12
+const r15 0xf
+and r14 r14 r15
+shl r14 r14 0
+or r0 r0 r14
+shr r14 r6 11
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 10
+or r0 r0 r14
+shr r14 r6 8
+const r15 0x7
+and r14 r14 r15
+shl r14 r14 12
+or r1 r1 r14
+shr r14 r6 0
+const r15 0xff
+and r14 r14 r15
+shl r14 r14 0
+or r1 r1 r14
+const r15 0xfbf0
+and r2 r2 r15
+const r15 0xf00
+and r3 r3 r15
+shr r14 r6 28
+const r15 0xf
+and r14 r14 r15
+shl r14 r14 0
+or r2 r2 r14
+shr r14 r6 27
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 10
+or r2 r2 r14
+shr r14 r6 24
+const r15 0x7
+and r14 r14 r15
+shl r14 r14 12
+or r3 r3 r14
+shr r14 r6 16
+const r15 0xff
+and r14 r14 r15
+shl r14 r14 0
+or r3 r3 r14
+write r0 0 2
+write r1 2 2
+write r2 4 2
+write r3 6 2
+end
+rule THM_BL 4
+read r0 0 2
+read r1 2 2
+checkmask r0 0xf800 0xf000
+checkmask r1 0xd000 0xd000
+set r2 S
+set r3 P
+sub r2 r2 r3
+const r3 0x4
+sub r2 r2 r3
+range r2 25 signed
+align r2 2
+const r0 0xf000
+const r1 0xd000
+shr r14 r2 24
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 10
+or r0 r0 r14
+shr r14 r2 12
+const r15 0x3ff
+and r14 r14 r15
+shl r14 r14 0
+or r0 r0 r14
+shr r14 r2 1
+const r15 0x7ff
+and r14 r14 r15
+shl r14 r14 0
+or r1 r1 r14
+shr r3 r2 24
+const r15 0x1
+and r3 r3 r15
+shr r4 r2 23
+const r15 0x1
+and r4 r4 r15
+xor r4 r4 r3
+const r15 0x1
+xor r4 r4 r15
+shl r4 r4 13
+or r1 r1 r4
+shr r4 r2 22
+const r15 0x1
+and r4 r4 r15
+xor r4 r4 r3
+const r15 0x1
+xor r4 r4 r15
+shl r4 r4 11
+or r1 r1 r4
+write r0 0 2
+write r1 2 2
+end
+rule THM_BW 4
+read r0 0 2
+read r1 2 2
+checkmask r0 0xf800 0xf000
+checkmask r1 0xd000 0x9000
+set r2 S
+set r3 P
+sub r2 r2 r3
+const r3 0x4
+sub r2 r2 r3
+range r2 25 signed
+align r2 2
+const r0 0xf000
+const r1 0x9000
+shr r14 r2 24
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 10
+or r0 r0 r14
+shr r14 r2 12
+const r15 0x3ff
+and r14 r14 r15
+shl r14 r14 0
+or r0 r0 r14
+shr r14 r2 1
+const r15 0x7ff
+and r14 r14 r15
+shl r14 r14 0
+or r1 r1 r14
+shr r3 r2 24
+const r15 0x1
+and r3 r3 r15
+shr r4 r2 23
+const r15 0x1
+and r4 r4 r15
+xor r4 r4 r3
+const r15 0x1
+xor r4 r4 r15
+shl r4 r4 13
+or r1 r1 r4
+shr r4 r2 22
+const r15 0x1
+and r4 r4 r15
+xor r4 r4 r3
+const r15 0x1
+xor r4 r4 r15
+shl r4 r4 11
+or r1 r1 r4
+write r0 0 2
+write r1 2 2
+end
+rule THM_BCOND 4
+read r0 0 2
+read r1 2 2
+checkmask r0 0xf800 0xf000
+checkmask r1 0xd000 0x8000
+shr r9 r0 6
+const r15 0xf
+and r9 r9 r15
+set r2 S
+set r3 P
+sub r2 r2 r3
+const r3 0x4
+sub r2 r2 r3
+range r2 21 signed
+align r2 2
+const r0 0xf000
+const r1 0x8000
+shr r14 r2 20
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 10
+or r0 r0 r14
+shr r14 r2 12
+const r15 0x3f
+and r14 r14 r15
+shl r14 r14 0
+or r0 r0 r14
+shr r14 r2 1
+const r15 0x7ff
+and r14 r14 r15
+shl r14 r14 0
+or r1 r1 r14
+shr r14 r9 0
+const r15 0xf
+and r14 r14 r15
+shl r14 r14 6
+or r0 r0 r14
+shr r14 r2 19
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 13
+or r1 r1 r14
+shr r14 r2 18
+const r15 0x1
+and r14 r14 r15
+shl r14 r14 11
+or r1 r1 r14
+write r0 0 2
+write r1 2 2
+end

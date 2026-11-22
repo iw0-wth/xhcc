@@ -43,15 +43,16 @@ class ArmRules(unittest.TestCase):
         compiler=ROOT/'build/wasm/xhcc.wasm';before=hashlib.sha256(compiler.read_bytes()).digest()
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-rules-') as tmp:
             work=Path(tmp);packages=work/'packages';pkg=packages/'variant';pkg.mkdir(parents=True);(pkg/'include').mkdir()
-            manifest=(ROOT/'packages/arm-cortex-m3/package.ini').read_text()
-            manifest=manifest.replace('id=arm-cortex-m3','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc')
+            manifest=(ROOT/'packages/arm/package.ini').read_text()
+            manifest=manifest.replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc')
             if 'templates=' not in manifest:manifest+='\ntemplates=arm.rules\n'
             if 'encoding=' not in manifest:manifest+='\nencoding=arm.encoding.rules\n'
             (pkg/'package.ini').write_text(manifest)
-            shutil.copy2(ROOT/'packages/arm-cortex-m3/arm.encoding.rules',pkg/'arm.encoding.rules')
-            shutil.copy2(ROOT/'packages/arm-cortex-m3/object.rules',pkg/'object.rules')
+            shutil.copy2(ROOT/'packages/arm/arm.encoding.rules',pkg/'arm.encoding.rules')
+            shutil.copy2(ROOT/'packages/arm/object.rules',pkg/'object.rules')
+            shutil.copy2(ROOT/'packages/arm/relocation.rules',pkg/'relocation.rules')
             source=work/'source.c';source.write_text('int entry(int a,int b){return a+b;}\nint constant(void){return 41;}\n')
-            base=(ROOT/'packages/arm-cortex-m3/arm.rules').read_text()
+            base=(ROOT/'packages/arm/arm.rules').read_text()
             variants=[base,base.replace('rule binary.add\ntext     ADD r0, r0, r1\\n','rule binary.add\ntext     SUB r0, r0, r1\\n',1),base.replace('rule constant.small\ntext     MOV r${0}, #${1}\\n','rule constant.small\ntext     MOV r${0}, #${1}\\n    ADD r${0}, r${0}, #1\\n',1)]
             outputs=[];constants=[]
             for i,text in enumerate(variants):
@@ -67,8 +68,8 @@ class ArmRules(unittest.TestCase):
         compiler=ROOT/'build/wasm/xhcc.wasm';before=hashlib.sha256(compiler.read_bytes()).digest()
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-encoding-') as tmp:
             work=Path(tmp);packages=work/'packages';pkg=packages/'variant'
-            shutil.copytree(ROOT/'packages/arm-cortex-m3',pkg)
-            manifest=(pkg/'package.ini').read_text().replace('id=arm-cortex-m3','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc')
+            shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc')
             if 'templates=' not in manifest:manifest+='\ntemplates=arm.rules\n'
             if 'encoding=' not in manifest:manifest+='\nencoding=arm.encoding.rules\n'
             (pkg/'package.ini').write_text(manifest)

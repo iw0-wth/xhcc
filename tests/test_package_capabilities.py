@@ -5,8 +5,8 @@ ROOT=Path(__file__).resolve().parents[1]
 WASM=r'C:\Program Files\Wasmtime\bin\wasmtime.exe'
 class Capabilities(unittest.TestCase):
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='caps-');self.dir=Path(self.tmp.name);self.pack=self.dir/'packages/copy';shutil.copytree(ROOT/'packages/arm-cortex-m3',self.pack)
-  self.base=(self.pack/'package.ini').read_text().replace('id=arm-cortex-m3','id=copy').replace('tools=arm-none-eabi-gcc,armcc','tools=copy-gcc')
+  self.tmp=tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='caps-');self.dir=Path(self.tmp.name);self.pack=self.dir/'packages/copy';shutil.copytree(ROOT/'packages/arm',self.pack)
+  self.base=(self.pack/'package.ini').read_text().replace('id=arm','id=copy').replace('tools=arm-none-eabi-gcc,armcc','tools=copy-gcc')
   self.base=''.join(line+'\n' for line in self.base.splitlines() if not line.startswith('requires='))
   (self.dir/'a.c').write_text('int f(void){return 3;}\n')
  def tearDown(self):self.tmp.cleanup()

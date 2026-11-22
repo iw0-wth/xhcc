@@ -31,7 +31,7 @@ D:\miniconda3\python.exe tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o
 
 机器目标 `-c` 生成标准 ELF ET_REL，不是私有 ARKOBJ 改后缀。ARM M3/M4/M7/M33已执行验证；M0/M0+/M1/M23需要Thumb-1指令选择，当前不假装支持。soft/softfp有CPU/FPU检查，hard-float调用ABI未实现。RV32为ILP32，i386为ILP32，AMD64为LP64。C后端输出C文本，不生成原生对象。
 
-完整对照和限制见 `docs/feature-parity.md`、`object/README.md`。
+完整对照和限制见 `docs/feature-parity.md`、`object/README.md`。目标名称、ARM架构支持范围和C输出与wasm32目标的区别见 `docs/targets.md`。ARM包名为 `arm`，Cortex-M3仅是默认CPU。
 
 ## GCC/armcc 参数
 

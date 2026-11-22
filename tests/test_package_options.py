@@ -14,7 +14,7 @@ class PackageOptionTests(unittest.TestCase):
         cls.package_root = cls.dir / 'packages'
         cls.package_root.mkdir()
         cls.package = cls.package_root / 'copied-compiler'
-        shutil.copytree(ROOT / 'packages/arm-cortex-m3', cls.package)
+        shutil.copytree(ROOT / 'packages/arm', cls.package)
         text = (cls.package / 'package.ini').read_text(encoding='utf-8')
         lines = []
         for line in text.splitlines():

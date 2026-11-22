@@ -42,7 +42,7 @@ class EncodingRules(unittest.TestCase):
   cases=[('MOV_IMM',[3,219],'movs r3,#219',16),('MOV_REG',[9,12],'mov r9,r12',16),('ADD_IMM3',[1,2,7],'adds r1,r2,#7',16),('LSL_IMM',[2,5,17],'lsls r2,r5,#17',16),('MOVW',[9,0xabcd],'movw r9,#0xabcd',32),('MOVT',[11,0x8765],'movt r11,#0x8765',32),('ADDW',[9,10,4095],'addw r9,r10,#4095',32),('SUBW',[8,7,2049],'subw r8,r7,#2049',32),('SDIV',[9,10,11],'sdiv r9,r10,r11',32),('UDIV',[2,3,4],'udiv r2,r3,r4',32)]
   expected=b'';source='.syntax unified\n.thumb\n.cpu cortex-m4\n.text\n'
   for name,args,assembly,width in cases:
-   p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm','packages/arm-cortex-m3/arm.encoding.rules','armencode',name,*map(str,args)],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr);word=int(p.stdout.strip(),16);expected+=struct.pack('<H',word) if width==16 else struct.pack('<HH',word>>16,word&65535);source+=assembly+'\n'
+   p=subprocess.run([WASM,'run','--dir=.','build/rules-tests/vm.wasm','packages/arm/arm.encoding.rules','armencode',name,*map(str,args)],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr);word=int(p.stdout.strip(),16);expected+=struct.pack('<H',word) if width==16 else struct.pack('<HH',word>>16,word&65535);source+=assembly+'\n'
   (OUT/'gnu.s').write_text(source);subprocess.run([str(arm/'arm-none-eabi-as.exe'),str(OUT/'gnu.s'),'-o',str(OUT/'gnu.o')],check=True,capture_output=True);subprocess.run([str(arm/'arm-none-eabi-objcopy.exe'),'-O','binary','-j','.text',str(OUT/'gnu.o'),str(OUT/'gnu.bin')],check=True,capture_output=True);self.assertEqual((OUT/'gnu.bin').read_bytes(),expected)
  def test_target_specific_encoding_cache(self):
   arm=OUT/'arm.encoding';variant=OUT/'variant.encoding'

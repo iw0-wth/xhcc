@@ -148,7 +148,7 @@ class HostTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_copied_built_configuration_compiles(self):
-        manifest_path = ROOT / 'packages/arm-cortex-m3/package.ini'
+        manifest_path = ROOT / 'packages/arm/package.ini'
         compiler = ROOT / 'build/wasm/xhcc.wasm'
         if 'version=3' not in manifest_path.read_text() or not compiler.is_file():
             self.skipTest('v3 shared compiler is not built')
@@ -158,9 +158,9 @@ class HostTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='host-', dir=ROOT / 'build') as temporary:
             root = Path(temporary)
             package = root / 'second-arm'
-            shutil.copytree(ROOT / 'packages/arm-cortex-m3', package)
+            shutil.copytree(ROOT / 'packages/arm', package)
             path = package / 'package.ini'
-            path.write_text(path.read_text().replace('id=arm-cortex-m3', 'id=second-arm').replace('arm-none-eabi-gcc,armcc', 'second-gcc'))
+            path.write_text(path.read_text().replace('id=arm', 'id=second-arm').replace('arm-none-eabi-gcc,armcc', 'second-gcc'))
             self.assertEqual(list(package.glob('*.wasm')), [])
             output = root / 'copy.o'
             result = subprocess.run([sys.executable, str(ROOT / 'tools/xhcc.py'), '--package-root', str(root),

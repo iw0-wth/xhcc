@@ -364,6 +364,7 @@ static void ld_add_dsym(const char *name, unsigned addr, int obj, int is_weak) {
 /* Implemented in the ARM backend (same encoder the assembler uses, so the
  * linker cannot drift from it). */
 extern int arm_patch_movw_movt(unsigned char *code, int code_len, int off, int delta);
+extern int arm_patch_branch(unsigned char *code,int code_len,int off,int kind,int target,int place);
 
 /* --reloc-data: give every object its own slice of SRAM.
  *
@@ -628,6 +629,13 @@ static void ld_patch_ref(unsigned char *code, int code_size, int pc, int target,
         code[pc + 3] = (unsigned char)((disp >> 24) & 0xFF);
         return;
     }
+#if defined(XHCC) && ARKCC_BACKEND_ARM
+    if(type==1||type==2||type==3){
+        if(arm_patch_branch(code,code_size,pc,type,target,pc))
+            diag_tool(DIAG_SEV_ERROR,g_ld_image,"ARM branch relocation rule failed; image was not written",0,0,0,0,0,0);
+        return;
+    }
+#endif
     {
         /* Relative branch: BL(T1) / B.W(T4) / B<cond>.W(T3) */
         int offset = target - pc - 4;

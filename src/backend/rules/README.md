@@ -17,7 +17,7 @@ Up to eight copied target/path registrations are retained. The RV32
 `xh_rules_*` APIs remain compatibility wrappers for canonical `riscv32`.
 `xh_encoding_release()` drops the active cache. Default legacy paths are
 `packages/riscv32/encoding.rules` and
-`packages/arm-cortex-m3/arm.encoding.rules`; packages supply complete guest paths.
+`packages/arm/arm.encoding.rules`; packages supply complete guest paths.
 The unsigned encoded word supports 16-bit Thumb values or 32-bit Thumb-2 values
 (first halfword in bits31..16); target emission decides byte order/width.
 A zero-argument rule may emit a constant BASE without any bit fields.

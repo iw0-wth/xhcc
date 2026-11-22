@@ -11,6 +11,7 @@
  */
 #include "backend.h"
 #include "xh_rules.h"
+#include "xh_relocation.h"
 #include "codegen.h"
 #include "memory.h"
 #include "platform.h"
@@ -3957,43 +3958,10 @@ int rv_get_reloc_type(int i) {
  * must then refuse to write the image rather than ship one that jumps nowhere. */
 int rv_patch_reloc(unsigned char *code, int code_size, int off, int target,
                    int type, unsigned image_base) {
-    unsigned w0, w1;
-    long long d, hi;
-    int lo;
-    if (type == RV_RELOC_AUIPC) {
-        if (off < 0 || off + 8 > code_size) return -1;
-        w0 = (unsigned)code[off] | ((unsigned)code[off + 1] << 8) |
-             ((unsigned)code[off + 2] << 16) | ((unsigned)code[off + 3] << 24);
-        w1 = (unsigned)code[off + 4] | ((unsigned)code[off + 5] << 8) |
-             ((unsigned)code[off + 6] << 16) | ((unsigned)code[off + 7] << 24);
-        if ((w0 & 0x7Fu) != RV_OP_AUIPC) return -1;
-        if ((w1 & 0x7Fu) != RV_OP_JALR && (w1 & 0x7Fu) != RV_OP_IMM) return -1;
-        d  = (long long)target - (long long)off;
-        hi = (d + 0x800) >> 12;
-        if (hi < -(1LL << 19) || hi > (1LL << 19) - 1) return -1;
-        lo = (int)(d - (hi << 12));
-        w0 = (w0 & 0x00000FFFu) | (((unsigned)hi & 0xFFFFFu) << 12);
-        w1 = (w1 & 0x000FFFFFu) | (((unsigned)lo & 0xFFFu) << 20);
-        code[off]     = (unsigned char)(w0 & 0xFF);
-        code[off + 1] = (unsigned char)((w0 >> 8) & 0xFF);
-        code[off + 2] = (unsigned char)((w0 >> 16) & 0xFF);
-        code[off + 3] = (unsigned char)((w0 >> 24) & 0xFF);
-        code[off + 4] = (unsigned char)(w1 & 0xFF);
-        code[off + 5] = (unsigned char)((w1 >> 8) & 0xFF);
-        code[off + 6] = (unsigned char)((w1 >> 16) & 0xFF);
-        code[off + 7] = (unsigned char)((w1 >> 24) & 0xFF);
-        return 0;
-    }
-    if (type == RV_RELOC_ABS32) {
-        unsigned v = image_base + (unsigned)target;
-        if (off < 0 || off + 4 > code_size) return -1;
-        code[off]     = (unsigned char)(v & 0xFF);
-        code[off + 1] = (unsigned char)((v >> 8) & 0xFF);
-        code[off + 2] = (unsigned char)((v >> 16) & 0xFF);
-        code[off + 3] = (unsigned char)((v >> 24) & 0xFF);
-        return 0;
-    }
-    return -1;
+    XhRelocContext context;const char*rule=type==RV_RELOC_AUIPC?"RV_AUIPC_PAIR":type==RV_RELOC_ABS32?"RV_ABS32":0;
+    if(!rule||off<0||code_size<0)return -1;
+    context.symbol=(uint64_t)(int64_t)target;context.addend=0;context.place=(uint64_t)(int64_t)off;context.image_base=image_base;
+    return xh_relocation_apply("riscv32",rule,code,(size_t)code_size,(size_t)off,&context);
 }
 
 /* 1 = the driver is producing an ARKOBJ2 object (-c) instead of a flat image.

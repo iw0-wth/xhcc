@@ -116,6 +116,32 @@ class X86Rules(unittest.TestCase):
     with obj.open('rb') as f:code=ELFFile(f).get_section_by_name('.text').data()
     self.assertIn(bytes.fromhex('8b042500007100'),code)
     self.assertIn(bytes.fromhex('03049500007100'),code)
+ def test_local_relocation_vm_legacy_and_modern_addends(self):
+  import re
+  before=hashlib.sha256(self.compiler.read_bytes()).digest()
+  source=OUT/'local_refs.c';source.write_text('static int data[3]={7,13,29}; int *ptr=&data[1]; int entry(void){return *ptr+data[2];} int main(void){return entry();}\n')
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target),tempfile.TemporaryDirectory(prefix='xh-local-reloc-') as tmp:
+    root=Path(tmp);self.package(root,target);obj=OUT/(target+'_local_refs.o');self.invoke(root,'variant-gcc',source,obj);self.assertEqual(self.execute(obj,target=='x86_64'),42)
+    # Native ELF keeps local references and explicit pointer addends for lld.
+    with obj.open('rb') as f:
+     elf=ELFFile(f);relocations=[r for sec in elf.iter_sections() if sec['sh_type'] in ['SHT_RELA','SHT_REL'] for r in sec.iter_relocations()]
+     self.assertTrue(relocations)
+    flat=OUT/(target+'_local_flat.bin');env=os.environ.copy();env['ARKCC_DUMP_SYMS']='1'
+    command=[os.environ.get('WASMTIME',r'C:\Program Files\Wasmtime\bin\wasmtime.exe'),'run','--dir=.','--env','ARKCC_DUMP_SYMS=1',str(self.compiler),'--ark-compat','-target',target,'-o',str(flat.relative_to(ROOT)),str(source.relative_to(ROOT))]
+    p=subprocess.run(command,cwd=ROOT,env=env,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+    symbols={name:int(value,16) for name,value in re.findall(r'X86_SYM (\S+) 0x([0-9A-Fa-f]+)',p.stdout+p.stderr)}
+    self.assertIn('entry',symbols);code=flat.read_bytes();wide=target=='x86_64';base=0x400000 if wide else 0
+    uc=Uc(UC_ARCH_X86,UC_MODE_64 if wide else UC_MODE_32);uc.mem_map(base,0x40000);uc.mem_map(0x700000,0x20000);uc.mem_write(base,code);sp=0x71eff8 if wide else 0x71effc;stop=base+0x3f000
+    uc.reg_write(UC_X86_REG_RSP if wide else UC_X86_REG_ESP,sp);uc.mem_write(sp,struct.pack('<Q' if wide else '<I',stop));uc.emu_start(base+symbols['entry'],stop,count=200000);self.assertEqual(uc.reg_read(UC_X86_REG_RAX if wide else UC_X86_REG_EAX)&0xffffffff,42)
+    psz=8 if wide else 4;self.assertEqual(int.from_bytes(code[symbols['ptr']:symbols['ptr']+psz],'little'),base+symbols['data']+4)
+    if wide:
+     project=root/'flat_project';(project/'packages').mkdir(parents=True);shutil.copytree(ROOT/'packages'/target,project/'packages'/target);shutil.copy2(source,project/'input.c')
+     rule=project/'packages'/target/'relocation.rules';text=rule.read_text();start=text.index('rule LOCAL_ABS64 ');end=text.index('\nend',start)
+     text=text[:start]+text[start:end].replace('write r0 0 8','const r2 4294967296\nadd r0 r0 r2\nwrite r0 0 8')+text[end:];rule.write_text(text)
+     changed=subprocess.run([command[0],'run','--dir=.',str(self.compiler),'--ark-compat','-target',target,'-o','changed.bin','input.c'],cwd=project,capture_output=True,text=True);self.assertEqual(changed.returncode,0,changed.stdout+changed.stderr)
+     changed_code=(project/'changed.bin').read_bytes();self.assertEqual(int.from_bytes(changed_code[symbols['ptr']:symbols['ptr']+8],'little'),base+symbols['data']+4+0x100000000)
+  self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
  def test_rep_table_drives_aggregate_copy(self):
   source=OUT/'rep.c';source.write_text('struct S{int a,b,c,d,e;}; int entry(void){struct S a={1,2,3,4,5},b; b=a; return b.a+b.e;}\n')
   before=hashlib.sha256(self.compiler.read_bytes()).digest()
