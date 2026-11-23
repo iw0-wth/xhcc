@@ -179,6 +179,26 @@ GPR fits/spills, canaries and multiple copies across all three toolchain routes;
 the fixtures returned zero. These are exact two-field layout and bit-preservation
 results, not proof of arbitrary small mixed structures or complete SysV ABI.
 
+Plan consumption also validates the complete placement layout: duplicate
+register allocation, overlapping stack extents, use of an sret-reserved register
+and inconsistent final stack state are rejected. SSEUP register sharing is
+permitted only with explicit class proof for the same argument; current
+canonical plan records do not carry those classes, so repeated registers are
+rejected rather than guessed to be legal SSEUP. Placement consistency checks
+and the rule-file FNV fingerprint are not cryptographic signature security or
+proof of arbitrary source-type correctness.
+
+The actual 913259-byte production root passed all twelve ABI plan codegen tests
+with Clang enabled (6.498 seconds). A positive persistence path reloads real LTO
+IR, emits code assembled by Clang, links through LLVM and executes under Unicorn
+with entry result 1. The stale-fingerprint negative case now requires the
+specific stale-plan diagnostic and excludes missing-template or missing-file
+errors as alternate causes. Reload establishes default rule registration while
+preserving selected custom aliases, and restores pointer/long layout through
+the shared target descriptor before IPO/code generation. A decode-only fixture
+or an unrelated early failure cannot substitute for this positive execution.
+This validation adds no capability and expands none of the ABI subsets above.
+
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.
 

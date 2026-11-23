@@ -28,5 +28,10 @@ int xh_abiplan_load(const char *target,const char *prefix,XhAbiPlanPolicy *out);
  * sret reserves policy.sret_count register slots in policy.sret_bank. */
 int xh_abiplan_begin(const XhAbiPlanPolicy *policy,int sret,XhAbiPlanState *state);
 int xh_abiplan_argument(const XhAbiPlanPolicy *policy,XhAbiPlanState *state,const XhTypeclassResult *classification,unsigned size,unsigned alignment,XhAbiArgumentPlan *out);
+/* Stateless metadata consistency check, not cryptographic certification.
+ * class_proof is NULL or arg_count*2 class IDs for emitted locations; only
+ * explicit proof permits policy.share_previous within one argument. Without
+ * proof every repeated register index is rejected. Never mutates inputs. */
+int xh_abiplan_validate_layout(const XhAbiPlanPolicy *policy,const XhAbiArgumentPlan *args,unsigned arg_count,unsigned stack_bytes,unsigned sret,const XhTypeclassResult *result,const unsigned *class_proof);
 int xh_abiplan_finish(const XhAbiPlanPolicy *policy,const XhAbiPlanState *state,unsigned *stack_bytes);
 #endif

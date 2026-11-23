@@ -295,3 +295,136 @@ bits 0 0 5 7
 bits 1 0 5 15
 bits 2 0 5 20
 end
+rule R_LB 3 0x00000003
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_LH 3 0x00001003
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_LW 3 0x00002003
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_LBU 3 0x00004003
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_LHU 3 0x00005003
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_SB 3 0x00000023
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 20
+bits 1 0 5 15
+bits 2 0 5 7
+bits 2 5 7 25
+end
+rule R_SH 3 0x00001023
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 20
+bits 1 0 5 15
+bits 2 0 5 7
+bits 2 5 7 25
+end
+rule R_SW 3 0x00002023
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 20
+bits 1 0 5 15
+bits 2 0 5 7
+bits 2 5 7 25
+end
+rule R_BEQ 3 0x00000063
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 13 1 2
+bits 0 0 5 15
+bits 1 0 5 20
+bits 2 12 1 31
+bits 2 5 6 25
+bits 2 1 4 8
+bits 2 11 1 7
+end
+rule R_BNE 3 0x00001063
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 13 1 2
+bits 0 0 5 15
+bits 1 0 5 20
+bits 2 12 1 31
+bits 2 5 6 25
+bits 2 1 4 8
+bits 2 11 1 7
+end
+rule R_BLT 3 0x00004063
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 13 1 2
+bits 0 0 5 15
+bits 1 0 5 20
+bits 2 12 1 31
+bits 2 5 6 25
+bits 2 1 4 8
+bits 2 11 1 7
+end
+rule R_BGE 3 0x00005063
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 13 1 2
+bits 0 0 5 15
+bits 1 0 5 20
+bits 2 12 1 31
+bits 2 5 6 25
+bits 2 1 4 8
+bits 2 11 1 7
+end
+rule R_BLTU 3 0x00006063
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 13 1 2
+bits 0 0 5 15
+bits 1 0 5 20
+bits 2 12 1 31
+bits 2 5 6 25
+bits 2 1 4 8
+bits 2 11 1 7
+end
+rule R_BGEU 3 0x00007063
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 13 1 2
+bits 0 0 5 15
+bits 1 0 5 20
+bits 2 12 1 31
+bits 2 5 6 25
+bits 2 1 4 8
+bits 2 11 1 7
+end

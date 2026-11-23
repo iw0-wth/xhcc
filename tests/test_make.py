@@ -497,6 +497,43 @@ class MakeTests(unittest.TestCase):
             self.makefile(content)
             self.run_make(success=False)
 
+    def test_delete_on_error_new_changed_ignored_and_unchanged(self):
+        (self.directory / 'valid.o').write_bytes(b'valid-object')
+        self.makefile('.DELETE_ON_ERROR:\nall: output.o\noutput.o:\n'
+                      '\tcp valid.o "$@"\n\tunknown-command\n')
+        self.assertIn('deleted failed target', self.run_make(success=False).stderr)
+        self.assertFalse((self.directory / 'output.o').exists())
+        output = self.directory / 'output.o'
+        output.write_bytes(b'old-object')
+        old = output.stat().st_mtime_ns - 10_000_000_000
+        os.utime(output, ns=(old, old))
+        self.assertIn('deleted failed target', self.run_make('-B', success=False).stderr)
+        self.assertFalse(output.exists())
+        self.makefile('.DELETE_ON_ERROR:\noutput.o:\n\tcp valid.o "$@"\n\t-unknown-command\n')
+        self.run_make()
+        self.assertTrue(output.exists())
+        self.makefile('.DELETE_ON_ERROR:\noutput.o:\n\tunknown-command\n')
+        self.run_make('-B', success=False)
+        self.assertEqual(output.read_bytes(), b'valid-object')
+
+    def test_precious_and_delete_policy_boundaries(self):
+        (self.directory / 'valid.o').write_bytes(b'valid-object')
+        for special in ['', '.DELETE_ON_ERROR:\n.PRECIOUS: output.o\n',
+                        '.DELETE_ON_ERROR:\n.PRECIOUS: %.o\n']:
+            output = self.directory / 'output.o'
+            if output.exists():
+                output.unlink()
+            self.makefile(special + 'output.o:\n\tcp valid.o "$@"\n\tunknown-command\n')
+            self.run_make(success=False)
+            self.assertEqual(output.read_bytes(), b'valid-object')
+        self.makefile('.DELETE_ON_ERROR:\noutput-dir:\n\tmkdir -p "$@"\n\tunknown-command\n')
+        self.run_make(success=False)
+        self.assertTrue((self.directory / 'output-dir').is_dir())
+        for invalid in ['.DELETE_ON_ERROR: extra\n', '.DELETE_ON_ERROR:\n\techo invalid\n',
+                        '.PRECIOUS: output.o\n\techo invalid\n']:
+            self.makefile(invalid + 'all:\n')
+            self.run_make(success=False)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

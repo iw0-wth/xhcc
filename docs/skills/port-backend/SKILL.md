@@ -24,7 +24,7 @@ description: 为 xhcc 移植或扩展后端配置包、共享规则契约及必�
 
 先写一份可检查的范围说明，列出 ISA、端序、pointer/long/int 宽度、浮点、ABI、对象格式、汇编方言、运行库和支持的 IR 家族。
 
-**已有引擎的配置包变体**：仅当现有引擎、IR wire、布局验证、寄存器/操作数和 ABI 合同能表示需求时，才允许只增加包。CPU 自定义别名、预定义宏、编码字段、有限语义选择、模板和已有 operand shape 的指令名称映射可以复用已有机制。当前 [RV 发射规则](../../rv-emission-rules.md) 的 `isa.mnemonics.r` 将 18 个 R-format mnemonic 映射到外部 encoding key/`rr_r`；复制包新增 `plus R_ADD rr_r` 已在不变主程序下实际返回 42。这是已有引擎可扩展映射的真实能力，不应写成“不能增加 mnemonic”；另有六条 immediate 和三条 shift-immediate 使用外部 `rr_i`/`rr_shamt` 映射、signed12/unsigned5 字段约束；不变主程序下新增 `newplusimm` alias 已实际返回 42。它们仍受已有 operand grammar、目标 ISA 与 ABI 合同约束，不是任意新 ISA；不为这次映射迁移虚构新的 manifest capability。
+**已有引擎的配置包变体**：仅当现有引擎、IR wire、布局验证、寄存器/操作数和 ABI 合同能表示需求时，才允许只增加包。CPU 自定义别名、预定义宏、编码字段、有限语义选择、模板和已有 operand shape 的指令名称映射可以复用已有机制。当前 [RV 发射规则](../../rv-emission-rules.md) 的 `isa.mnemonics.r` 将 18 个 R-format mnemonic 映射到外部 encoding key/`rr_r`；复制包新增 `plus R_ADD rr_r` 已在不变主程序下实际返回 42。这是已有引擎可扩展映射的真实能力，不应写成“不能增加 mnemonic”；另有六条 immediate 和三条 shift-immediate 使用外部 `rr_i`/`rr_shamt` 映射、signed12/unsigned5 字段约束；不变主程序下新增 `newplusimm` alias 已实际返回 42。五 load、三 store、六 branch 的 `rd_mem`/`rs_mem`/`rs_rs_label` 也已外部映射，14 个编码有独立 oracle，新增 load/store/branch aliases 同主程序执行返回 42。既有这些正常指令的名称映射覆盖不能扩张为所有机器 grammar：pseudo lowering、system constants、符号/标签处理等仍有 native 机制。它们仍受已有 operand grammar、目标 ISA 与 ABI 合同约束，不是任意新 ISA；不为这次映射迁移虚构新的 manifest capability。
 
 **新 ISA 或超出现有合同的 ABI**：当前注册、汇编 grammar、lowering、wire 和布局约束并非任意 ISA 插件系统。需要扩展共享描述/VM 合同或增加引擎实现时，明确列出主程序改动与重建要求。不要声称仅放一个目录即可支持任意 ISA，也不要为了这个说法把公共 C 前端复制到包中。
 
@@ -114,6 +114,10 @@ if ($LASTEXITCODE) { throw 'build failed' }
 `abi.plan-small-mixed.v1` 仅认证自然对齐 8B、offset 0/4 的 INT32/FLOAT32 或 FLOAT32/INT32 原始字段组合，并要求 classifier 合并为 single INTEGER。最高签名证明级别 flag32 不是 OR，也不能因另一类型具有相同 placement shape 就放宽。浮点字段以原始位随 GPR/栈复制，不做数值转换。实际 911911 字节根产物 Clang 十一项 codegen 全通过无跳过，三路线 IF/FI identity 保持负零 0x80000000 和 qNaN 0x7fc12345，GPR fits/spill、canary、多 copies fixture 全返回 0。默认 off，非任意小混合结构或完整 SysV；后续扩展须有独立源类型证明与阴性边界。
 
 ABI 计划改动还需依据 [计划 codegen 测试](../../../tests/test_abi_plan_codegen.py) 验证双 TU、Clang 双向混链、超范围 aggregate use 拒绝与过期指纹拒绝。实际 906421 字节根产物已在启用 Clang 的七项测试中全部通过：保留标量、4/8 字节参数/返回、GPR 溢栈、指针字段及三条工具链路线，并覆盖 1/2/3/5/6/7 字节不规则结构的 guard page、canary 与 GPR spill。`IR_AUX_AGGREGATE_EXACT` 的序列化、1..8 合法范围和仅 x86_64 use 消费约束须保留；不要以对齐后的 8 字节访问替代精确长度。该七项结果属于整数结构阶段：其中 float 聚合当时仍拒绝；后续八项结果仅另行认证上段三种纯 SSE 结构。packed、bitfield、union、array、超范围及变参聚合继续拒绝。不能将该结果扩展为 <=16 字节混合聚合、完整 SysV、刷新后的 SD 或实机支持结论；记录模式、标量 use、窄结构 use 和其余聚合未支持须分开验收。
+
+布局评审还必须验证完整分配结果：重复寄存器、stack overlap、sret 预留寄存器和 finish 状态。SSEUP 只有同一参数且带显式 class proof 才可共享寄存器；当前 canonical plan 不含这些 class，重复寄存器应拒绝，不能猜测为合法 SSEUP。该一致性校验与 FNV 规则指纹都不是密码学签名安全。
+
+IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-trip 解码和阴性。实际 913259 字节生产根产物十二项 Clang codegen 全通过（6.498 秒）：LTO reload → Clang assemble → LLVM link → Unicorn 执行，entry=1。过期 FNV 阴性要求明确 stale-fingerprint 诊断，并排除模板缺失和文件 missing 等早期失败。重载必须补齐 default rule 注册且保留 custom alias，IPO/codegen 必须通过共享 target descriptor 恢复 pointer/long 宽度；这些初始化错误也应有正例捕获。此次流程验证不新增能力、不扩大 ABI 范围。
 
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 

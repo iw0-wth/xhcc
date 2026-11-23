@@ -143,6 +143,18 @@ Supported syntax and behavior:
 - Dependency traversal, missing-file errors, cycle detection, mtime-based
   rebuilding, and propagation of recipe/dependency failures. Successful rebuilt
   prerequisites trigger their parents even on coarse timestamp filesystems.
+- An empty `.DELETE_ON_ERROR:` declaration enables cleanup after an executed,
+  unignored recipe command fails. Only that target is considered: a newly
+  created or mtime-changed regular file is removed, with a diagnostic. Existing
+  unchanged files and directories remain. `.PRECIOUS: names patterns...` exempts
+  exact targets or single-`%` patterns. These special declarations cannot carry
+  recipes, and `.DELETE_ON_ERROR` cannot carry prerequisites. Ignored failures,
+  dry runs, and expansion/tokenization errors do not trigger cleanup.
+  WASI/POSIX uses `lstat` to retain symlinks; WASI/Linux compares nanoseconds as
+  well as seconds, while other ports use their available second-resolution
+  timestamp. A changed file with a restored identical timestamp is retained.
+  Cleanup does not remove prerequisites, and deletion failures are reported while
+  the build remains failed. No automatic intermediate cleanup is implemented.
 - `-n` prints without executing, `-B` rebuilds, `-s` suppresses recipe echo, `-k`
   continues independent prerequisites/targets. Recipe prefixes `@` and `-`
   suppress echo and ignore an executed command's failure respectively.

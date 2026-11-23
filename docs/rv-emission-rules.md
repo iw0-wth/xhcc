@@ -177,8 +177,16 @@ are in `encoding.rules`; C only parses rd/rs1/immediate and checks that the
 normalized input fits the encoder's integer API. Tests compare all nine words
 against independent ISA fields, execute a new `newplusimm` spelling as 42 with
 unchanged compiler SHA, and reject immediate boundary violations. Pseudo
-lowering still uses the generic encoding helpers. Load/store/branch descriptor
-tables remain native pending later bounded migrations.
+lowering still uses the generic encoding helpers. Five load, three store and six branch mnemonics additionally use external
+`rd_mem`, `rs_mem` and `rs_rs_label` descriptors with dedicated three-argument
+encoders. Their signed12 memory offsets and signed13/even branch displacements
+are checked by external encoding rules. Symbol lookup, local numeric label
+resolution and unresolved-cross-object branch diagnostics remain native generic
+mechanisms; the selected encoder supplies fixed opcode/function fields at the
+resolved site. Tests inspect all 14 words against independent field formulas,
+exercise new load/store/branch aliases together to return 42 with unchanged
+compiler SHA, and reject offsets and unresolved labels. Fixed pseudo lowering
+and system instruction constants remain native pending later migrations.
 
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for

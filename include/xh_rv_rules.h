@@ -10,6 +10,7 @@ int xh_rv_semantic(AsmBuffer *buffer,const char *family,const char *operation,in
 int xh_rv_mnemonics_load(void);
 const char *xh_rv_r_encoding(const char *mnemonic);
 const char *xh_rv_i_encoding(const char *mnemonic,int *shift_amount);
+const char *xh_rv_encoding_shape(const char *mnemonic,const char *shape);
 int xh_rv_registers_load(void);
 int xh_rv_register_number(const char *name);
 int xh_rv_register_count(void);

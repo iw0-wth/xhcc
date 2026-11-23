@@ -30,7 +30,7 @@ typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*la
 typedef struct Node { struct Node *next; char *name; int state,failed,changed; } Node;
 typedef struct Make {
     Mem *mem; size_t used; Var *vars; Rule *rules,*last,*current;
-    Node *nodes; char *first,*phony; int error,dry,force,silent,keep,recipe_conflict,multi_rule;
+    Node *nodes; char *first,*phony,*precious; int error,dry,force,silent,keep,recipe_conflict,multi_rule,delete_on_error,command_failed;
 } Make;
 typedef struct Auto { const char *target,*first,*all,*stem; } Auto;
 static int fail(Make *m,const char *what,const char *detail) {
@@ -514,6 +514,8 @@ static int parse(Make *m,const char *path,int optional,int depth) {
             ar=target_assignment(m,target,trim(colon));if(ar<0)break;if(ar)continue;
             if(expand(m,trim(colon),0,deps,0))break;
             if(strchr(deps,';')||strchr(deps,':')){fail(m,"unsupported rule syntax",deps);break;}
+            if(!strcmp(target,".DELETE_ON_ERROR")){if(*trim(deps)){fail(m,".DELETE_ON_ERROR requires no prerequisites",0);break;}m->delete_on_error=1;m->current=0;continue;}
+            if(!strcmp(target,".PRECIOUS")){char merged[TEXT];size_t z=0;merged[0]=0;if(m->precious&&(put(m,merged,&z,m->precious)||put(m,merged,&z," ")))break;if(put(m,merged,&z,deps))break;m->precious=copy(m,merged);m->current=0;continue;}
             if(!strcmp(target,".PHONY")) {char merged[TEXT];size_t z=0;merged[0]=0;if(m->phony&&(put(m,merged,&z,m->phony)||put(m,merged,&z," ")))break;if(put(m,merged,&z,deps))break;m->phony=copy(m,merged);m->current=0;continue;}
             if(strchr(target,'&')){fail(m,"grouped targets unsupported",0);break;}
             n=words(m,target,ts,0);if(n<=0){fail(m,"rule needs a target",0);break;}
@@ -592,8 +594,26 @@ static int execute(Make *m,const char *text,const Auto *a) {
             fprintf(stderr,"xhccm make: unknown compiler/command: %s\n",args[1]);rc=1;
         } else rc=xh_driver_main(n+1,args);
     }
-    if(rc){fprintf(stderr,"xhccm make: recipe failed (%d)%s\n",rc,ignore?" (ignored)":"");if(!ignore)return -1;}
+    if(rc){fprintf(stderr,"xhccm make: recipe failed (%d)%s\n",rc,ignore?" (ignored)":"");if(!ignore){m->command_failed=1;return -1;}}
     return 0;
+}
+static void delete_failed_target(Make *m,const char *name,int had_before,const struct stat *before) {
+    struct stat after;char list[TEXT],*items[WORDS+1];int count,i,changed;
+    if(!m->delete_on_error||!m->command_failed||m->dry)return;
+    if(m->precious){strcpy(list,m->precious);count=words(m,list,items,0);if(count<0)return;
+        for(i=0;i<count;i++){const char *stem;size_t length;if(matchword(items[i],name,&stem,&length))return;}}
+#ifdef _WIN32
+    if(stat(name,&after)||!S_ISREG(after.st_mode))return;
+#else
+    if(lstat(name,&after)||!S_ISREG(after.st_mode))return;
+#endif
+    changed=!had_before||after.st_mtime!=before->st_mtime;
+#if defined(__wasi__) || defined(__linux__)
+    if(had_before&&after.st_mtim.tv_nsec!=before->st_mtim.tv_nsec)changed=1;
+#endif
+    if(!changed)return;
+    if(remove(name))fprintf(stderr,"xhccm make: cannot delete failed target %s: %s\n",name,strerror(errno));
+    else fprintf(stderr,"xhccm make: deleted failed target: %s\n",name);
 }
 typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];Rule combined;} Frame;
 static int build(Make *m,const char *name,int depth);
@@ -655,9 +675,16 @@ static int build_impl(Make *m,const char *name,int depth) {
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
     if(node->failed)goto bad;
     if(dirty) {
-        Auto a;a.target=name;a.first=normal?dv[0]:"";a.all=all;a.stem=stem;
-        if(chosen)for(recipe=chosen->recipes;recipe;recipe=recipe->next)if(execute(m,recipe->text,&a))goto bad;
-        if(!chosen&&dn&&execute(m,"$(CC) $(CPPFLAGS) $(CFLAGS) -c \"$<\" -o \"$@\"",&a))goto bad;
+        Auto a;struct stat before;int had_before;
+        a.target=name;a.first=normal?dv[0]:"";a.all=all;a.stem=stem;
+#ifdef _WIN32
+        had_before=stat(name,&before)==0;
+#else
+        had_before=lstat(name,&before)==0;
+#endif
+        m->command_failed=0;
+        if(chosen)for(recipe=chosen->recipes;recipe;recipe=recipe->next)if(execute(m,recipe->text,&a)){delete_failed_target(m,name,had_before,&before);goto bad;}
+        if(!chosen&&dn&&execute(m,"$(CC) $(CPPFLAGS) $(CFLAGS) -c \"$<\" -o \"$@\"",&a)){delete_failed_target(m,name,had_before,&before);goto bad;}
         node->changed=1;
     }
     node->state=2;if(frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return 0;

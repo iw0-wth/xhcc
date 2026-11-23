@@ -27,6 +27,8 @@ typedef struct {unsigned version,abi_id,rule_fingerprint,arg_count,stack_bytes,s
  * parameter planning; otherwise includes promoted variadic argument types.
  * Type graph rejects bitfields, complex and unsupported leaves. Atomic output. */
 int xh_sysv_plan_set_path(const char *path);
+/* Registers the default only when no explicit path has been configured. */
+int xh_sysv_plan_ensure_path(void);
 int xh_build_sysv_plan(const char *rule_target,const char *prefix,Type *function,Type *const *actual_types,unsigned count,XhSysvPlan *out);
 /* Canonical wire codec: little-endian u32 fields, no host struct dump.
  * size returns bytes or 0 invalid. encode returns byte count or -1;

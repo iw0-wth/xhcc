@@ -301,6 +301,36 @@ int entry(void) {
      else:self.invoke(src,obj)
      objects.append(obj)
     self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
+ def test_private_ir_lto_reload_pair16_executes_and_rejects_bad_context(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'full target Clang required')
+  header='struct Pair { long a,b; }; struct Mix { long a; double b; };\n'
+  library_text=header+'struct Pair pair(struct Pair p){p.a+=2;p.b+=3;return p;} struct Mix mix(struct Mix p){p.a+=4;p.b+=0.5;return p;}\n'
+  caller_text=header+'struct Pair pair(struct Pair);struct Mix mix(struct Mix); int entry(void){struct Pair a={7,11},b;struct Mix c={13,2.5},d;b=pair(a);d=mix(c);return b.a==9&&b.b==14&&d.a==17&&d.b==3.0&&a.a==7&&c.a==13;}\n'
+  with tempfile.TemporaryDirectory(prefix='abi-lto-native-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);objects=[]
+   for name,text in [('library',library_text),('caller',caller_text)]:
+    src=work/(name+'.c');src.write_text(text);obj=src.with_suffix('.o');self.invoke(src,obj,'--private-object','--obj-ir');objects.append(obj)
+   output=work/'reload.s'
+   args=[*command(),'--ark-compat','-target','x86_64','-fuse-sysv-abi-plan','--lto','-link',*[str(p.relative_to(ROOT)) for p in objects],'-O0','-S','-o',str(output.relative_to(ROOT))]
+   p=subprocess.run(args,cwd=ROOT,capture_output=True,text=True,timeout=60);self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+   native=work/'reload.o'
+   p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-c',str(output),'-o',str(native)],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+   self.assertEqual(self.execute([native],work/'combined.o'),1)
+   # Same real payload, incompatible engine/mode: never silently use its address wires.
+   for target,use in [('arm',False),('x86_64',False)]:
+    badout=work/(target+'_no_use.s')
+    badargs=[*command(),'--ark-compat','-target',target,'--lto','-link',*[str(p.relative_to(ROOT)) for p in objects],'-O0','-S','-o',str(badout.relative_to(ROOT))]
+    p=subprocess.run(badargs,cwd=ROOT,capture_output=True,text=True,timeout=60)
+    self.assertNotEqual(p.returncode,0,p.stdout+p.stderr);self.assertFalse(badout.exists())
+    self.assertTrue('plan' in (p.stdout+p.stderr).lower() or 'aggregate' in (p.stdout+p.stderr).lower(),p.stdout+p.stderr)
+   for invalid in [3,64]:
+    data=bytearray(objects[0].read_bytes());start=data.index(b'ARKIR1\n');count=struct.unpack_from('<I',data,start+16)[0];cursor=start+20
+    for _ in range(count):
+     length=struct.unpack_from('<I',data,cursor)[0];cursor+=4;self.assertEqual(struct.unpack_from('<I',data,cursor+4)[0],2);struct.pack_into('<I',data,cursor+28,invalid);cursor+=length
+    corrupt=work/f'flags{invalid}.o';corrupt.write_bytes(data);badout=work/f'flags{invalid}.s'
+    p=subprocess.run([*command(),'--ark-compat','-target','x86_64','-fuse-sysv-abi-plan','--lto','-link',str(corrupt.relative_to(ROOT)),str(objects[1].relative_to(ROOT)),'-O0','-S','-o',str(badout.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True,timeout=60)
+    self.assertNotEqual(p.returncode,0,p.stdout+p.stderr);self.assertFalse(badout.exists());self.assertIn('ABI plan',(p.stdout+p.stderr))
  def test_variadic_aggregate_is_rejected(self):
   cases=['struct S { int x; }; extern int f(int,...); int entry(void) { struct S a={3};return f(1,a); }']
   with tempfile.TemporaryDirectory(prefix='abi-small-reject-',dir=ROOT/'build') as tmp:
@@ -328,7 +358,10 @@ int entry(void) {
                     cwd=ROOT,capture_output=True,text=True,timeout=60)
    self.assertNotEqual(p.returncode,0,p.stdout+p.stderr)
    self.assertFalse(out.exists())
-   self.assertIn('stale plans',(p.stdout+p.stderr).lower())
+   diagnostics=(p.stdout+p.stderr).lower()
+   self.assertIn('stale plans',diagnostics)
+   for unrelated in ['no templates configured','file missing','missing or oversized','cannot open']:
+    self.assertNotIn(unrelated,diagnostics)
  def test_mixed_reference_clang_both_directions(self):
   clang=os.environ.get('CLANG_REFERENCE') or shutil.which('clang') or (str(Path(r'D:\msys64\ucrt64\bin\clang.exe')) if Path(r'D:\msys64\ucrt64\bin\clang.exe').is_file() else None)
   if not clang:self.skipTest('native reference Clang unavailable; set CLANG_REFERENCE')

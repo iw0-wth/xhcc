@@ -4,12 +4,12 @@
 #include <string.h>
 #define MAGIC 0x50414858u
 static int power(unsigned n){return n&&!(n&(n-1));}
-static int valid(const XhSysvPlan*p){unsigned i,j;if(!p||(p->version!=1&&p->version!=2)||p->abi_id!=1||(p->flags!=0&&p->flags!=1&&p->flags!=2&&p->flags!=4&&p->flags!=8&&p->flags!=16&&p->flags!=32)||(p->version==1&&p->flags)||p->arg_count>64||p->sret>1||p->result.memory<0||p->result.memory>1||(unsigned)p->result.memory!=p->sret||p->result.count>2||(p->result.memory&&p->result.count)||p->stack_bytes>0x7fffffffu||p->stack_bytes%16)return 0;
+static int valid(const XhSysvPlan*p){unsigned i,j,occupied[2]={0,0};if(!p||(p->version!=1&&p->version!=2)||p->abi_id!=1||(p->flags!=0&&p->flags!=1&&p->flags!=2&&p->flags!=4&&p->flags!=8&&p->flags!=16&&p->flags!=32)||(p->version==1&&p->flags)||p->arg_count>64||p->sret>1||p->result.memory<0||p->result.memory>1||(unsigned)p->result.memory!=p->sret||p->result.count>2||(p->result.memory&&p->result.count)||p->stack_bytes>0x7fffffffu||p->stack_bytes%16)return 0;
  for(j=0;j<p->result.count;j++){const XhTypeclassFragment*f=&p->result.fragments[j];if(f->class_id<0||f->class_id>7||!f->size||f->size>16||f->offset>65535||f->size>65535-f->offset||(j&&f->offset<p->result.fragments[j-1].offset+p->result.fragments[j-1].size))return 0;}
  for(i=0;i<p->arg_count;i++){const XhAbiArgumentPlan*a=&p->args[i];if(a->version!=1||a->by_value_stack>1||a->size>0x7fffffffu||!power(a->alignment)||a->alignment>256||a->count>2||(a->by_value_stack&&a->count))return 0;
-  if(a->by_value_stack){if(a->stack_offset%a->alignment||a->stack_offset>p->stack_bytes||a->stack_extent<a->size||a->stack_extent>p->stack_bytes-a->stack_offset)return 0;}
+  if(a->by_value_stack){unsigned k;for(k=0;k<i;k++)if(p->args[k].by_value_stack&&a->stack_offset<p->args[k].stack_offset+p->args[k].stack_extent&&p->args[k].stack_offset<a->stack_offset+a->stack_extent)return 0;if(a->stack_offset%a->alignment||a->stack_offset>p->stack_bytes||a->stack_extent<a->size||a->stack_extent>p->stack_bytes-a->stack_offset)return 0;}
   else if(a->stack_offset||a->stack_extent)return 0;
-  for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];if(f->bank>1||f->index>=32||!f->size||f->object_offset>a->size||f->size>a->size-f->object_offset||f->stack_offset||(j&&f->object_offset<a->fragments[j-1].object_offset+a->fragments[j-1].size))return 0;}
+  for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];if(f->bank>1||f->index>=32||!f->size||f->object_offset>a->size||f->size>a->size-f->object_offset||f->stack_offset||(j&&f->object_offset<a->fragments[j-1].object_offset+a->fragments[j-1].size))return 0;if(occupied[f->bank]&(1u<<f->index))return 0;occupied[f->bank]|=1u<<f->index;}
  }
  return 1;}
 unsigned xh_sysv_plan_wire_size(const XhSysvPlan*p){return valid(p)?4u*(15u+(p->version>=2?1u:0u)+17u*p->arg_count):0;}

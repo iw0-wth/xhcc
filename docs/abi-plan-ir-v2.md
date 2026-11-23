@@ -316,6 +316,38 @@ SysV aggregate interoperability. Recursive certification is a source contract;
 this execution fixture directly covers flat sizes 1 through 8 and pointer fields.
 The preceding IR persistence and builder/codec suites remain separate evidence.
 
+## Reload validation follow-up
+
+The real private-IR reload positive exposed two legacy-entry initialization
+gaps: no aggregate-rule alias registration, then no restoration of the target's
+pointer/long layout before deserialization and source-type validation. An earlier
+stale-plan negative could therefore fail first with `no templates configured`;
+that historical failure alone was insufficient fingerprint evidence.
+
+Both gaps are corrected: default alias registration preserves an already
+configured custom path, and LTO restores layout from the selected shared target
+descriptor. Root 913259 passed **12/12 codegen tests and 2/2 IR tests**. The two-TU
+Pair16/Mix16 positive saves private IR, reloads and merges it through legacy LTO,
+emits assembly, assembles it with full-target Clang, links with LLVM, and actually
+executes to return 1. The strengthened fingerprint negative now passes alongside
+that positive, requires the stale-plan diagnostic and excludes missing-template
+or missing-file errors.
+
+The same generated payload is rejected in ARM or non-use contexts; invalid
+certification values 3 and 64 are rejected. The actual IR harness also checks a
+legal indirect call whose count includes its callee pointer, then rejects a
+mutated count exceeding the complete argument-size run, and rejects a by-value
+address width changed from 16 to 8. These tests exercise failure layers rather
+than infer safety from successful parsing alone. Cross-target tests establish
+rejection at the available compatibility/engine boundary, not that every such
+input necessarily reaches the same validator.
+
+Validation covers full metadata and placement consistency, including rule
+fingerprint, ABI/type layout, register/stack locations and supported context.
+FNV is change detection, not a cryptographic signature or proof that arbitrary
+untrusted metadata is authentic. No schema version or ABI support scope was
+expanded in this follow-up.
+
 ## Next phase and package guidance
 
 Remaining aggregate integration includes other 16-byte and larger/multi-fragment

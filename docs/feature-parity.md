@@ -164,6 +164,18 @@ an exposed assembler symbol/register ambiguity was fixed without renaming it. Sc
 rejections and stale-fingerprint LTO rejection also passed. No Clang test was
 skipped. This proves the tested small-integer-structure subset, not complete
 SysV aggregate ABI interoperability.
+A subsequent real legacy-LTO reload exposed missing aggregate-rule alias
+registration and missing target pointer/long layout restoration. Those two
+initialization gaps are corrected. Root 913259 passed **12/12 codegen and 2/2 IR
+tests**, including Pair16/Mix16 private-IR save/reload/merge, Clang assembly,
+LLVM linking and CPU execution returning 1. The earlier fingerprint negative
+alone could fail at configuration and was insufficient evidence; its strengthened
+version now passes beside that positive, requires a stale-plan diagnostic and
+excludes missing-template/file errors. Same-payload wrong-target/no-use contexts,
+invalid certification values and malformed indirect argument runs/address widths
+are rejected. Layout/register/stack/fingerprint consistency is validated, while
+FNV remains change detection, not cryptographic authentication. This follow-up
+does not expand the ABI subset or schema version.
 See [ABI plan IR v2](abi-plan-ir-v2.md) for the wire fields, capacities and exact
 compatibility/verification boundaries.
 

@@ -29,6 +29,10 @@ dst=ir_program_new();if(ir_program_add_abi_plan(dst,&plan)!=1)return 4;ir_progra
 if(ir_serialize(dst,wire,sizeof(wire),"merge")<0)return 6;
 /* A valid one-entry argument run must reject a payload edited to claim two. */
 p=ir_program_new();f=ir_func_new("run_bounds");{int bytes=4,pos;ir_program_add_argbytes(p,&bytes,1);ir_emit(f,IR_CALL,1,"wirecall",0);f->code[0].aux2=1;ir_program_add(p,f);n=ir_serialize(p,wire,sizeof(wire),"run");if(n<0)return 20;for(pos=20;pos+8<n;pos++)if(!memcmp(wire+pos,"wirecall",8))break;if(pos+8>=n)return 21;wire[pos-16]=2;if(ir_deserialize(wire,n,"malicious-run"))return 22;f->code[0].val=2;if(ir_serialize(p,wire,sizeof(wire),"bad-writer-run")>=0)return 23;}
+/* Indirect count includes its function pointer but the run does not. */
+p=ir_program_new();f=ir_func_new("indirect_bounds");{int bytes=4,pos;ir_program_add_argbytes(p,&bytes,1);ir_emit(f,IR_CALL,2,"?indirect",0);f->code[0].aux2=1;ir_program_add(p,f);n=ir_serialize(p,wire,sizeof(wire),"indirect-valid");if(n<0||!ir_deserialize(wire,n,"indirect-valid"))return 24;for(pos=20;pos+9<n;pos++)if(!memcmp(wire+pos,"?indirect",9))break;if(pos+9>=n)return 25;wire[pos-16]=3;if(ir_deserialize(wire,n,"indirect-bad-run"))return 26;}
+/* Address-backed by-value metadata must never mix slot/FP flags or sizes. */
+p=ir_program_new();{int bytes=16|IR_ARG_BYVALUE_ADDRESS|0x10000,pos;ir_program_add_argbytes(p,&bytes,1);n=ir_serialize(p,wire,sizeof(wire),"address-valid");if(n<0||!ir_deserialize(wire,n,"address-valid"))return 27;for(pos=20;pos+4<=n;pos++)if(wire[pos]==16&&wire[pos+1]==0&&wire[pos+2]==9&&wire[pos+3]==0)break;if(pos+4>n)return 28;wire[pos]=8;if(ir_deserialize(wire,n,"address-bad-width"))return 29;}
 /* Empty v2 has only one added count field: remove it for an actual v1 fixture. */
 p=ir_program_new();n=ir_serialize(p,wire,sizeof(wire),"empty");memcpy(oldwire,wire,16);memcpy(oldwire+16,wire+20,n-20);oldwire[8]=1;n-=4;{unsigned body=n-16;int k;for(k=0;k<4;k++)oldwire[12+k]=(unsigned char)(body>>(8*k));}
 copy=ir_deserialize(oldwire,n,"legacy-v1");if(!copy||copy->abi_plan_count)return 7;

@@ -213,6 +213,22 @@ unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff00000123
    for instruction in ['addi t0,t1,-2049','addi t0,t1,2048','slli t0,t1,-1','srai t0,t1,32']:
     path=OUT/'ibad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'ibad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('range',p.stderr)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_memory_branch_descriptors_and_aliases(self):
+  import struct
+  loads=[('lb',0),('lh',1),('lw',2),('lbu',4),('lhu',5)];stores=[('sb',0),('sh',1),('sw',2)];branches=[('beq',0),('bne',1),('blt',4),('bge',5),('bltu',6),('bgeu',7)]
+  instructions='\\n'.join([f'{name} t0, -17(t1)' for name,_ in loads]+[f'{name} t0, 31(t1)' for name,_ in stores]+[f'{name} t0,t1,71f\\n71:' for name,_ in branches]);exe=self.compile('int entry(void){asm("'+instructions+'");return 1;}','membranch_oracle')
+  expected=b''
+  for _,f3 in loads:expected+=struct.pack('<I',((-17&4095)<<20)|(6<<15)|(f3<<12)|(5<<7)|3)
+  for _,f3 in stores:expected+=struct.pack('<I',((31>>5)<<25)|(5<<20)|(6<<15)|(f3<<12)|((31&31)<<7)|0x23)
+  for _,f3 in branches:expected+=struct.pack('<I',(5<<15)|(6<<20)|(f3<<12)|(2<<8)|0x63)
+  with exe.open('rb') as f:self.assertIn(expected,ELFFile(f).get_section_by_name('.text').data())
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-membranch-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();rules.write_text(original.replace('lw R_LW rd_mem\\n','lw R_LW rd_mem\\nloadword R_LW rd_mem\\n').replace('sw R_SW rs_mem\\n','sw R_SW rs_mem\\nstoreword R_SW rs_mem\\n').replace('beq R_BEQ rs_rs_label\\n','beq R_BEQ rs_rs_label\\nbranchequal R_BEQ rs_rs_label\\n'))
+   source='int entry(void){int result;asm volatile("addi sp,sp,-4\\n li t0,42\\n storeword t0,0(sp)\\n loadword %0,0(sp)\\n addi sp,sp,4\\n branchequal %0,t0,72f\\n li %0,0\\n72:" : "=r"(result));return result;}';changed=self.compile(source,'memorybranch42',root);self.assertEqual(self.execute(changed),42)
+   for instruction in ['loadword t0,-2049(t1)','storeword t0,2048(t1)','branchequal t0,t1,missinglabel']:
+    path=OUT/'mbbad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'mbbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

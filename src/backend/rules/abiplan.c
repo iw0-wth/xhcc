@@ -33,3 +33,24 @@ int xh_abiplan_argument(const XhAbiPlanPolicy*p,XhAbiPlanState*state,const XhTyp
  next.argument_count++;*state=next;*out=plan;return 0;
 }
 int xh_abiplan_finish(const XhAbiPlanPolicy*p,const XhAbiPlanState*s,unsigned*out){unsigned size;if(!out||!state_ok(p,s)||aligned(s->stack_size,p->call_alignment,&size))return error();*out=size;return 0;}
+
+/* Validate the complete signature, including resources invisible in one arg. */
+int xh_abiplan_validate_layout(const XhAbiPlanPolicy*p,const XhAbiArgumentPlan*args,unsigned count,unsigned stack_bytes,unsigned sret,const XhTypeclassResult*result,const unsigned*proof){
+ unsigned occupied[2]={0,0},i,j,end=0,finished;unsigned starts[64],ends[64],nstack=0;
+ if(!policy_ok(p)||count>64||(count&&!args)||sret>1||!result||result->memory<0||result->memory>1||result->count>2||(result->memory&&result->count)||(unsigned)result->memory!=sret)return error();
+ if(sret)for(i=0;i<p->sret_count;i++)occupied[p->sret_bank]|=1u<<i;
+ for(i=0;i<result->count;i++){const XhTypeclassFragment*f=&result->fragments[i];const XhAbiPlanClass*c;if(f->class_id<0||(unsigned)f->class_id>=p->class_count||!f->size||f->offset>65535||f->size>65535-f->offset||(i&&f->offset<result->fragments[i-1].offset+result->fragments[i-1].size))return error();c=&p->classes[f->class_id];if(c->share_previous){const XhAbiPlanClass*previous;if(!i)return error();previous=&p->classes[result->fragments[i-1].class_id];if(previous->bank!=c->bank||previous->bank==2)return error();}}
+ for(i=0;i<count;i++){const XhAbiArgumentPlan*a=&args[i];unsigned last=0,extent;
+  if(a->version!=1||a->by_value_stack>1||!power(a->alignment)||a->alignment>p->max_alignment||a->count>2)return error();
+  if(a->by_value_stack){if(a->count||a->alignment<p->stack_slot||a->stack_offset%a->alignment||aligned(a->size,p->stack_slot,&extent)||a->stack_extent!=extent||a->stack_offset>UINT_MAX-a->stack_extent)return error();starts[nstack]=a->stack_offset;ends[nstack]=a->stack_offset+a->stack_extent;for(j=0;j<nstack;j++)if(starts[nstack]<ends[j]&&starts[j]<ends[nstack])return error();if(ends[nstack]>end)end=ends[nstack];nstack++;continue;}
+  if(a->stack_offset||a->stack_extent||(!a->count&&a->size))return error();
+  for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];const XhAbiPlanClass*c=0;unsigned bit;int share=0;
+   if(f->bank>1||f->index>=p->capacity[f->bank]||!f->size||f->object_offset<last||f->object_offset>a->size||f->size>a->size-f->object_offset||f->stack_offset)return error();last=f->object_offset+f->size;
+   if(proof){unsigned id=proof[2*i+j];if(id>=p->class_count)return error();c=&p->classes[id];if(c->bank!=f->bank)return error();share=(int)c->share_previous;}
+   bit=1u<<f->index;
+   if(share){const XhAbiPlanLocation*previous;unsigned previous_id;if(!j)return error();previous=&a->fragments[j-1];previous_id=proof[2*i+j-1];if(previous->bank!=f->bank||previous->index!=f->index||previous_id>=p->class_count||p->classes[previous_id].bank!=f->bank||!p->classes[previous_id].demand)return error();}
+   else{if(occupied[f->bank]&bit)return error();occupied[f->bank]|=bit;}
+  }
+ }
+ if(aligned(end,p->call_alignment,&finished)||finished!=stack_bytes)return error();return 0;
+}

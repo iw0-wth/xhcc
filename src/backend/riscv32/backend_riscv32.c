@@ -2234,15 +2234,6 @@ static int rv_sym_addr(RvAsm *a, const char *name, int dir) {
 
 /* ---- one instruction -------------------------------------------------- */
 static void rv_insn(RvAsm *a, const char **pp) {
-    static const struct { const char *n; int f3; } ltab[] = {
-        {"lb",0x0},{"lh",0x1},{"lw",0x2},{"lbu",0x4},{"lhu",0x5}
-    };
-    static const struct { const char *n; int f3; } sstab[] = {
-        {"sb",0x0},{"sh",0x1},{"sw",0x2}
-    };
-    static const struct { const char *n; int f3; } btab[] = {
-        {"beq",0x0},{"bne",0x1},{"blt",0x4},{"bge",0x5},{"bltu",0x6},{"bgeu",0x7}
-    };
     const char *p = *pp;
     char mn[16];
     int i, n;
@@ -2355,8 +2346,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
         return;
     }
     if (rv_streq_(mn, "j") || rv_streq_(mn, "beqz") || rv_streq_(mn, "bnez") ||
-        rv_streq_(mn, "beq") || rv_streq_(mn, "bne") || rv_streq_(mn, "blt") ||
-        rv_streq_(mn, "bge") || rv_streq_(mn, "bltu") || rv_streq_(mn, "bgeu") ||
+        xh_rv_encoding_shape(mn,"rs_rs_label") ||
         rv_streq_(mn, "jal")) {
         int rs1 = -1, rs2 = -1, f3 = 0, is_j = 0, is_jal = 0;
         int rel;
@@ -2386,8 +2376,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
                 rv_error(a, "line %s: the branch needs two registers", "", "");
                 return;
             }
-            for (i = 0; i < (int)(sizeof(btab) / sizeof(btab[0])); i++)
-                if (rv_streq_(btab[i].n, mn)) f3 = btab[i].f3;
+
         }
         if (!rv_read_symbol(&p, sym, (int)sizeof(sym), &dir)) {
             rv_error(a, "line %s: the operand must be a label", "", "");
@@ -2420,7 +2409,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
                             "RV32I displacement", sym, "");
                 return;
             }
-            rv_ins(a, rv_enc_b(rel, rs2 < 0 ? 0 : rs2, rs1, f3, RV_OP_BRANCH));
+            {const char*encoding=xh_rv_encoding_shape(mn,"rs_rs_label");if(encoding){int args[3]={rs1,rs2,rel};rv_ins(a,rv_rule(encoding,args,3));}else rv_ins(a,rv_enc_b(rel,rs2<0?0:rs2,rs1,f3,RV_OP_BRANCH));}
         }
         *pp = p;
         return;
@@ -2510,46 +2499,10 @@ static void rv_insn(RvAsm *a, const char **pp) {
         if(imm<(-2147483647LL-1)||imm>2147483647LL){rv_error(a,"line %s: immediate does not fit encoder input","","");return;}
         {int args[3]={rd,rs1,(int)imm};rv_ins(a,rv_rule(encoding,args,3));}*pp=p;return;
     }}
-    for (i = 0; i < (int)(sizeof(ltab) / sizeof(ltab[0])); i++) {
-        if (rv_streq_(ltab[i].n, mn)) {
-            int rd = rv_read_reg(&p), rb = -1, off = 0;
-            if (rd < 0) { rv_error(a, "line %s: the load needs a register", "", ""); return; }
-            rv_skip_ws(&p);
-            if (*p++ != ',') { rv_error(a, "line %s: the operand list needs a comma", "", ""); return; }
-            if (!rv_read_mem(&p, &off, &rb)) {
-                rv_error(a, "line %s: the load needs an offset(base) operand", "", "");
-                return;
-            }
-            if (off < -2048 || off > 2047) {
-                rv_error(a, "line %s: the load offset is outside the 12-bit signed "
-                            "range", "", "");
-                return;
-            }
-            rv_ins(a, rv_enc_i(off, rb, ltab[i].f3, rd, RV_OP_LOAD));
-            *pp = p;
-            return;
-        }
-    }
-    for (i = 0; i < (int)(sizeof(sstab) / sizeof(sstab[0])); i++) {
-        if (rv_streq_(sstab[i].n, mn)) {
-            int rs2 = rv_read_reg(&p), rb = -1, off = 0;
-            if (rs2 < 0) { rv_error(a, "line %s: the store needs a register", "", ""); return; }
-            rv_skip_ws(&p);
-            if (*p++ != ',') { rv_error(a, "line %s: the operand list needs a comma", "", ""); return; }
-            if (!rv_read_mem(&p, &off, &rb)) {
-                rv_error(a, "line %s: the store needs an offset(base) operand", "", "");
-                return;
-            }
-            if (off < -2048 || off > 2047) {
-                rv_error(a, "line %s: the store offset is outside the 12-bit signed "
-                            "range", "", "");
-                return;
-            }
-            rv_ins(a, rv_enc_s(off, rs2, rb, sstab[i].f3, RV_OP_STORE));
-            *pp = p;
-            return;
-        }
-    }
+    {const char*encoding=xh_rv_encoding_shape(mn,"rd_mem");int store=0;if(!encoding){encoding=xh_rv_encoding_shape(mn,"rs_mem");store=1;}if(encoding){
+        int reg=rv_read_reg(&p),base=-1,offset=0;rv_skip_ws(&p);if(reg<0||*p++!=','||!rv_read_mem(&p,&offset,&base)){rv_error(a,"line %s: memory instruction requires register and offset(base)","","");return;}
+        {int args[3]={reg,base,offset};rv_ins(a,rv_rule(encoding,args,3));}*pp=p;return;
+    }}
     rv_error(a, "line %s: unknown riscv32 mnemonic '%s'", mn, "");
     *pp = p;
 }

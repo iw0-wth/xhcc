@@ -51,6 +51,9 @@
 #include "diag.h"
 #include "pipeline.h"
 #include "irser.h"
+#ifdef XHCC
+#include "xh_target_rules.h"
+#endif
 
 #if ARKCC_FEATURE_IPO
 
@@ -630,7 +633,16 @@ int ark_lto_link(const ArkOptions *opts)
                   0, 0, 0, 0, 0, 0);
         return ARK_ERR_OOM;
     }
+#ifdef XHCC
+    {
+        const XhTargetDescriptor *td=xh_target_rules_get(be->name);
+        if(!td)return ARK_ERR_ARG;
+        type_set_ptr_size((int)td->pointer_bytes);
+        type_set_long_size((int)td->long_bytes);
+    }
+#else
     type_set_ptr_size(be->pointer_size);
+#endif
     prog = ir_program_new();
 
     for (i = 0; i < n; i++) {
