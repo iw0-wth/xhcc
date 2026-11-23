@@ -119,6 +119,8 @@ ABI 计划改动还需依据 [计划 codegen 测试](../../../tests/test_abi_pla
 
 IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-trip 解码和阴性。实际 913259 字节生产根产物十二项 Clang codegen 全通过（6.498 秒）：LTO reload → Clang assemble → LLVM link → Unicorn 执行，entry=1。过期 FNV 阴性要求明确 stale-fingerprint 诊断，并排除模板缺失和文件 missing 等早期失败。重载必须补齐 default rule 注册且保留 custom alias，IPO/codegen 必须通过共享 target descriptor 恢复 pointer/long 宽度；这些初始化错误也应有正例捕获。此次流程验证不新增能力、不扩大 ABI 范围。
 
+函数边界还必须在 native emission 前由持久化 source Type 重建 expected named-signature plan，使用共享 `plan_equal` 分别核对 parameter/result 引用。等价内容位于不同表索引应接受；独立布局合法但属于另一函数签名的计划应拒绝。实际 914446 字节根产物十三项 native codegen 与两项 IR 测试全通过：original 和 equivalent-different-index LTO 重发射后均执行 entry=1；单独替换 parameter 或 result 引用为 double 他函数计划，均得到精确 source signature mismatch 诊断。CALL 实参 Type 未持久化，调用点只能检查布局一致性，不能将函数重建检验扩张为全调用源类型认证或密码学安全。这不增加 schema/capability，也不扩大 ABI 类型范围。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

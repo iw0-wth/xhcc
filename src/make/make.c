@@ -32,7 +32,7 @@ typedef struct Make {
     Mem *mem; size_t used; Var *vars; Rule *rules,*last,*current;
     Node *nodes; char *first,*phony,*precious; int error,dry,force,silent,keep,recipe_conflict,multi_rule,delete_on_error,command_failed;
 } Make;
-typedef struct Auto { const char *target,*first,*all,*stem; } Auto;
+typedef struct Auto { const char *target,*first,*all,*stem,*newer,*order; } Auto;
 static int fail(Make *m,const char *what,const char *detail) {
     fprintf(stderr,"xhccm make: %s%s%s\n",what,detail?": ":"",detail?detail:"");
     m->error=1; return -1;
@@ -211,7 +211,7 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     }
     if(kind==11)return wildcard(m,values[0],out)?-1:1;
     if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->local?"automatic":v->overridden?"override":v->command?"command line":v->is_default?"default":"file";
-        if(a&&*name&&!name[1]&&strchr("@<^*",*name))origin="automatic";
+        if(a&&*name&&!name[1]&&strchr("@<^*?|",*name))origin="automatic";
         return put(m,out,&used,origin)?-1:1;}
     if(kind==13)return fail(m,"error",values[0]);
     if(kind==14){fprintf(stderr,"xhccm make: warning: %s\n",values[0]);return 1;}
@@ -296,6 +296,8 @@ static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
                 if(k+1>=sizeof(name))return fail(m,"variable expression too long",0);name[k++]=*s++;
             }
             if(level)return fail(m,"unterminated variable reference",0);name[k]=0;
+            if(!strcmp(name,"+"))return fail(m,"automatic $+ is unsupported (duplicate prerequisites not retained)",0);
+            if(a&&strlen(name)==1&&strchr("?|",name[0])){if(put(m,out,&n,name[0]=='?'?a->newer:a->order))return -1;continue;}
             if(a&&strlen(name)==2&&(name[0]=='@'||name[0]=='<')&&(name[1]=='D'||name[1]=='F')) {
                 const char *path=name[0]=='@'?a->target:a->first,*slash=strrchr(path,'/');
                 if(name[1]=='F')value=slash?slash+1:path;
@@ -316,6 +318,8 @@ static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
             switch(*s) {
             case '@':value=a?a->target:"";break;case '<':value=a?a->first:"";break;
             case '^':value=a?a->all:"";break;case '*':value=a?a->stem:"";break;
+            case '?':value=a?a->newer:"";break;case '|':value=a?a->order:"";break;
+            case '+':return fail(m,"automatic $+ is unsupported (duplicate prerequisites not retained)",0);
             case 0:return fail(m,"trailing dollar",0);
             default:v=variable(m,name);if(v) {char nested[TEXT];if(expand(m,v->value,a,nested,depth+1))return -1;if(put(m,out,&n,nested))return -1;}s++;continue;
             }
@@ -615,11 +619,17 @@ static void delete_failed_target(Make *m,const char *name,int had_before,const s
     if(remove(name))fprintf(stderr,"xhccm make: cannot delete failed target %s: %s\n",name,strerror(errno));
     else fprintf(stderr,"xhccm make: deleted failed target: %s\n",name);
 }
-typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];Rule combined;} Frame;
+typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];Rule combined;char *newer,*order;size_t list_bytes;} Frame;
+static void release_frame(Make *m,Frame *frame) {
+    if(!frame)return;
+    release(m,frame->newer,frame->list_bytes);release(m,frame->order,frame->list_bytes);
+    if(frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);
+    release(m,frame,sizeof(*frame));
+}
 static int build(Make *m,const char *name,int depth);
 static int build_impl(Make *m,const char *name,int depth) {
     Node *node,*depnode;Rule *r,*chosen=0;Recipe *recipe;struct stat st,depst;
-    Frame *frame=0;char *deps,*all,*stem,**dv;int dn,i,present,dirty,phony,normal;size_t used=0;
+    Frame *frame=0;char *deps,*all,*stem,**dv;int dn,i,present,dirty,phony,normal;size_t used=0,newer_used=0,order_used=0;
     if(strlen(name)>=TEXT)return fail(m,"target path too long",0);
     if(depth>DEPTH)return fail(m,"dependency nesting limit",name);
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
@@ -650,6 +660,9 @@ static int build_impl(Make *m,const char *name,int depth) {
         if(len>2&&!strcmp(name+len-2,".o")) {memcpy(stem,name,len-2);stem[len-2]=0;if(len+3>=TEXT){fail(m,"target path too long",name);goto bad;}deps[0]='"';memcpy(deps+1,name,len-1);deps[len]='c';deps[len+1]='"';deps[len+2]=0;}
         else if(!present&&!phony){fail(m,"no rule to make target",name);goto bad;}
     }
+    frame->list_bytes=strlen(deps)+1;
+    frame->newer=(char *)alloc(m,frame->list_bytes);frame->order=(char *)alloc(m,frame->list_bytes);
+    if(!frame->newer||!frame->order)goto bad;
     /* Separate order-only dependencies before tokenization; accept a | with
      * or without adjacent whitespace. Quoted path separators remain literal. */
     {char *p=deps,*bar=0;int quote=0;
@@ -662,21 +675,24 @@ static int build_impl(Make *m,const char *name,int depth) {
     /* An existing file without an explicit rule is a leaf when no implicit
      * source exists. Preserve implicit rebuilds when the source is present. */
     if(!chosen&&present&&dn&&!exists(dv[0],&depst)) {
-        node->state=2;release(m,frame,sizeof(*frame));return 0;
+        node->state=2;release_frame(m,frame);return 0;
     }
     for(i=0;i<dn;i++) {
-        int j;if(build(m,dv[i],depth+1)){node->failed=1;if(!m->keep)goto bad;continue;}
-        if(i>=normal)continue;
-        if(!exists(dv[i],&depst)||!present||depst.st_mtime>st.st_mtime||isphony(m,dv[i]))dirty=1;
-        for(depnode=m->nodes;depnode;depnode=depnode->next)if(!strcmp(depnode->name,dv[i])){if(depnode->changed)dirty=1;break;}
+        int j,updated=0;if(build(m,dv[i],depth+1)){node->failed=1;if(!m->keep)goto bad;continue;}
+        if(i>=normal){for(j=normal;j<i;j++)if(!strcmp(dv[j],dv[i]))break;
+            if(j==i){if(order_used&&put(m,frame->order,&order_used," "))goto bad;if(put(m,frame->order,&order_used,dv[i]))goto bad;}continue;}
+        if(!exists(dv[i],&depst)||!present||depst.st_mtime>st.st_mtime||isphony(m,dv[i]))updated=1;
+        for(depnode=m->nodes;depnode;depnode=depnode->next)if(!strcmp(depnode->name,dv[i])){if(depnode->changed)updated=1;break;}
+        if(updated)dirty=1;
         for(j=0;j<i;j++)if(!strcmp(dv[j],dv[i]))break;
-        if(j==i){if(used&&put(m,all,&used," "))goto bad;if(put(m,all,&used,dv[i]))goto bad;}
+        if(j==i){if(used&&put(m,all,&used," "))goto bad;if(put(m,all,&used,dv[i]))goto bad;
+            if(updated){if(newer_used&&put(m,frame->newer,&newer_used," "))goto bad;if(put(m,frame->newer,&newer_used,dv[i]))goto bad;}}
     }
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
     if(node->failed)goto bad;
     if(dirty) {
         Auto a;struct stat before;int had_before;
-        a.target=name;a.first=normal?dv[0]:"";a.all=all;a.stem=stem;
+        a.target=name;a.first=normal?dv[0]:"";a.all=all;a.stem=stem;a.newer=frame->newer;a.order=frame->order;
 #ifdef _WIN32
         had_before=stat(name,&before)==0;
 #else
@@ -687,10 +703,10 @@ static int build_impl(Make *m,const char *name,int depth) {
         if(!chosen&&dn&&execute(m,"$(CC) $(CPPFLAGS) $(CFLAGS) -c \"$<\" -o \"$@\"",&a)){delete_failed_target(m,name,had_before,&before);goto bad;}
         node->changed=1;
     }
-    node->state=2;if(frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return 0;
+    node->state=2;release_frame(m,frame);return 0;
 bad:
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
-    if(node){node->state=2;node->failed=1;}if(frame&&frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return -1;
+    if(node){node->state=2;node->failed=1;}release_frame(m,frame);return -1;
 }
 static int apply_bindings(Make *m,Binding *bindings) {
     Binding *b;

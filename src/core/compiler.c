@@ -1746,6 +1746,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     if (out_ir) *out_ir = 0;
     if (out_be) *out_be = 0;
 
+    diag_begin_tu(opts->input_path);
     preproc_reset();
 #ifdef XHCC
     preproc_set_compiler_mode(opts->emulate_gcc,opts->language_c11,opts->hosted_mode,opts->undef_predefines);

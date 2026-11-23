@@ -74,6 +74,10 @@ typedef struct {
 #endif
 } DiagState;
 
+/* Command-line/user policy survives TU boundaries; pragmas only modify g. */
+static unsigned char baseline_suppressed[DIAG_SUPPRESS_BYTES];
+static unsigned char baseline_forced_error[DIAG_SUPPRESS_BYTES];
+
 static DiagState g = {
     0, 0,
     { 0, 0, 0, 0, 0 },
@@ -950,19 +954,51 @@ int diag_set_style_name(const char *name) {
     return -1;
 }
 
+void diag_reset_policy(void) {
+    int i;
+    for (i = 0; i < DIAG_SUPPRESS_BYTES; i++) {
+        baseline_suppressed[i] = g.suppressed[i] = 0;
+        baseline_forced_error[i] = g.forced_error[i] = 0;
+    }
+    diag_set_warnings_as_errors(0);
+    diag_set_warnings_disabled(0);
+}
+
+void diag_begin_tu(const char *main_file) {
+    int i;
+    for (i = 0; i < DIAG_SUPPRESS_BYTES; i++) {
+        g.suppressed[i] = baseline_suppressed[i];
+        g.forced_error[i] = baseline_forced_error[i];
+    }
+    diag_init(main_file, 0);
+}
+
 void diag_force_error(int code) {
     if (code < 0 || code >= DIAG_CODE_MAX) return;   /* outside the table: ignore */
+    baseline_forced_error[code >> 3] |= (unsigned char)(1u << (code & 7));
     g.forced_error[code >> 3] |= (unsigned char)(1u << (code & 7));
 }
 
-void diag_suppress(int code) {
+void diag_pragma_suppress(int code) {
     if (code < 0 || code >= DIAG_CODE_MAX) return;
     g.suppressed[code >> 3] |= (unsigned char)(1u << (code & 7));
 }
 
-void diag_default(int code) {
+void diag_pragma_default(int code) {
     if (code < 0 || code >= DIAG_CODE_MAX) return;
     g.suppressed[code >> 3] &= (unsigned char)~(1u << (code & 7));
+}
+
+void diag_suppress(int code) {
+    if (code < 0 || code >= DIAG_CODE_MAX) return;
+    baseline_suppressed[code >> 3] |= (unsigned char)(1u << (code & 7));
+    diag_pragma_suppress(code);
+}
+
+void diag_default(int code) {
+    if (code < 0 || code >= DIAG_CODE_MAX) return;
+    baseline_suppressed[code >> 3] &= (unsigned char)~(1u << (code & 7));
+    diag_pragma_default(code);
 }
 
 int diag_is_suppressed(int code) {
@@ -1193,6 +1229,13 @@ int diag_at_limit(void) { return 0; }
 
 int diag_set_style_name(const char *name) { (void)name; return 0; }
 void diag_note(const char *msg) { (void)msg; }
+void diag_reset_policy(void) {
+    diag_set_warnings_as_errors(0);
+    diag_set_warnings_disabled(0);
+}
+void diag_begin_tu(const char *main_file) { diag_init(main_file, 0); }
+void diag_pragma_suppress(int code) { (void)code; }
+void diag_pragma_default(int code) { (void)code; }
 void diag_suppress(int code)   { (void)code; }
 void diag_default(int code)    { (void)code; }
 int  diag_is_suppressed(int code) { (void)code; return 0; }

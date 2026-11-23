@@ -12,6 +12,10 @@ static int valid(const XhSysvPlan*p){unsigned i,j,occupied[2]={0,0};if(!p||(p->v
   for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];if(f->bank>1||f->index>=32||!f->size||f->object_offset>a->size||f->size>a->size-f->object_offset||f->stack_offset||(j&&f->object_offset<a->fragments[j-1].object_offset+a->fragments[j-1].size))return 0;if(occupied[f->bank]&(1u<<f->index))return 0;occupied[f->bank]|=1u<<f->index;}
  }
  return 1;}
+int xh_sysv_plan_equal(const XhSysvPlan*a,const XhSysvPlan*b){unsigned i,j;if(!valid(a)||!valid(b)||a->version!=b->version||a->abi_id!=b->abi_id||a->rule_fingerprint!=b->rule_fingerprint||a->arg_count!=b->arg_count||a->stack_bytes!=b->stack_bytes||a->sret!=b->sret||a->flags!=b->flags||a->result.memory!=b->result.memory||a->result.count!=b->result.count)return 0;
+ for(j=0;j<a->result.count;j++){const XhTypeclassFragment*x=&a->result.fragments[j],*y=&b->result.fragments[j];if(x->offset!=y->offset||x->size!=y->size||x->class_id!=y->class_id)return 0;}
+ for(i=0;i<a->arg_count;i++){const XhAbiArgumentPlan*x=&a->args[i],*y=&b->args[i];if(x->version!=y->version||x->by_value_stack!=y->by_value_stack||x->size!=y->size||x->alignment!=y->alignment||x->count!=y->count||x->stack_offset!=y->stack_offset||x->stack_extent!=y->stack_extent)return 0;for(j=0;j<x->count;j++){const XhAbiPlanLocation*u=&x->fragments[j],*v=&y->fragments[j];if(u->object_offset!=v->object_offset||u->size!=v->size||u->bank!=v->bank||u->index!=v->index||u->stack_offset!=v->stack_offset)return 0;}}
+ return 1;}
 unsigned xh_sysv_plan_wire_size(const XhSysvPlan*p){return valid(p)?4u*(15u+(p->version>=2?1u:0u)+17u*p->arg_count):0;}
 static void put(unsigned char**p,unsigned v){unsigned i;for(i=0;i<4;i++)(*p)[i]=(unsigned char)(v>>(8*i));*p+=4;}
 static unsigned get(const unsigned char**p){unsigned v=(unsigned)(*p)[0]|((unsigned)(*p)[1]<<8)|((unsigned)(*p)[2]<<16)|((unsigned)(*p)[3]<<24);*p+=4;return v;}

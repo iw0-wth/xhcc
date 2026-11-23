@@ -19,6 +19,7 @@
  * on the stack, and al carries the number of vector registers used.
  */
 #include "backend.h"
+#include <string.h>
 #include "codegen.h"
 #include "memory.h"
 #include "platform.h"
@@ -2043,6 +2044,9 @@ static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint,const XhAbiPlanPol
 static int amd_validate_plans(IrProgram*p){XhAbiPlanPolicy policy;unsigned fingerprint;int fi,i,k;if(xh_sysv_plan_ensure_path())return -1;fingerprint=xh_template_fingerprint("x86_64.aggregate");if(xh_abiplan_load("x86_64.aggregate","abiplan",&policy))return -1;
  for(fi=0;fi<p->func_count;fi++){IrFunc*f=p->funcs[fi];const IrAbiPlan*signature=amd_plan(p,f->parameter_plan),*result=amd_plan(p,f->result_plan);
   if(!amd_plan_ok(signature,fingerprint,&policy)||!amd_plan_ok(result,fingerprint,&policy))goto bad;
+   {Type function_type;XhSysvPlan expected;memset(&function_type,0,sizeof(function_type));function_type.kind=TYPE_FUNC;function_type.base=f->ret_type;function_type.params=f->param_types;function_type.param_count=f->param_count;function_type.is_variadic=f->is_variadic;
+    if(xh_build_sysv_plan("x86_64.aggregate","abiplan",&function_type,0,(unsigned)f->param_count,&expected)||!xh_sysv_plan_equal(signature,&expected)||!xh_sysv_plan_equal(result,&expected)){amd_plan_failure="function plan disagrees with source signature";goto bad;}
+   }
    amd_plan_failure="function parameter count or source result type mismatch";
    if(signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type)&&!xh_sysv_small_integer_struct(f->ret_type)&&!xh_sysv_small_sse_struct(f->ret_type)&&!xh_sysv_integer_pair_struct(f->ret_type)&&!xh_sysv_mixed_pair_struct(f->ret_type)&&!xh_sysv_single_slot_mixed_struct(f->ret_type))goto bad;
   amd_plan_failure="unsupported function source parameter type";

@@ -428,3 +428,35 @@ bits 2 5 6 25
 bits 2 1 4 8
 bits 2 11 1 7
 end
+rule R_LUI 3 0x00000037
+arg 0 5 0 1
+arg 1 20 0 1
+arg 2 1 0 1
+bits 0 0 5 7
+bits 1 0 20 12
+end
+rule R_AUIPC 3 0x00000017
+arg 0 5 0 1
+arg 1 20 0 1
+arg 2 1 0 1
+bits 0 0 5 7
+bits 1 0 20 12
+end
+rule R_JAL 3 0x0000006f
+arg 0 5 0 1
+arg 1 21 1 2
+arg 2 1 0 1
+bits 0 0 5 7
+bits 1 20 1 31
+bits 1 1 10 21
+bits 1 11 1 20
+bits 1 12 8 12
+end
+rule R_JALR 3 0x00000067
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end

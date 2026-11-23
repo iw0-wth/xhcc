@@ -91,8 +91,7 @@ const char *xh_request_tool(void) { return request_tool; }
  * diagnostic presentation/severity/sinks need replay; do not re-enable passes. */
 void xh_request_apply_diagnostics(void) {
  int i;
- diag_set_warnings_as_errors(0);
- diag_set_warnings_disabled(0);
+ diag_reset_policy();
  for(i=0;i<diagnostic_args.count;i++) {
   const char *a=diagnostic_args.args[i];
   if(!strcmp(a,"-Werror"))diag_set_warnings_as_errors(1);

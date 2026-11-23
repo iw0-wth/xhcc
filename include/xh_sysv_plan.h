@@ -33,6 +33,9 @@ int xh_build_sysv_plan(const char *rule_target,const char *prefix,Type *function
 /* Canonical wire codec: little-endian u32 fields, no host struct dump.
  * size returns bytes or 0 invalid. encode returns byte count or -1;
  * decode returns 0/-1, exact input length required, output unchanged on error. */
+/* Compares all active canonical fields after validating both plans. Ignores
+ * C padding and inactive array slots; not a cryptographic/source proof. */
+int xh_sysv_plan_equal(const XhSysvPlan *a,const XhSysvPlan *b);
 unsigned xh_sysv_plan_wire_size(const XhSysvPlan *plan);
 int xh_sysv_plan_encode(const XhSysvPlan *plan,unsigned char *out,unsigned capacity);
 int xh_sysv_plan_decode(const unsigned char *data,unsigned length,XhSysvPlan *out);

@@ -129,6 +129,7 @@ void *mem_realloc(void *old_ptr, int old_size, int new_size) {
             int delta = aligned_new - aligned_old;
             if (g_offset + delta <= ARK_POOL_SIZE) {
                 g_offset += delta;
+                if (g_offset > g_high) g_high = g_offset;
                 /* Zero newly exposed bytes (shrinking leaves them, which is fine) */
                 if (delta > 0) {
                     unsigned char *q = end;

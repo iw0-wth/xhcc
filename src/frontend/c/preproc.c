@@ -1242,8 +1242,8 @@ static void handle_pragma_diag(const char *r) {
         {
             int code = 0;
             while (*r >= '0' && *r <= '9') { code = code * 10 + (*r - '0'); r++; }
-            if (suppress) diag_suppress(code);
-            else          diag_default(code);
+            if (suppress) diag_pragma_suppress(code);
+            else          diag_pragma_default(code);
         }
     }
 }

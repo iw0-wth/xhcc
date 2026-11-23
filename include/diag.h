@@ -92,6 +92,14 @@ typedef struct {
  *              The pointer must stay valid until diag_shutdown(). */
 void diag_init(const char *main_file, const char *source_text);
 
+/* Start a new driver invocation before parsing its command line. Clear warning
+ * policy to defaults; presentation style and diagnostic sinks are unchanged. */
+void diag_reset_policy(void);
+
+/* Start a frontend translation unit, restoring command-line/user policy and
+ * clearing counters before any TU diagnostics. Pragmas cannot alter the baseline. */
+void diag_begin_tu(const char *main_file);
+
 /* Rename the translation unit. Used by a link-only run, where the "file" a
  * user can act on is the output image, not a source file. Keeps the counters. */
 void diag_set_main_file(const char *main_file);
@@ -223,17 +231,17 @@ int diag_set_style_name(const char *name);
  * after the diag_report*() it belongs to. */
 void diag_note(const char *msg);
 
-/* "#pragma diag_suppress <n>" / "#pragma diag_default <n>" and
- * "--diag_suppress=<n>[,<n>...]" / "--diag_remark=<n>[,<n>...]".
- * Suppression is per code and applies to whatever is reported *after* the
- * pragma is seen. Note: arkc runs the preprocessor before parsing, so a
- * pragma suppresses for the whole translation unit, not from its exact token
- * position (registered limitation, see docs/DIAGNOSTICS.md).
- * Measured: --diag_suppress and --diag_remark are indistinguishable from the
- * outside (no line printed, exit code unchanged), so both use this one set. */
+/* Command-line/user suppression: updates the baseline and current policy.
+ * --diag_suppress and --diag_remark share this policy (no diagnostic printed). */
 void diag_suppress(int code);
 void diag_default(int code);
 int  diag_is_suppressed(int code);
+
+/* Source pragmas affect only the current TU, after the directive is seen.
+ * Parsing follows preprocessing, so parser diagnostics use the final pragma
+ * policy for the whole TU (the existing token-position limitation). */
+void diag_pragma_suppress(int code);
+void diag_pragma_default(int code);
 
 /* "--diag_error=<n>[,<n>...]": print and count the code as an error. The -D
  * suffix still follows the class the code has intrinsically (measured:

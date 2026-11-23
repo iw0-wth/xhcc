@@ -405,6 +405,7 @@ int xh_legacy_main(int argc, char **argv) {
 
     /* Diagnostics are usable from the first option: a bad flag must be able to
      * report itself before any translation unit is known. */
+    diag_reset_policy();
     diag_init(0, 0);
     reset_opts(&opts);
 

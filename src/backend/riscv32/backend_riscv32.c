@@ -2347,10 +2347,10 @@ static void rv_insn(RvAsm *a, const char **pp) {
     }
     if (rv_streq_(mn, "j") || rv_streq_(mn, "beqz") || rv_streq_(mn, "bnez") ||
         xh_rv_encoding_shape(mn,"rs_rs_label") ||
-        rv_streq_(mn, "jal")) {
+        xh_rv_encoding_shape(mn,"rd_label")) {
         int rs1 = -1, rs2 = -1, f3 = 0, is_j = 0, is_jal = 0;
         int rel;
-        if (rv_streq_(mn, "j") || rv_streq_(mn, "jal")) {
+        if (rv_streq_(mn, "j") || xh_rv_encoding_shape(mn,"rd_label")) {
             is_j = rv_streq_(mn, "j");
             is_jal = !is_j;
             if (is_jal) {
@@ -2402,7 +2402,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
                             "RV32I jal displacement", sym, "");
                 return;
             }
-            rv_ins(a, rv_enc_j(rel, is_j ? 0 : rs2, RV_OP_JAL));
+            if(is_j)rv_ins(a,rv_enc_j(rel,0,RV_OP_JAL));else{int args[3]={rs2,rel,0};rv_ins(a,rv_rule(xh_rv_encoding_shape(mn,"rd_label"),args,3));}
         } else {
             if (rel < -4096 || rel > 4094 || (rel & 1)) {
                 rv_error(a, "line %s: the branch to '%s' is outside the 13-bit "
@@ -2431,7 +2431,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
         *pp = p;
         return;
     }
-    if (rv_streq_(mn, "lui") || rv_streq_(mn, "auipc")) {
+    if (xh_rv_encoding_shape(mn,"rd_imm20")) {
         int rd = rv_read_reg(&p);
         rv_skip_ws(&p);
         if (*p++ != ',') { rv_error(a, "line %s: the operand list needs a comma", "", ""); return; }
@@ -2443,12 +2443,11 @@ static void rv_insn(RvAsm *a, const char **pp) {
             rv_error(a, "line %s: the immediate does not fit 32 bits", "", "");
             return;
         }
-        rv_ins(a, rv_enc_u((int)((unsigned long long)imm & 0xFFFFF),
-                           rd, rv_streq_(mn, "lui") ? RV_OP_LUI : RV_OP_AUIPC));
+        {int args[3]={rd,(int)((unsigned long long)imm&0xfffff),0};rv_ins(a,rv_rule(xh_rv_encoding_shape(mn,"rd_imm20"),args,3));}
         *pp = p;
         return;
     }
-    if (rv_streq_(mn, "jalr")) {
+    if (xh_rv_encoding_shape(mn,"rd_jumpmem")) {
         int rd = rv_read_reg(&p), rs = -1, off = 0;
         const char *save;
         if (rd < 0) { rv_error(a, "line %s: 'jalr' needs a register", "", ""); return; }
@@ -2470,7 +2469,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
                 off = (int)imm;
             }
         }
-        rv_ins(a, rv_enc_i(off, rs, 0, rd, RV_OP_JALR));
+        {int args[3]={rd,rs,off};rv_ins(a,rv_rule(xh_rv_encoding_shape(mn,"rd_jumpmem"),args,3));}
         *pp = p;
         return;
     }

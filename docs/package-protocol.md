@@ -199,6 +199,23 @@ the shared target descriptor before IPO/code generation. A decode-only fixture
 or an unrelated early failure cannot substitute for this positive execution.
 This validation adds no capability and expands none of the ABI subsets above.
 
+Before native function emission, the shared plan-equality check rebuilds the
+expected named-signature plan from the function's persisted source types and
+compares its parameter and result plan references separately. It compares plan
+content rather than requiring identical table indices: equivalent plans stored
+at different indices are accepted. A structurally valid plan belonging to a
+different function signature is rejected even when its layout passes the
+standalone validator. This is a function-boundary check; CALL actual-argument
+types are not persisted for an equivalent reconstruction, so call-site plan
+checking establishes layout consistency, not full source-type authentication.
+
+The actual 914446-byte root passed all thirteen native codegen tests and both
+IR tests. Original and equivalent-different-index LTO plans both re-emit and
+execute with entry result 1. Replacing only the parameter reference or only the
+result reference with a double-signature function's valid plan is rejected with
+the exact source-signature-mismatch diagnostic. These checks add no schema or
+capability and extend none of the supported ABI type subsets.
+
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.
 

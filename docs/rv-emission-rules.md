@@ -185,8 +185,15 @@ resolution and unresolved-cross-object branch diagnostics remain native generic
 mechanisms; the selected encoder supplies fixed opcode/function fields at the
 resolved site. Tests inspect all 14 words against independent field formulas,
 exercise new load/store/branch aliases together to return 42 with unchanged
-compiler SHA, and reject offsets and unresolved labels. Fixed pseudo lowering
-and system instruction constants remain native pending later migrations.
+compiler SHA, and reject offsets and unresolved labels. LUI/AUIPC/JAL/JALR additionally use `rd_imm20`, `rd_label` and `rd_jumpmem`
+descriptors with external fixed fields and scatter rules. JALR accepts both
+offset(base) and register-plus-immediate forms. JAL retains local symbol
+resolution and range diagnostics, then uses the selected encoder. Upper
+instructions preserve the historical 32-bit input pattern/mask-to-high20
+semantics. Tests inspect four actual words, execute new upper/jump/return
+aliases together as 42, and reject missing labels/invalid immediates.
+Fixed pseudo lowering (call/la/j/jr/ret and similar forms) and system instruction
+constants remain native pending later migrations.
 
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for

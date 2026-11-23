@@ -534,6 +534,23 @@ class MakeTests(unittest.TestCase):
             self.makefile(invalid + 'all:\n')
             self.run_make(success=False)
 
+    def test_newer_and_order_only_automatic_variables(self):
+        (self.directory / 'header.h').write_text('#define VALUE 7\n')
+        self.makefile('.PHONY: prepare\nall: two.o\n'
+                      'two.o: two.c header.h two.c | prepare prepare\n'
+                      '\t@echo newer=$? order=$| all=$^\n\t' + self.recipe('arm-none-eabi-gcc') + '\n'
+                      'prepare:\n\t@echo preparing\n')
+        first = self.run_make()
+        self.assertIn('newer=two.c header.h order=prepare all=two.c header.h', first.stdout)
+        self.assertNotIn('newer=', self.run_make().stdout)
+        future = (self.directory / 'two.o').stat().st_mtime_ns + 2_000_000_000
+        os.utime(self.directory / 'header.h', ns=(future, future))
+        self.assertIn('newer=header.h order=prepare', self.run_make().stdout)
+        self.makefile('all:\n\techo $+\n')
+        self.assertIn('automatic $+ is unsupported', self.run_make(success=False).stderr)
+        self.makefile('all:\n\techo $(+)\n')
+        self.assertIn('automatic $+ is unsupported', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

@@ -471,9 +471,8 @@ int xh_driver_main(int argc, char **argv) {
   /* Compiled capabilities are available but opt-in for modern ELF output. */
   g_config.enable_fpu_hw = 0;
   g_config.enable_dwarf = 0;
+  diag_reset_policy();
   diag_init(0, 0);
-  diag_set_warnings_as_errors(0);
-  diag_set_warnings_disabled(0);
   if (environment_root && *environment_root) root = environment_root;
   if (protocol_major && strcmp(protocol_major, "1")) {
     result = fail("unsupported package protocol major (expected 1): %s", protocol_major);

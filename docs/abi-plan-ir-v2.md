@@ -348,6 +348,32 @@ FNV is change detection, not a cryptographic signature or proof that arbitrary
 untrusted metadata is authentic. No schema version or ABI support scope was
 expanded in this follow-up.
 
+## Function signature plan equality
+
+A function's `parameter_plan` and `result_plan` are checked independently against
+an expected plan rebuilt from its retained `IrFunc.ret_type`, `param_types`,
+parameter count and variadic status, using the active target layout and rules.
+Comparison is semantic field equality, not plan-index equality or raw-struct
+`memcmp`. Every relevant canonical field is compared. An equivalent plan at a
+different table index is valid; a plan with a different result or parameter
+classification is rejected even if its index and wire schema are well formed.
+
+Root 914446 passed **13/13 native codegen tests and 2/2 IR tests**, with Clang
+available and no skip. A real private-IR fixture contains `long f_src(long)`,
+`double g_src(double)` and an equivalent `long h_src(long)` signature. The
+original payload and a payload pointing f's two references at h's distinct but
+equivalent plan both reload through LTO, assemble/link and execute successfully.
+Changing only f's parameter reference or only its result reference to g's
+otherwise valid plan independently fails with `function plan disagrees with
+source signature`, with no output. The previous twelve tests remain passing.
+
+This proof applies to retained named-function type information. Actual source
+argument types are not retained for every serialized call, so call checks still
+establish supported context, layout/placement/reference/fingerprint consistency,
+not a reconstructed source-type proof for arbitrary call metadata. Neither the
+certification flag nor FNV authenticates untrusted source history. No IR/codec
+version or ABI subset was expanded by these checks.
+
 ## Next phase and package guidance
 
 Remaining aggregate integration includes other 16-byte and larger/multi-fragment

@@ -176,6 +176,14 @@ invalid certification values and malformed indirect argument runs/address widths
 are rejected. Layout/register/stack/fingerprint consistency is validated, while
 FNV remains change detection, not cryptographic authentication. This follow-up
 does not expand the ABI subset or schema version.
+Root 914446 additionally passed **13/13 native codegen and 2/2 IR tests**:
+each function's parameter/result plan is independently compared semantically
+with a plan rebuilt from its retained return/parameter types and variadic status.
+Equivalent contents at different indices pass LTO and execution; changing either
+reference to the valid but incompatible double signature fails precisely, with
+no output. Calls do not retain every original actual type, so their layout,
+placement and fingerprint checks do not reconstruct arbitrary source history or
+provide a security/authenticity proof. This adds no schema version or ABI scope.
 See [ABI plan IR v2](abi-plan-ir-v2.md) for the wire fields, capacities and exact
 compatibility/verification boundaries.
 

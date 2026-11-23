@@ -121,7 +121,7 @@ Supported syntax and behavior:
   `.c` to `.o` compilation recipe using `CC`, `CPPFLAGS`, and `CFLAGS`.
   Prerequisites after `|` are order-only: they are built and failures propagate,
   but their mtime/rebuilding does not trigger the target recipe. They are omitted
-  from `$^` and `$<`; `$|` is not implemented.
+  from `$^`, `$<`, and `$?`; `$|` lists deduplicated order-only prerequisites.
   Repeated explicit declarations merge and deduplicate prerequisites, with a
   normal prerequisite taking precedence over an order-only occurrence. At most
   one declaration may supply recipes; a second nonempty recipe block fails.
@@ -136,6 +136,13 @@ Supported syntax and behavior:
   Includes accept multiple filenames, with missing files ignored for optional
   includes. Includes are read only; make does not regenerate or reread them.
 - Tab-prefixed recipe lines; automatic `$@`, `$<`, `$^` (deduplicated), and `$*`.
+  `$?` lists deduplicated normal prerequisites that are newer than the target
+  or were rebuilt during traversal, and lists all normal prerequisites when
+  the target is missing. This includes coarse-timestamp rebuild propagation.
+  `$|` lists order-only prerequisites once. Additional temporary list storage
+  is allocated according to the actual dependency text length, shares the 64 KiB
+  budget, and is freed with the traversal frame. `$+` is explicitly unsupported:
+  dependency merging currently does not retain duplicate occurrences.
   `$*` is the pattern/suffix stem and is empty for ordinary explicit rules.
   `$(@D)`, `$(@F)`, `$(<D)` and `$(<F)` select the directory or filename of
   target/first normal prerequisite. Automatic directories omit the final `/`

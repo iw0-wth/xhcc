@@ -331,6 +331,60 @@ int entry(void) {
     corrupt=work/f'flags{invalid}.o';corrupt.write_bytes(data);badout=work/f'flags{invalid}.s'
     p=subprocess.run([*command(),'--ark-compat','-target','x86_64','-fuse-sysv-abi-plan','--lto','-link',str(corrupt.relative_to(ROOT)),str(objects[1].relative_to(ROOT)),'-O0','-S','-o',str(badout.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True,timeout=60)
     self.assertNotEqual(p.returncode,0,p.stdout+p.stderr);self.assertFalse(badout.exists());self.assertIn('ABI plan',(p.stdout+p.stderr))
+ def test_function_plan_references_match_source_signature_semantically(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'full target Clang required')
+  def references(data,name):
+   encoded=name.encode();needle=struct.pack('<II',1,len(encoded))+encoded;start=data.index(b'ARKIR1\n');cursor=start+20
+   plans=struct.unpack_from('<I',data,start+16)[0]
+   for _ in range(plans):cursor+=4+struct.unpack_from('<I',data,cursor)[0]
+   def string_at(pos):
+    present=struct.unpack_from('<I',data,pos)[0];pos+=4
+    if present==0:return pos
+    if present!=1:raise ValueError('not a string')
+    length=struct.unpack_from('<I',data,pos)[0];pos+=4
+    if length>len(data)-pos:raise ValueError('string bounds')
+    return pos+length
+   pos=data.find(needle,cursor)
+   while pos>=0:
+    try:
+     p=pos+len(needle);count=struct.unpack_from('<I',data,p)[0];p+=4
+     if count>10000:raise ValueError('code count')
+     for _ in range(count):
+      op=struct.unpack_from('<I',data,p)[0];p+=12
+      if op>100:raise ValueError('opcode')
+      p=string_at(p);p+=16
+     p+=22*4;p=string_at(p);p=string_at(p)
+     count=struct.unpack_from('<I',data,p)[0];p+=4
+     if count>64:raise ValueError('param names')
+     for _ in range(count):p=string_at(p)
+     count=struct.unpack_from('<I',data,p)[0];p+=4
+     if count>64:raise ValueError('param types')
+     p+=4*count+4
+     a,b=struct.unpack_from('<II',data,p)
+     if not(0<a<=plans and 0<b<=plans):raise ValueError('plan refs')
+     return p,a,b
+    except (ValueError,struct.error):pos=data.find(needle,pos+1)
+   raise AssertionError('function record not located: '+name)
+  with tempfile.TemporaryDirectory(prefix='abi-signature-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);src=work/'signature.c';obj=work/'signature.o'
+   src.write_text('long f_src(long x){return x+1;} double g_src(double x){return x+0.5;} long h_src(long x){return x+2;} int entry(void){return f_src(4)==5 && g_src(2.0)==2.5;}\n')
+   self.invoke(src,obj,'--private-object','--obj-ir');original=obj.read_bytes()
+   fpos,fa,fr=references(original,'f_src');_,ga,gr=references(original,'g_src');_,ha,hr=references(original,'h_src')
+   self.assertNotEqual(fa,ha,'distinct equal-content plan indices required')
+   for mode in ['original','equivalent','wrong-parameter','wrong-result']:
+    data=bytearray(original)
+    if mode=='equivalent':struct.pack_into('<II',data,fpos,ha,hr)
+    elif mode=='wrong-parameter':struct.pack_into('<I',data,fpos,ga)
+    elif mode=='wrong-result':struct.pack_into('<I',data,fpos+4,gr)
+    payload=work/(mode+'.o');payload.write_bytes(data);asm=work/(mode+'.s')
+    p=subprocess.run([*command(),'--ark-compat','-target','x86_64','-fuse-sysv-abi-plan','--lto','-link',str(payload.relative_to(ROOT)),'-O0','-S','-o',str(asm.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True,timeout=60)
+    if mode.startswith('wrong'):
+     self.assertNotEqual(p.returncode,0,p.stdout+p.stderr);self.assertFalse(asm.exists());self.assertIn('function plan disagrees with source signature',p.stdout+p.stderr)
+    else:
+     self.assertEqual(p.returncode,0,p.stdout+p.stderr);native=work/(mode+'_native.o')
+     p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-c',str(asm),'-o',str(native)],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+     self.assertEqual(self.execute([native],work/(mode+'_combined.o')),1)
  def test_variadic_aggregate_is_rejected(self):
   cases=['struct S { int x; }; extern int f(int,...); int entry(void) { struct S a={3};return f(1,a); }']
   with tempfile.TemporaryDirectory(prefix='abi-small-reject-',dir=ROOT/'build') as tmp:

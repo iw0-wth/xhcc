@@ -229,6 +229,18 @@ unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff00000123
    for instruction in ['loadword t0,-2049(t1)','storeword t0,2048(t1)','branchequal t0,t1,missinglabel']:
     path=OUT/'mbbad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'mbbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_upper_jump_descriptors_and_aliases(self):
+  import struct
+  asm='lui t0,0xabcde\\nauipc t1,0x12345\\njal t2,73f\\n73:\\njalr t3,-17(t4)';exe=self.compile('int entry(void){asm("'+asm+'");return 1;}','uj_oracle')
+  expected=struct.pack('<IIII',(0xabcde<<12)|(5<<7)|0x37,(0x12345<<12)|(6<<7)|0x17,(2<<21)|(7<<7)|0x6f,((-17&4095)<<20)|(29<<15)|(28<<7)|0x67)
+  with exe.open('rb') as f:self.assertIn(expected,ELFFile(f).get_section_by_name('.text').data())
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-upperjump-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();rules.write_text(original.replace('lui R_LUI rd_imm20\\n','lui R_LUI rd_imm20\\nnewupper R_LUI rd_imm20\\n').replace('jal R_JAL rd_label\\n','jal R_JAL rd_label\\nnewjump R_JAL rd_label\\n').replace('jalr R_JALR rd_jumpmem\\n','jalr R_JALR rd_jumpmem\\nnewreturn R_JALR rd_jumpmem\\n'))
+   source='int entry(void){int result;asm volatile("newupper %0,0\\n newjump t4,74f\\n addi %0,%0,17\\n j 75f\\n74:\\n addi %0,%0,25\\n newreturn zero,t4,0\\n75:" : "=r"(result));return result;}';changed=self.compile(source,'upperjump42',root);self.assertEqual(self.execute(changed),42)
+   for instruction in ['newjump t0,unknownlabel','newreturn t0,2048(t1)','newupper t0,4294967296']:
+    path=OUT/'ujbad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'ujbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:
