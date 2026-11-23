@@ -107,6 +107,25 @@ transport/API capability negotiation must require matching call-class semantics.
 This is additive record encoding, not a claim of semantic compatibility with all
 historical compiler binaries.
 
+## Optional SysV ABI plan recording and scalar use
+
+IR container version 2 persists independently indexed call/function plans and
+accepts v1 payloads with no plans. Canonical plan codec v2 adds
+`SCALAR_VERIFIED`; old canonical v1 plans decode with no certification and cannot
+be used for native lowering. `-frecord-sysv-abi` records supported classifications
+without changing machine ABI. `-fuse-sysv-abi-plan` is a separate x86_64-only
+opt-in that consumes certified scalar plans and validates the rule fingerprint.
+Integers, float/double, pointers, register/stack spills and variadic scalar access
+are covered; all aggregate arguments/results remain record-only and use mode
+rejects them explicitly. Defaults retain the previous calling path.
+
+The four codegen tests passed on root 903358: two-TU scalar execution, small
+aggregate rejection, stale-fingerprint LTO rejection, and both caller/callee
+mixing directions with native Clang. No Clang test was skipped. This is evidence
+for the tested scalar subset, not complete SysV aggregate ABI interoperability.
+See [ABI plan IR v2](abi-plan-ir-v2.md) for the wire fields, capacities and exact
+compatibility/verification boundaries.
+
 ## Restored optional implementations and runtime controls
 
 | Implementation | Reference runtime controls / limits |

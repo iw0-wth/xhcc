@@ -16,5 +16,6 @@ deploy-sd: all
 	$(PYTHON) tools/deploy_sd.py --sd "$(SD_ROOT)"
 test-sd:
 	$(PYTHON) tests/test_sd.py --sd "$(SD_ROOT)"
+	$(PYTHON) tests/test_resource_budget.py --sd "$(SD_ROOT)"
 resources:
 	$(PYTHON) tools/resource_report.py --self-test --json build/reports/resources.json --markdown build/reports/resources.md

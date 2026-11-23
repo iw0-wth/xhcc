@@ -20,6 +20,13 @@ class PlatformTests(unittest.TestCase):
         source=(d/'main.c').relative_to(ROOT).as_posix();dep=self.rel+'/result.d';out=self.rel+'/result.o'
         self.run_cc('-c','-MMD','-MF',dep,'-MQ','obj with space','-O0','-o',out,source)
         text=(ROOT/dep).read_text();self.assertIn('obj\\ with\\ space:',text);self.assertIn('space\\ dir/nested/b.h',text)
+    def test_bare_source_quoted_include_uses_current_directory(self):
+        (self.dir/'local.h').write_text('#define LOCAL_VALUE 29\n')
+        (self.dir/'source.c').write_text('#include "local.h"\nint local(void){return LOCAL_VALUE;}\n')
+        command=[RUNTIME,'run','--dir=.','--dir='+str(ROOT/'packages')+'::/packages','--env','XHCC_PACKAGE_ROOT=/packages',str(ROOT/'build/wasm/xhcc.wasm'),'arm-none-eabi-gcc','-c','source.c','-o','source.o']
+        result=subprocess.run(command,cwd=self.dir,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual((self.dir/'source.o').read_bytes()[:4],b'\x7fELF')
     def test_errors_and_limits(self):
         source=self.dir/'large.c';source.write_text(' '*(32*1024));out=self.rel+'/bad.o'
         self.run_cc('-c','-o',out,self.rel+'/large.c',ok=False);self.assertFalse((ROOT/out).exists())

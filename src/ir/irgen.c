@@ -27,6 +27,7 @@
  * (see include/ir.h and <stdarg.h>). */
 int g_ir_va_slot_region = 1;
 int g_irgen_record_sysv_abi = 0;
+int g_irgen_use_sysv_abi_plan = 0;
 int g_irgen_armcc_asm = 1;
 int g_irgen_native_asm = 1;
 int g_irgen_no_builtin = 0;
@@ -894,6 +895,17 @@ typedef struct {
 } IrGen;
 
 static void irgen_stmt(IrGen *g, AstNode *node);
+/* Function designators carry their return type in the AST, not TYPE_FUNC.
+ * Recover only a real declared symbol; never infer a prototype from actuals. */
+static Symbol *irgen_callee_function_symbol(AstNode *callee) {
+    while (callee && callee->kind == AST_UNARY &&
+           callee->u.unary.op == (int)TOK_MUL) callee=callee->u.unary.operand;
+    if(callee && callee->kind==AST_VAR){
+        Symbol *symbol=sym_find(callee->u.name);
+        return symbol && symbol->kind==SYM_FUNC ? symbol : 0;
+    }
+    return 0;
+}
 
 /* Forward declarations: these two helpers live further down (they need the
  * globals that describe the target value model) but are already used by the
@@ -1954,6 +1966,9 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
             if(xh_build_sysv_plan("x86_64.aggregate","abiplan",ft,0,(unsigned)f->param_count,plan) ||
                (index=ir_program_add_abi_plan(out,plan))<0){
                 ark_log("[irgen] error: unsupported function signature for SysV ABI plan recording\n");g_irgen_errors++;continue;
+            }
+            if(g_irgen_use_sysv_abi_plan && !(plan->flags & XH_SYSV_PLAN_SCALAR_VERIFIED)){
+                ark_log("[irgen] error: SysV ABI plan codegen currently supports scalar signatures only; aggregate signature rejected\n");g_irgen_errors++;continue;
             }
             f->parameter_plan=index;f->result_plan=index;
         }
@@ -5491,7 +5506,13 @@ static void irgen_expr(IrGen *g, AstNode *node) {
             int callee_param_count = 0;
             int callee_is_variadic = 0;
             if (!s && node->u.call.callee) {
+                Symbol *declared_callee=irgen_callee_function_symbol(node->u.call.callee);
                 Type *ct = node->u.call.callee->type;
+                if(declared_callee){
+                    callee_params=declared_callee->param_types;
+                    callee_param_count=declared_callee->param_count;
+                    callee_is_variadic=declared_callee->is_variadic;
+                }
                 while (ct && ct->kind == TYPE_PTR) {
                     if (ct->is_func_ptr && ct->params) {
                         callee_params = ct->params;
@@ -6080,7 +6101,13 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                         ft=type_func(node->type,params,pc,variadic);
                         if(argc>64 || pc<0 || xh_build_sysv_plan("x86_64.aggregate","abiplan",ft,actual,(unsigned)argc,plan) ||
                            (index=ir_program_add_abi_plan(g->prog,plan))<0){
-                            ark_log("[irgen] error: unsupported call for SysV ABI plan recording\n");g_irgen_errors++;
+                            ark_log("[irgen] error: unsupported call for SysV ABI plan recording: name=%s argc=%d prototype=%d variadic=%d callee_kind=%d callee_base=%d result_kind=%d\n",
+                                node->u.call.name?node->u.call.name:"<unnamed>",argc,pc,variadic,
+                                node->u.call.callee&&node->u.call.callee->type?(int)node->u.call.callee->type->kind:-1,
+                                node->u.call.callee&&node->u.call.callee->type&&node->u.call.callee->type->base?(int)node->u.call.callee->type->base->kind:-1,
+                                node->type?(int)node->type->kind:-1);g_irgen_errors++;
+                        }else if(g_irgen_use_sysv_abi_plan && !(plan->flags & XH_SYSV_PLAN_SCALAR_VERIFIED)){
+                            ark_log("[irgen] error: SysV ABI plan codegen currently supports scalar calls only; aggregate call rejected\n");g_irgen_errors++;
                         }else g->fn->code[g->fn->code_count-1].abi_plan=index;
                     }
                 }

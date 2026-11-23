@@ -12,6 +12,7 @@ int fs_read_file(const char*p,char*b,int cap){FILE*f=fopen(p,"rb");int n;if(!f)r
 void diag_tool(int s,const char*w,const char*m,const char*a,const char*b,const char*c,const char*d,const char*e,const char*f){fprintf(stderr,"%s: %s\n",w,m);}
 /* Minimal independent layout facts exercise the adapter. Production type.c
  * layout/serialization integration is covered by the frontend agent's gates. */
+int type_is_integer(Type*t){return t->kind==TYPE_LONG||t->kind==TYPE_INT||t->kind==TYPE_LLONG;}
 int type_size(Type*t){if(t->kind==TYPE_ARRAY)return t->size*type_size(t->base);return t->kind==TYPE_VOID?0:t->size;}
 int type_align(Type*t){return t->align_override?t->align_override:t->kind==TYPE_ARRAY?type_align(t->base):t->size>8?8:t->size?t->size:1;}
 int main(int argc,char**argv){Type integer={0},real={0},mixed={0},fn={0};StructField a={0},b={0};Type*params[2];XhSysvPlan plan,copy,old;unsigned char wire[4608],before[4608];unsigned n,i;int r;if(argc!=2&&argc!=3)return 2;
@@ -22,7 +23,9 @@ if(!strcmp(argv[1],"fingerprint")){printf("%u\n",plan.rule_fingerprint);return 0
 if(!strcmp(argv[1],"build")){printf("%u %u %u %u %u %u %u\n",plan.version,plan.arg_count,plan.result.fragments[0].class_id,plan.result.fragments[1].class_id,plan.args[0].fragments[0].bank,plan.args[0].fragments[1].bank,plan.args[1].fragments[0].index);return 0;}
 n=xh_sysv_plan_wire_size(&plan);if(!n||n>sizeof(wire)||xh_sysv_plan_encode(&plan,wire,sizeof(wire))!=(int)n||xh_sysv_plan_decode(wire,n,&copy)||memcmp(&copy,&plan,sizeof(plan)))return 4;
 if(!strcmp(argv[1],"wire")){memset(&copy,0xa5,sizeof(copy));old=copy;for(i=0;i<n;i++)if(!xh_sysv_plan_decode(wire,i,&copy)||memcmp(&old,&copy,sizeof(copy)))return 5;memcpy(before,wire,n);memset(wire,0xa5,sizeof(wire));if(xh_sysv_plan_encode(&plan,wire,n-1)!=-1)return 6;for(i=0;i<sizeof(wire);i++)if(wire[i]!=0xa5)return 7;memcpy(wire,before,n);wire[4]=99;if(!xh_sysv_plan_decode(wire,n,&copy)||memcmp(&old,&copy,sizeof(copy)))return 8;printf("wire %u atomic\n",n);return 0;}
-if(!strcmp(argv[1],"corrupt")){memcpy(before,wire,n);unsigned offsets[]={0,4,8,16,20,24,28,32,64,72,76,80,96,104};memset(&copy,0xa5,sizeof(copy));old=copy;for(i=0;i<sizeof(offsets)/sizeof(offsets[0]);i++){memcpy(wire,before,n);wire[offsets[i]]=255;wire[offsets[i]+1]=255;wire[offsets[i]+2]=255;wire[offsets[i]+3]=255;if(!xh_sysv_plan_decode(wire,n,&copy)||memcmp(&copy,&old,sizeof(copy)))return 9;}puts("corrupt atomic");return 0;}
+if(!strcmp(argv[1],"adjust")){Type array={0},funptr={0};array.kind=TYPE_ARRAY;array.base=&real;array.size=1;funptr.kind=TYPE_FUNC;funptr.base=&integer;params[0]=&array;params[1]=&funptr;fn.base=&integer;if(xh_build_sysv_plan("x86_64.aggregate","abiplan",&fn,0,2,&copy)||copy.flags!=XH_SYSV_PLAN_SCALAR_VERIFIED||copy.args[0].size!=8||copy.args[1].size!=8)return 11;puts("adjusted scalar pointers");return 0;}
+if(!strcmp(argv[1],"v1")){XhSysvPlan oldplan=plan;oldplan.version=1;oldplan.flags=0;n=xh_sysv_plan_wire_size(&oldplan);if(n!=196||xh_sysv_plan_encode(&oldplan,wire,sizeof(wire))!=(int)n||xh_sysv_plan_decode(wire,n,&copy)||copy.version!=1||copy.flags)return 10;puts("v1 inspect only");return 0;}
+if(!strcmp(argv[1],"corrupt")){memcpy(before,wire,n);unsigned offsets[]={0,4,8,16,20,24,28,32,36,68,76,80,84,100,108};memset(&copy,0xa5,sizeof(copy));old=copy;for(i=0;i<sizeof(offsets)/sizeof(offsets[0]);i++){memcpy(wire,before,n);wire[offsets[i]]=255;wire[offsets[i]+1]=255;wire[offsets[i]+2]=255;wire[offsets[i]+3]=255;if(!xh_sysv_plan_decode(wire,n,&copy)||memcmp(&copy,&old,sizeof(copy)))return 9;}puts("corrupt atomic");return 0;}
 if(!strcmp(argv[1],"badtype")){old=plan;a.bit_width=1;r=xh_build_sysv_plan("x86_64.aggregate","abiplan",&fn,0,2,&plan);printf("%d %d\n",r,memcmp(&old,&plan,sizeof(plan))==0);return 0;}
 return 2;}
 '''
@@ -40,8 +43,10 @@ class SysvPlan(unittest.TestCase):
   for data in [base,base+b'\n# content change\n']:
    path.write_bytes(data);p=subprocess.run([WASM,'run','--dir=.','build/sysv-plan-tests/vm.wasm','fingerprint',str(path.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr);values.append(int(p.stdout.strip()))
   self.assertNotEqual(values[0],values[1])
- def test_type_adapter_mixed_plan(self):self.assertEqual(self.run_case('build'),'1 2 2 1 1 0 1')
- def test_codec_roundtrip_truncation_and_atomicity(self):self.assertEqual(self.run_case('wire'),'wire 196 atomic')
+ def test_type_adapter_mixed_plan(self):self.assertEqual(self.run_case('build'),'2 2 2 1 1 0 1')
+ def test_codec_roundtrip_truncation_and_atomicity(self):self.assertEqual(self.run_case('wire'),'wire 200 atomic')
+ def test_array_and_function_parameter_adjustment(self):self.assertEqual(self.run_case('adjust'),'adjusted scalar pointers')
+ def test_genuine_version_one_inspection_compatibility(self):self.assertEqual(self.run_case('v1'),'v1 inspect only')
  def test_corrupt_wire_fields_preserve_output(self):self.assertEqual(self.run_case('corrupt'),'corrupt atomic')
  def test_unsupported_bitfield_preserves_output(self):self.assertEqual(self.run_case('badtype'),'-1 1')
 if __name__=='__main__':unittest.main()

@@ -2,10 +2,13 @@
 #define XH_SYSV_PLAN_H
 #include "type.h"
 #include "xh_abiplan.h"
-#define XH_SYSV_PLAN_VERSION 1
+#define XH_SYSV_PLAN_VERSION 2
+#define XH_SYSV_PLAN_SCALAR_VERIFIED 1u
 #define XH_SYSV_ABI_SUBSET 1
-typedef struct {unsigned version,abi_id,rule_fingerprint,arg_count,stack_bytes,sret;XhTypeclassResult result;XhAbiArgumentPlan args[XH_ABIPLAN_MAX_ARGUMENTS];} XhSysvPlan;
-/* Inspection/persistence only: does not change production call lowering.
+typedef struct {unsigned version,abi_id,rule_fingerprint,arg_count,stack_bytes,sret,flags;XhTypeclassResult result;XhAbiArgumentPlan args[XH_ABIPLAN_MAX_ARGUMENTS];} XhSysvPlan;
+/* Builds persistent plans. Default codegen retains the private wire; explicit
+ * scalar-plan mode may consume only v2 SCALAR_VERIFIED plans. Aggregate plans
+ * remain inspection-only and do not claim native aggregate ABI lowering.
  * Function must have a complete prototype. actual_types may be NULL for named
  * parameter planning; otherwise includes promoted variadic argument types.
  * Type graph rejects bitfields, complex and unsupported leaves. Atomic output. */

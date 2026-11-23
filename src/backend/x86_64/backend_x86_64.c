@@ -28,6 +28,7 @@
 #include "agginit.h"
 #include "xh_x86_rules.h"
 #include "xh_rules.h"
+#include "xh_template.h"
 #include "xh_relocation.h"
 extern int g_xhcc_elf_mode;
 #include <stdio.h>
@@ -2024,7 +2025,26 @@ static void amd_store_fp(AsmBuffer *b, int is_double) {
     }
 }
 
+int g_xhcc_use_sysv_abi_plan=0;
+static const IrAbiPlan *amd_plan(IrProgram*p,int index){return index>0&&index<=p->abi_plan_count?p->abi_plans[index-1]:0;}
+static int amd_scalar_type(Type*t){return !t || t->kind==TYPE_VOID || t->kind==TYPE_PTR || type_is_integer(t) || t->kind==TYPE_FLOAT || t->kind==TYPE_DOUBLE;}
+static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint){unsigned k;if(!p || !xh_sysv_plan_wire_size(p) || p->version<2 || !(p->flags&XH_SYSV_PLAN_SCALAR_VERIFIED) || p->abi_id!=1 || p->rule_fingerprint!=fingerprint || p->sret || p->result.memory || p->result.count>1)return 0;
+ for(k=0;k<p->arg_count;k++){const XhAbiArgumentPlan*a=&p->args[k];if(a->size>8 || a->count>1 || (!a->by_value_stack&&a->count!=1) || (a->by_value_stack&&(a->stack_extent!=8||a->stack_offset%8)))return 0;if(a->count&&(a->fragments[0].object_offset || a->fragments[0].bank>1 || a->fragments[0].index>=(a->fragments[0].bank?8u:6u)))return 0;}
+ return 1;}
+static int amd_validate_plans(IrProgram*p){unsigned fingerprint=xh_template_fingerprint("x86_64.aggregate");int fi,i,k;
+ for(fi=0;fi<p->func_count;fi++){IrFunc*f=p->funcs[fi];const IrAbiPlan*signature=amd_plan(p,f->parameter_plan),*result=amd_plan(p,f->result_plan);
+  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type))goto bad;
+  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
+  for(i=0;i<f->code_count;i++)if(f->code[i].op==IR_CALL){IrInst*inst=&f->code[i];const IrAbiPlan*call=amd_plan(p,inst->abi_plan);unsigned n=(unsigned)inst->val;if(inst->name&&inst->name[0]=='?')n--;if(!amd_plan_ok(call,fingerprint)||call->arg_count!=n)goto bad;}
+ }
+ return 0;
+ bad:diag_tool(DIAG_SEV_ERROR,"x86_64","scalar SysV ABI-plan codegen requires complete, matching scalar-only plans; aggregate/missing/stale plans are unsupported",0,0,0,0,0,0);return -1;
+}
+
 static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
+    /* Aggregate-rule lookup may evict raw template pointers: validate first,
+     * then load x86 templates once before any emission begins. */
+    if(g_xhcc_use_sysv_abi_plan && amd_validate_plans(prog))return -1;
     if (xh_x86_rules_begin(1)) return -1;
     xh_x86_prog = prog;
     AsmBuffer buf;
@@ -2038,6 +2058,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
 
     for (fi = 0; fi < prog->func_count; fi++) {
         IrFunc *f = prog->funcs[fi];
+        const IrAbiPlan *function_plan=g_xhcc_use_sysv_abi_plan?amd_plan(prog,f->parameter_plan):0;
         int i;
         int lsz = x86_abi_align(f->local_size,"abi.frame.alignment");
         int framelo;
@@ -2173,7 +2194,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 if (f->param_types && pi < f->param_count) pt = f->param_types[pi];
                 pi++;
                 param_class=x86_type_class(pt,0,f->is_variadic,pi-1);
-                location=xh_x86_allocate(&param_class,&int_used,&sse_used,&stack_used,&location_index);
+                if(function_plan){
+                    const XhAbiArgumentPlan*saved=&function_plan->args[k];
+                    if(saved->by_value_stack){location=2;location_index=0;stk=xh_x86_number("abi.stack.argument_base")+(int)saved->stack_offset;}
+                    else{location=(int)saved->fragments[0].bank;location_index=(int)saved->fragments[0].index;if(location==0&&int_used<=location_index)int_used=location_index+1;if(location==1&&sse_used<=location_index)sse_used=location_index+1;}
+                    param_class.bank=location;
+                }else location=xh_x86_allocate(&param_class,&int_used,&sse_used,&stack_used,&location_index);
                 tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                 k++;
                 if (param_class.bank==1) {
@@ -2198,6 +2224,8 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 }
             }
         }
+
+        if(function_plan){unsigned named_end=0,k;for(k=0;k<function_plan->arg_count;k++)if(function_plan->args[k].by_value_stack){unsigned end=function_plan->args[k].stack_offset+function_plan->args[k].stack_extent;if(end>named_end)named_end=end;}stk=xh_x86_number("abi.stack.argument_base")+(int)named_end;}
 
         for (i = 0; i < f->code_count && body_ok; i++) {
             IrInst *I = &f->code[i];
@@ -2658,6 +2686,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     break;
 
                 case IR_CALL: {
+                    const IrAbiPlan *call_plan=g_xhcc_use_sysv_abi_plan?amd_plan(prog,I->abi_plan):0;
                     int n = (int)I->val;
                     int argmask = (int)I->aux;
                     int is_indirect = (I->name && I->name[0] == '?');
@@ -2742,12 +2771,13 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * stack argument was loaded into rdi/rsi/... and the real
                      * registers were overwritten. */
                     for (k = 0; k < n; k++) {
-                        cls[k]=xh_x86_allocate(&argument_class[k],&int_used,&sse_used,&nstk,&where[k]);
+                        if(call_plan){const XhAbiArgumentPlan*saved=&call_plan->args[k];if(saved->by_value_stack){cls[k]=2;where[k]=(int)saved->stack_offset;nstk++;}else{cls[k]=(int)saved->fragments[0].bank;where[k]=(int)saved->fragments[0].index;if(cls[k]==0&&int_used<=where[k])int_used=where[k]+1;if(cls[k]==1&&sse_used<=where[k])sse_used=where[k]+1;}}
+                        else cls[k]=xh_x86_allocate(&argument_class[k],&int_used,&sse_used,&nstk,&where[k]);
                     }
                     asmbuf_puts(&buf, xh_x86_rule("text.d142bbe448005ce7"));
                     if (nstk > 0) {
                         asmbuf_puts(&buf, xh_x86_rule("text.cb03efe8ee360a4b"));
-                        asmbuf_int(&buf, x86_abi_align(xh_x86_number("abi.stack.word")*nstk,"abi.frame.alignment"));
+                        asmbuf_int(&buf, call_plan?(int)call_plan->stack_bytes:x86_abi_align(xh_x86_number("abi.stack.word")*nstk,"abi.frame.alignment"));
                         asmbuf_putc(&buf, '\n');
                     }
                     /* Stack arguments, left to right, each in its own 8-byte slot. */
@@ -2762,7 +2792,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                             amd_mem_rd(&buf, "mov", "rax", "qword", tmp);
                             asmbuf_puts(&buf, xh_x86_rule("text.e4109461abaf377f"));
-                            asmbuf_int(&buf, xh_x86_number("abi.stack.word") * next);
+                            asmbuf_int(&buf, call_plan?where[k]:xh_x86_number("abi.stack.word") * next);
                             asmbuf_puts(&buf, xh_x86_rule("text.42ade291e14ed386"));
                             next++;
                         }
@@ -2830,7 +2860,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     {
                         int ret2 = (int)((I->val >> 32) & 1);
                         int retvoid = (int)((I->val >> 33) & 1);
-                        int retfloat = (int)((I->val >> 53) & 1);
+                        int retfloat = call_plan?(call_plan->result.count&&call_plan->result.fragments[0].class_id==2):(int)((I->val >> 53) & 1);
                         if (retvoid) break;
                         if (retfloat) {
                             /* A floating-point result arrives in xmm0, but the
@@ -2869,6 +2899,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     Type *rt = f->ret_type;
                     XhX86AbiClass result_class=x86_type_class(rt,1,0,0);
                     int two=result_class.words==2;
+                    if(function_plan)result_class.bank=function_plan->result.count&&function_plan->result.fragments[0].class_id==2?1:0;
                     if (sret_used) {
                         /* SysV returns a composite wider than 8 bytes through a
                          * buffer the caller owns.  irgen pushes the *address*

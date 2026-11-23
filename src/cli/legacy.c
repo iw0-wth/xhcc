@@ -86,6 +86,8 @@ static void usage(void) {
 #endif
         "  -g                 emit DWARF debug sections (implies --dwarf2;\n"
         "                     use --dwarf3 for DWARF 3)\n"
+        "  -f[no-]use-sysv-abi-plan  experimental x86_64 scalar calls only;\n"
+        "                     enabled use implies record; aggregates are rejected\n"
         "  -Wno-unused        suppress unused warnings\n"
         "  -config <file>     load arkcc INI config file\n"
         "  -f<feature>        enable feature (vla/complex/wchar/trigraph/fpu/dwarf/...)\n"
@@ -571,6 +573,12 @@ int xh_legacy_main(int argc, char **argv) {
             return 1;
         }
 #endif
+        else if (strcmp(a, "-frecord-sysv-abi") == 0 || strcmp(a, "-fno-record-sysv-abi") == 0) {
+            opts.record_sysv_abi = strcmp(a, "-frecord-sysv-abi") == 0;
+        }
+        else if (strcmp(a, "-fuse-sysv-abi-plan") == 0 || strcmp(a, "-fno-use-sysv-abi-plan") == 0) {
+            opts.use_sysv_abi_plan = strcmp(a, "-fuse-sysv-abi-plan") == 0;
+        }
         else if (a[0] == '-' && a[1] == 'f' &&
                  strcmp(a, "-ffunction-sections") != 0 && strcmp(a, "-flto") != 0) {
             /* -fxxx / -fno-xxx: already handled by config_apply_args, silently accepted here */
@@ -651,7 +659,6 @@ int xh_legacy_main(int argc, char **argv) {
         else if (strcmp(a, "-o") == 0 && i + 1 < argc) {
             opts.output_path = argv[++i];
         }
-        else if (strcmp(a, "-frecord-sysv-abi") == 0) { opts.record_sysv_abi = 1; }
         else if (strcmp(a, "-target") == 0 && i + 1 < argc) {
             opts.target = argv[++i];
         }
@@ -1043,8 +1050,10 @@ int xh_legacy_main(int argc, char **argv) {
             return 1;
         }
     }
+    if (opts.use_sysv_abi_plan) opts.record_sysv_abi = 1;
     if (opts.record_sysv_abi && (!opts.target || strcmp(opts.target,"x86_64"))) {
-        fprintf(stderr,"Fatal error: -frecord-sysv-abi requires -target x86_64\n");
+        fprintf(stderr,"Fatal error: %s requires -target x86_64\n",
+                opts.use_sysv_abi_plan ? "-fuse-sysv-abi-plan" : "-frecord-sysv-abi");
         return 1;
     }
     if (opts.ipo_mode && npos > opts.ipo_input_count) {

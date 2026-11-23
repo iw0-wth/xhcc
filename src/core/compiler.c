@@ -1750,7 +1750,11 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
 #ifdef XHCC
     preproc_set_compiler_mode(opts->emulate_gcc,opts->language_c11,opts->hosted_mode,opts->undef_predefines);
     g_irgen_no_builtin=opts->no_builtin;
-    g_irgen_record_sysv_abi=opts->record_sysv_abi;
+    g_irgen_record_sysv_abi=opts->record_sysv_abi||opts->use_sysv_abi_plan;
+    g_irgen_use_sysv_abi_plan=opts->use_sysv_abi_plan;
+#if ARKCC_BACKEND_X86_64
+    g_xhcc_use_sysv_abi_plan=opts->use_sysv_abi_plan;
+#endif
 #endif
     preproc_set_main_file(opts->input_path);
     /* g_ir_cur_line is set by irgen from each AST node and read by ir_emit.
@@ -2314,6 +2318,9 @@ int ark_compile(const ArkOptions *opts) {
     const ArkBackend *be;
 
     if (!opts) return ARK_ERR_ARG;
+#if defined(XHCC) && ARKCC_BACKEND_X86_64
+    g_xhcc_use_sysv_abi_plan=opts->use_sysv_abi_plan;
+#endif
 #ifdef XHCC
     {const ArkBackend*relbe=opts->target?ark_backend_find(opts->target):ark_backend_default();g_relocation_target=relbe?relbe->name:"arm";}
 #endif
@@ -3404,7 +3411,11 @@ int xh_frontend_to_ir(const ArkOptions *opts,const char *ir_path){
 }
 int xh_backend_from_ir(const ArkOptions *opts,const char *ir_path){
     const ArkBackend *be;unsigned char *buf;IrProgram *ir;int size,n;
-    if(!opts||!ir_path)return ARK_ERR_ARG;be=opts->target?ark_backend_find(opts->target):ark_backend_default();if(!be)return ARK_ERR_ARG;
+    if(!opts||!ir_path)return ARK_ERR_ARG;
+#if ARKCC_BACKEND_X86_64
+    g_xhcc_use_sysv_abi_plan=opts->use_sysv_abi_plan;
+#endif
+    be=opts->target?ark_backend_find(opts->target):ark_backend_default();if(!be)return ARK_ERR_ARG;
     size=fs_file_size(ir_path);if(size<48||size>ARK_OBJ_BUF_SIZE){diag_tool(DIAG_SEV_ERROR,ir_path,"invalid or oversized stage IR file",0,0,0,0,0,0);return ARK_ERR_IRGEN;}
     mem_pool_reset();buf=mem_pool_alloc(size+1);if(!buf)return ARK_ERR_IRGEN;n=fs_read_file(ir_path,(char*)buf,size+1);
     if(n!=size||buf[0]!='X'||buf[1]!='H'||buf[2]!='I'||buf[3]!='R'||xh_stage_rd(buf+4)!=1||xh_stage_rd(buf+8)!=(unsigned)xh_target_id(be)||xh_stage_rd(buf+12)!=(unsigned)be->pointer_size||xh_stage_rd(buf+16)!=(unsigned)(ark_streq(be->name,"x86_64")?8:4)||xh_stage_rd(buf+20)!=xh_stage_abi(be)||xh_stage_rd(buf+24)!=1||xh_stage_rd(buf+28)!=xh_request_fingerprint()){

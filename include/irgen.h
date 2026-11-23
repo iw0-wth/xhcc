@@ -19,6 +19,7 @@ IrProgram *irgen_program_into(AstNode *prog, IrProgram *out);
  * writing an image that silently computes the wrong answer. Reset on entry to
  * irgen_program(). */
 extern int g_irgen_errors;
+extern int g_irgen_use_sysv_abi_plan; /* scalar-only native consumer opt-in */
 extern int g_irgen_record_sysv_abi; /* opt-in plan recording; never changes call lowering */
 /* Set per translation unit: only ARM and C emit raw armcc asm functions. */
 extern int g_irgen_armcc_asm;

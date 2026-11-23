@@ -1,7 +1,8 @@
 #ifndef XH_ABIPLAN_H
 #define XH_ABIPLAN_H
 #include "xh_typeclass.h"
-/* Standalone argument-placement prototype, not production ABI lowering.
+/* Bounded argument-placement mechanism. Persisted scalar plans may be
+ * consumed by opt-in AMD64 codegen; aggregate placement remains inspection.
  * V1 supports two independently allocated register banks and <=2 fragments.
  * No wire serialization is implied by these C structs. */
 #define XH_ABIPLAN_VERSION 1

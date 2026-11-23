@@ -402,6 +402,9 @@ static void usage(void) {
        "  -fsyntax-only  -ffreestanding|-fhosted -f[no-]builtin -undef\n"
        "  -f[no-]record-sysv-abi (x86_64): record IR plan metadata only;\n"
        "    does not enable native GCC aggregate ABI execution\n"
+       "  -f[no-]use-sysv-abi-plan (x86_64): opt-in execution for scalar calls only;\n"
+       "    enabled use always implies record, even after -fno-record-sysv-abi;\n"
+       "    unsupported aggregate plans are rejected by the backend\n"
        "  -fhosted selects hosted macros; it does not provide a complete libc\n"
        "  -Wall -Wextra (available checks only) -Werror -w\n"
        "  -W[no-]unused[-function|-result], switch-enum, unreachable-code,\n"
@@ -692,6 +695,10 @@ int xh_driver_main(int argc, char **argv) {
       o->record_sysv_abi = !strcmp(a, "-frecord-sysv-abi");
       continue;
     }
+    if (!literal && (!strcmp(a, "-fuse-sysv-abi-plan") || !strcmp(a, "-fno-use-sysv-abi-plan"))) {
+      o->use_sysv_abi_plan = !strcmp(a, "-fuse-sysv-abi-plan");
+      continue;
+    }
     if (!literal && (!strcmp(a, "--diag_style") || !strncmp(a, "--diag_style=", 13))) {
       v = value(&i, a[12] == '=' ? a + 13 : 0);
       if (!v || diag_set_style_name(v)) {
@@ -854,6 +861,8 @@ int xh_driver_main(int argc, char **argv) {
     goto done;
   }
   o->emulate_gcc = !strcmp(package_dialect, "gcc");
+  /* Execution consumes the recorded plan even if -fno-record appeared last. */
+  if (o->use_sysv_abi_plan) o->record_sysv_abi = 1;
   /* Validate requested output semantics before any query or preprocessing exit.
    * obj_ir records serialized IR inside Ark's private object container only. */
   if (o->obj_ir && (!seen_c || !o->private_object || seen_e || seen_s ||
@@ -864,7 +873,7 @@ int xh_driver_main(int argc, char **argv) {
   if (query) {
     if (xh_package_apply(root, tool, o)) { result = 1; goto done; }
     if (o->record_sysv_abi && strcmp(o->target, "x86_64")) {
-      result = fail("-frecord-sysv-abi requires x86_64 (IR metadata only)", 0); goto done;
+      result = fail(o->use_sysv_abi_plan ? "-fuse-sysv-abi-plan requires x86_64" : "-frecord-sysv-abi requires x86_64 (IR metadata only)", 0); goto done;
     }
     if (query == 1) puts(!strcmp(o->target, "arm") ? "arm-none-eabi" :
       !strcmp(o->target, "x86_64") ? "x86_64-linux-gnu" :
@@ -932,7 +941,7 @@ int xh_driver_main(int argc, char **argv) {
     goto done;
   }
   if (o->record_sysv_abi && strcmp(o->target, "x86_64")) {
-    result = fail("-frecord-sysv-abi requires x86_64 (IR metadata only)", 0); goto done;
+    result = fail(o->use_sysv_abi_plan ? "-fuse-sysv-abi-plan requires x86_64" : "-frecord-sysv-abi requires x86_64 (IR metadata only)", 0); goto done;
   }
   if (width && strcmp(o->target, width == 32 ? "x86" : "x86_64")) {
     result = fail("-m32/-m64 conflicts with selected target", 0); goto done;

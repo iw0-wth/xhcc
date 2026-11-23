@@ -2,7 +2,7 @@
 
 ## 状态与边界
 
-这是独立测试的分类引擎，不是生产 ABI lowering。当前编译器调用路径没有接入它，package manifest 没有引用 aggregate.rules；它不会改变 xhcc 现有 aggregate private wire，也不能证明与 GCC/Clang 的 native SysV aggregate ABI 互操作。
+这是有界分类引擎，不是完整 native aggregate ABI lowering。前端可通过 aggregate 规则生成并持久化计划，显式 scalar-plan 模式已消费经过认证的 scalar 计划；aggregate 结果目前仍仅供检查，不改变 xhcc 现有 aggregate private wire，也不能证明与 GCC/Clang 的 native SysV aggregate ABI 互操作。
 
 当前包描述普通整数、指针、float、double 组成的两片段候选对象。没有实现 long double、向量、复杂数、bitfield 精确位投影、寄存器预算/回退、参数位置分配、返回值重建或 va_arg aggregate。未知叶类别报错，不能按相同大小猜测类型。未来需要把分类结果连接到版本化 ABI plan、事务式 bank allocator 和 caller/callee lowering，才能开展双向 native 混链验证。
 
@@ -76,7 +76,7 @@ predicate 2 的 output_class 同时是前驱允许值和替换值，这是 v1 �
 
 引擎只保留一份规则缓存，以 target、prefix、共享模板 generation 作为身份。`xh_typeclass_release()` 仅释放分类缓存；它不释放模板，也不改变其他模块的 raw pointer。修改已加载同路径文件后，调用者需要显式 `xh_template_release()`，下一次查询将重新加载并观察 generation 变化。
 
-**独立别名不等于独立模板缓存。** 当前模板 VM 一次只驻留一个目标；从 `x86_64` 切到 `x86_64.aggregate` 会使之前返回的模板 raw pointer 失效。此原型没有挂入生产 x86 adapter，避免形成隐蔽悬垂指针。未来集成必须先设计共享表 namespace/cache 生命周期或让全部消费者按 generation 重新取得指针，不能只在调用点插入 select 就宣布完成。
+**独立别名不等于独立模板缓存。** 当前模板 VM 一次只驻留一个目标；从 `x86_64` 切到 `x86_64.aggregate` 会使之前返回的模板 raw pointer 失效。当前 scalar consumer 将 aggregate 规则查询与计划指纹校验放在发射前，然后恢复 x86 发射模板，发射期间不切换 alias。未来其他集成仍须设计共享表 namespace/cache 生命周期或让全部消费者按 generation 重新取得指针，不能只在调用点插入 select 就宣布完成。
 
 规则缓存是有界小表，图工作栈位于当前调用；没有复制完整类型图。约 4MiB 目标仍需集成后测量峰值内存，不能以规则文件大小替代测量。
 
@@ -104,4 +104,4 @@ I 表示 INTEGER，S 表示 SSE，N 表示 NO_CLASS。这些是 standalone 测�
 
 附加测试覆盖 packed offset=1、保守 root alignment不足、24 字节 MEMORY、对齐不满足的 offset=4、循环、超深图、越界 child、非法 alignment、未知叶（含大对象）、完整 merge 矩阵的损坏/缺失/重复项。规则变体测试真实改变 merge 结果和 cleanup 输出，证明外部记录被执行；它们不是有效 SysV ABI 自定义兼容性证明。
 
-最新独立测试运行 4 tests 全通过。测试只构建小 Wasm harness，不构建 compiler image，也不运行 GCC/Clang aggregate 混链。生产接入与 native ABI 验证仍为后续工作。
+最新独立测试运行 4 tests 全通过。测试只构建小 Wasm harness，不构建 compiler image，也不运行 GCC/Clang aggregate 混链。aggregate 的生产调用接入与 native aggregate ABI 验证仍为后续工作；scalar opt-in 消费的独立验证见 [abiplan-v1.md](abiplan-v1.md)。

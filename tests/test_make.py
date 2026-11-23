@@ -259,6 +259,39 @@ class MakeTests(unittest.TestCase):
             self.makefile(f'FILES := $(wildcard {pattern})\nall:\n')
             self.assertIn('unsupported', self.run_make(success=False).stderr)
 
+    def test_dependency_files_merge_and_header_rebuild(self):
+        (self.directory / 'header.h').write_text('#define HEADER_VALUE 7\n')
+        for name in ('one', 'two'):
+            (self.directory / f'{name}.c').write_text(
+                '#include "header.h"\nint ' + name + '(void){return HEADER_VALUE;}\n')
+        self.makefile('OBJECTS = one.o two.o\nall: $(OBJECTS)\n'
+                      '-include $(OBJECTS:.o=.d) absent-one.d absent-two.d\n'
+                      '%.o: %.c\n\t' + self.recipe('arm-none-eabi-gcc') + ' -I. -MMD -MP\n')
+        self.assertEqual(self.run_make().stdout.count(' -c '), 2)
+        for name in ('one.d', 'two.d'):
+            self.assertIn('header.h', (self.directory / name).read_text())
+        self.assertNotIn(' -c ', self.run_make().stdout)
+        future = max((self.directory / n).stat().st_mtime_ns for n in ('one.o', 'two.o')) + 2_000_000_000
+        os.utime(self.directory / 'header.h', ns=(future, future))
+        self.assertEqual(self.run_make().stdout.count(' -c '), 2)
+
+    def test_multiple_target_dependency_declarations_and_recipe_conflict(self):
+        (self.directory / 'header.h').write_text('#define X 1\n')
+        self.makefile('all: two.o\n'
+                      'two.o two.d: two.c header.h\n'
+                      'two.o: two.c\n\t' + self.recipe('arm-none-eabi-gcc') + '\n'
+                      '\t@echo unique=$^\n'
+                      'two.o: header.h\nmissing-header.h:\n')
+        result = self.run_make()
+        self.assertIn('unique=two.c header.h', result.stdout)
+        self.assertNotIn(' -c ', self.run_make().stdout)
+        self.makefile('all: missing-header.h\nmissing-header.h:\n')
+        self.run_make()
+        self.makefile('all:\n\techo first\nall:\n\techo second\n')
+        self.assertIn('conflicting recipes', self.run_make(success=False).stderr)
+        self.makefile('all other:\n\techo unsupported\n')
+        self.assertIn('multiple-target', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

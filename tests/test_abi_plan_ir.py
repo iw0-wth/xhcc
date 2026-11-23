@@ -62,5 +62,5 @@ class AbiPlanIr(unittest.TestCase):
    for _ in range(count):
     length=struct.unpack_from('<I',data,cursor)[0];cursor+=4
     magic,version,abi,fingerprint,argc,stack,sret=struct.unpack_from('<7I',data,cursor)
-    self.assertEqual(version,1);self.assertEqual(abi,1);self.assertNotEqual(fingerprint,0);self.assertEqual(argc,1);self.assertGreater(length,60);cursor+=length
+    self.assertEqual(version,2);self.assertEqual(abi,1);self.assertNotEqual(fingerprint,0);self.assertEqual(argc,1);self.assertGreater(length,60);cursor+=length
 if __name__=='__main__':unittest.main()

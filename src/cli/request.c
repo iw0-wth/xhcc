@@ -28,7 +28,7 @@ static const Field option_fields[] = {
  I(ArkOptions,private_object), I(ArkOptions,no_stdinc), I(ArkOptions,dump_macros),
  I(ArkOptions,no_line_markers), I(ArkOptions,hosted_mode), I(ArkOptions,undef_predefines),
  I(ArkOptions,no_builtin), I(ArkOptions,language_c11), I(ArkOptions,emulate_gcc),
- I(ArkOptions,record_sysv_abi), I(ArkOptions,memory_report), I(ArkOptions,syntax_only), I(ArkOptions,deps_only), I(ArkOptions,dep_phony),
+ I(ArkOptions,use_sysv_abi_plan), I(ArkOptions,record_sysv_abi), I(ArkOptions,memory_report), I(ArkOptions,syntax_only), I(ArkOptions,deps_only), I(ArkOptions,dep_phony),
  I(ArkOptions,dep_quote_target), I(ArkOptions,include_system_deps),
  S(ArkOptions,input_path), S(ArkOptions,output_path), S(ArkOptions,target), S(ArkOptions,cpu),
  S(ArkOptions,depend_file), S(ArkOptions,scatter_file), S(ArkOptions,linker_script),

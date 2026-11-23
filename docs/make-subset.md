@@ -68,12 +68,21 @@ Supported syntax and behavior:
 - Backslash/newline continuations, blank lines, `#` comments outside recipes,
   `include`, `-include`, and `sinclude`. Includes are only read; missing optional
   includes are ignored. Include paths follow the current working directory.
-- One explicit target per rule, whitespace-separated prerequisites, `.PHONY`,
+- Explicit rules with whitespace-separated prerequisites, `.PHONY`,
   one-percent pattern targets/prerequisites, `.c.o` suffix recipes, and a built-in
   `.c` to `.o` compilation recipe using `CC`, `CPPFLAGS`, and `CFLAGS`.
   Prerequisites after `|` are order-only: they are built and failures propagate,
   but their mtime/rebuilding does not trigger the target recipe. They are omitted
   from `$^` and `$<`; `$|` is not implemented.
+  Repeated explicit declarations merge and deduplicate prerequisites, with a
+  normal prerequisite taking precedence over an order-only occurrence. At most
+  one declaration may supply recipes; a second nonempty recipe block fails.
+  Multiple explicit targets on a dependency-only line (for example
+  `one.o one.d: one.c header.h`) receive the same prerequisites; recipes on
+  multiple-target lines are rejected. Included `.d` prerequisites combine with
+  a matching pattern recipe. Empty explicit dummy rules support `-MP` output.
+  Includes accept multiple filenames, with missing files ignored for optional
+  includes. Includes are read only; make does not regenerate or reread them.
 - Tab-prefixed recipe lines; automatic `$@`, `$<`, `$^` (deduplicated), and `$*`.
   `$*` is the pattern/suffix stem and is empty for ordinary explicit rules.
 - Dependency traversal, missing-file errors, cycle detection, mtime-based
@@ -100,13 +109,13 @@ is unsupported. An ignored command failure is reported, not silently swallowed.
 
 This does **not** implement full GNU make: functions beyond the fourteen listed,
 conditionals beyond the listed forms, target-specific variables,
-export/environment variable import, grouped
-or multiple targets, double-colon/static pattern rules, inline recipes,
+export/environment variable import, grouped targets and recipes shared by
+multiple targets, double-colon/static pattern rules, inline recipes,
 secondary expansion, implicit wildcard expansion outside the function,
 parallel jobs, recursive make, shell
 scripts, and linking are outside this subset. Unsupported statements fail.
-Duplicate explicit rules are not merged; the first matching rule wins. Pattern
-selection is first-match without GNU implicit-rule search/backtracking.
+Pattern rules retain first-match selection without GNU implicit-rule
+search/backtracking; duplicate pattern rules are not merged.
 
 Make state uses dynamically allocated, tracked storage with a 64 KiB default
 budget (`XH_MAKE_MEMORY`, overridable at compilation). Graph traversal scratch

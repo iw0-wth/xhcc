@@ -99,6 +99,7 @@ typedef struct {
     int emulate_gcc;
     int syntax_only;
     int record_sysv_abi; /* x86_64 IR plan metadata only; native ABI unchanged */
+    int use_sysv_abi_plan; /* opt-in scalar plan execution; implies recording */
     int deps_only;
     int dep_phony;
     int dep_quote_target;

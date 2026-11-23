@@ -14,7 +14,7 @@ description: 为 xhcc 移植或扩展后端配置包、共享规则契约及必�
 - [包协议 v3](../../package-protocol.md)、[架构](../../architecture.md)、[后端边界审计](../../backend-engine-boundary.md)、[外置状态](../../backend-externalization.md) 和 [目标清单](../../targets.md)。
 - 最接近的包清单：[ARM](../../../packages/arm/package.ini)、[RV32](../../../packages/riscv32/package.ini)、[i386](../../../packages/x86/package.ini)、[AMD64](../../../packages/x86_64/package.ini)、[C 输出](../../../packages/c/package.ini)。逐个读取实际规则文件，不仅看字段名。
 - [模板接口](../../../include/xh_template.h)、[语义选择接口](../../../include/xh_semantic.h) 与 [语义选择合同](../../semantic-selector-v1.md)、[编码/标量选择接口](../../../include/xh_rules.h)。
-- [目标布局接口](../../../include/xh_target_rules.h)、[目标描述合同](../../target-descriptor-v1.md)、[CPU 接口](../../../include/cpu.h)、[ABI 决策接口](../../../include/xh_abi.h)。
+- [目标布局接口](../../../include/xh_target_rules.h)、[目标描述合同](../../target-descriptor-v1.md)、[CPU 接口](../../../include/cpu.h)、[ABI 决策接口](../../../include/xh_abi.h)、[IR 计划与标量使用合同](../../abi-plan-ir-v2.md)。
 - [对象描述接口](../../../include/xh_object_rules.h)、[重定位接口](../../../include/xh_relocation.h)、[重定位 VM 文档](../../relocation-vm-v1.md)。
 - [构建入口](../../../Makefile)、[构建脚本](../../../tools/build.py)、[回归入口](../../../tools/test.py)、[make 子集](../../make-subset.md)、[SD 安装脚本](../../../tools/deploy_sd.py)、[资源预算](../../resource-budget.md)。
 
@@ -68,7 +68,7 @@ $Py = 'C:\Users\wth09\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\
 | 模板 | 通过共享模板 VM 提供文本/参数替换。模板存在不代表 IR 调度、寄存器分配、控制流和调用算法都已外置。 |
 | 语义选择 | 将规范化 family/operation/width/sign/form 映射模板与 pop/push；校验实际栈效果。未匹配的操作必须明确失败或列出有测试的兼容 fallback。 |
 | 编码 | 使用有界字段编码、符号范围和对齐验证。Thumb 半字顺序、x86 变长字段等要按实际目标接口处理，不把一个 32 位 scatter VM 宣称为任意编码器。 |
-| ABI | 核对参数/返回、变参、聚合、间接传递、栈对齐、callee-saved、运行库和跨 TU。关系表不能自行改变前端耦合 wire 表示；有限 schema 不等于通用平台 ABI。`aggregate=aggregate.rules` 的可选 `-frecord-sysv-abi` 生产消费者以 `abi.plan-record.v1` 记录 typed IR 计划元数据，尚非机器 codegen ABI 消费者；不能据此声称已切换调用约定或完成 GCC 原生聚合互操作。 |
+| ABI | 核对参数/返回、变参、聚合、间接传递、栈对齐、callee-saved、运行库和跨 TU。关系表不能自行改变前端耦合 wire 表示；有限 schema 不等于通用平台 ABI。`aggregate=aggregate.rules` 有两个 x86_64 opt-in：`-frecord-sysv-abi`/`abi.plan-record.v1` 仅记录 typed IR 元数据；`-fuse-sysv-abi-plan` 消费版本 2 `SCALAR_VERIFIED` 标量 caller/callee 计划，校验 ABI 身份和规则指纹，支持已实现的整数/FP/指针及溢栈、标量变参。需要后者的包声明 `abi.plan-scalar.v1` 并由编译器能力表验证；声明不默认启用选项。聚合参数/返回仍被 use 模式拒绝，不能声称 GCC/Clang 原生聚合互操作已完成。 |
 | 对象 | 生成真实标准 ELF32/ELF64，交叉检查 class/machine/endian/flags/attributes、section、symbol、relocation。不得输出自定义 ARK 容器却称标准 ELF；C 输出包应明确输出 C 源码而非伪目标文件。 |
 | 重定位 | 共享有限 VM 验证跨度、范围、对齐、指令形状、配对上下文并原子提交。枚举支持公式；外部标准 ELF relocation 留给 GNU/LLVM linker，不能称已经实现全部公式。 |
 
@@ -102,6 +102,8 @@ if ($LASTEXITCODE) { throw 'build failed' }
 - [CPU](../../../tests/test_cpu_rules.py)、[目标布局](../../../tests/test_target_rules.py)、[宏顺序](../../../tests/test_predefine_order.py)、[ABI](../../../tests/test_abi_rules.py)：布局/宏与真正消费者一致；实验库测试通过不代表生产已接入。
 - [语义缓存](../../../tests/test_semantic_cache.py)、[字段/选择](../../../tests/test_rules.py)、[对象](../../../tests/test_object_rules.py)、[补丁](../../../tests/test_relocation_rules.py)：真实 C VM 和坏输入边界。
 - [ARM](../../../tests/test_arm_rules.py)、[ARM relocation](../../../tests/test_arm_relocation.py)、[RV](../../../tests/test_rv_templates.py)、[x86](../../../tests/test_x86_rules.py)、[C 输出](../../../tests/test_c_rules.py)、[跨目标](../../../tests/test_targets.py)：真实编译、链接、执行，而非仅断言字符串。
+
+ABI 计划改动还需依据 [计划 codegen 测试](../../../tests/test_abi_plan_codegen.py) 验证双 TU、Clang 双向标量混链、aggregate use 拒绝与过期指纹拒绝。当前合同记录这四项通过，不能扩展为聚合 caller/callee、刷新后的 SD 或实机支持结论；记录模式、标量 use 和聚合未支持须分开验收。
 
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 

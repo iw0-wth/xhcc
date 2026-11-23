@@ -175,6 +175,36 @@ class CRules(unittest.TestCase):
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
 
+    def test_native_swprintf_wrapper_passes_capacity_before_format(self):
+        compiler = os.environ.get('XH_C_NATIVE_CC') or shutil.which('gcc')
+        if not compiler:
+            for candidate in [r'D:\msys64\ucrt64\bin\gcc.exe', r'C:\msys64\ucrt64\bin\gcc.exe']:
+                if Path(candidate).is_file():
+                    compiler = candidate
+                    break
+        if not compiler:
+            self.skipTest('native GCC required for platform wide printf wrapper')
+        original = self.source.read_text(encoding='utf-8')
+        try:
+            self.source.write_text('int main(void) { return 0; }\n', encoding='utf-8')
+            generated = self.compile(self.original, 'native_swprintf')
+            # Exercise the actual externally loaded wrapper with host-owned
+            # pointers, independently of the frontend's fixed pointer layout.
+            text = generated.read_text(encoding='utf-8').replace('int main(int argc, char **argv)',
+                                                                'int generated_entry(int argc, char **argv)')
+            text += '\nint main(void) { wchar_t buffer[16] = {0}; long long n = ark_swprintf((long long)(intptr_t)buffer,16,(long long)(intptr_t)L"%lld",37,0,0,0,0); return n==2 && buffer[0]==L\'3\' && buffer[1]==L\'7\' && buffer[2]==0 ? 0 : 91; }\n'
+            generated.write_text(text, encoding='utf-8')
+            env = os.environ.copy()
+            env['PATH'] = str(Path(compiler).resolve().parent) + os.pathsep + env.get('PATH', '')
+            exe = generated.with_suffix('.exe')
+            result = subprocess.run([compiler, '-w', '-std=gnu99', str(generated), '-lm', '-o', str(exe)],
+                                    cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run([str(exe)], env=env, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
     def test_bitfield_selection_changes_signed_extraction_same_sha(self):
         original = self.source.read_text(encoding='utf-8')
         before = hashlib.sha256(COMPILER.read_bytes()).digest()

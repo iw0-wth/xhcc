@@ -1,6 +1,7 @@
 #ifndef XH_TYPECLASS_H
 #define XH_TYPECLASS_H
-/* Standalone, bounded aggregate classification mechanism. Not call lowering.
+/* Bounded type-graph classification mechanism. Plans can be recorded and
+ * scalar-only plans consumed explicitly; this is not aggregate call lowering.
  * Leaf kind IDs are package-defined. Group edges project children at explicit
  * byte offsets; union alternatives use overlapping offsets. Arrays can share
  * child nodes through repeated edges. No ownership of graph memory. */

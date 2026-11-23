@@ -1,91 +1,114 @@
 # xhcc
 
-面向 MCU / NuttX 等 RTOS 的多目标 C 交叉编译器。当前采用一个共享 Wasm 主程序，加外部配置、编码规则和运行库资源包；不使用后端子 Wasm。编译任务 RAM 目标约 4 MiB，允许适度超出但尽量控制；文件/Flash 体积独立统计。配套 `xhccm` 为含内置make子集的独立应用；`xhcc` 不含make代码，二者并列并共用包目录。
+[简体中文](README.zh-CN.md) · English
 
-## 构建与使用
+xhcc is a multi-target C cross-compiler intended for memory-constrained MCU/RTOS environments such as NuttX. It runs as a WASI Preview1 command and loads external configuration, code-generation rules, headers and runtime resources on demand.
 
-需要 Python 3、WASI SDK、Binaryen、WABT。运行使用 Wasmtime；Python 只是桌面宿主适配工具，主编译器不依赖 Python。
+Two independent applications share one `packages/` directory:
 
-```powershell
-D:\miniconda3\python.exe tools/build.py
-D:\miniconda3\python.exe tools/xhcc.py --list-tools
-D:\miniconda3\python.exe tools/xhcc.py arm-none-eabi-gcc -c examples/add.c -o build/add.o
-D:\miniconda3\python.exe tools/xhcc.py armcc --cpu Cortex-M4 -S examples/add.c -o build/add.s
-D:\miniconda3\python.exe tools/xhcc.py riscv32-unknown-elf-gcc -c examples/add.c -o build/add-rv.o
-D:\miniconda3\python.exe tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o build/add-x64.o
+- `xhcc.wasm`: direct compiler driver, without the make implementation.
+- `xhccm.wasm`: the same driver plus an in-process, bounded make subset. Compiler recipes run in the same process without a shell or subprocess.
+
+Each application contains the shared C frontend, IR and target engines. There is no separate Wasm module per backend. The default 4 MiB limit applies to each application's **Wasm linear memory**; complete MCU RAM use still requires measurement on the target runtime.
+
+## Build and quick start
+
+Run commands from the repository root unless stated otherwise. Install Python 3, the WASI SDK, Binaryen and WABT; use Wasmtime for desktop execution. Put the tools on `PATH` or configure their locations:
+
+```sh
+# Set WASI_SDK_PATH to your WASI SDK directory first.
+# Set WASM_OPT and WASM_VALIDATE if those tools are not on PATH.
+python tools/build.py --app both --target all
+python tools/xhcc.py --list-tools
+python tools/xhcc.py arm-none-eabi-gcc -c examples/add.c -o build/add.o
+python tools/xhcc.py armcc --cpu Cortex-M4 -S examples/add.c -o build/add.s
+python tools/xhcc.py riscv32-unknown-elf-gcc -c examples/add.c -o build/add-rv.o
+python tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o build/add-x64.o
 ```
 
-构建生成 `build/wasm/xhcc.wasm`，同一份程序按工具名选择 ARM、RV32、i386、AMD64 或 C 后端。也可独立调用：
+The [build script](tools/build.py) defaults to `--app both --target all`. Production outputs are `build/wasm/xhcc.wasm` and `build/wasm/xhccm.wasm`; intermediate builds and maps are under `build/wasm/dev/all/` and its `xhccm/` subdirectory. `--app xhcc` or `--app xhccm` builds one application. Target-specific development builds use `build/wasm/dev/<target>/` and do not replace the production multi-target modules.
 
-```powershell
-& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
+With GNU make installed, the root [Makefile](Makefile) also defaults to both applications: `make all`, `make xhcc` and `make xhccm`. Override `PYTHON` and `WASI_SDK_PATH` as needed. The build script accepts `--sdk`, `--wasm-opt` and `--wasm-validate`; it also reads `WASI_SDK_PATH`, `WASM_OPT` and `WASM_VALIDATE`. Its fallback SDK and Windows tool paths are local development defaults, so configure them for your machine.
+
+The Python [desktop adapter](tools/xhcc.py) selects a package and runs the compiler; Python is not required by the Wasm compiler itself. Set `WASMTIME` or pass `--wasmtime` when Wasmtime is not on `PATH`. Direct execution is also supported:
+
+```sh
+wasmtime run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
 ```
 
-工具位置可通过 `--sdk` / `WASI_SDK_PATH`、`--wasm-opt` / `WASM_OPT`、`--wasm-validate` / `WASM_VALIDATE` 设置。Windows 默认使用本机 D 盘安装；其他机器须配置。
+## SD deployment and make
 
-## 内置 make 与模拟 SD
+Build both applications, then deploy:
 
-整体 `Makefile` 默认构建 `xhcc.wasm`、`xhccm.wasm` 两个应用；也可 `make xhcc` / `make xhccm` 单独构建。桌面可用 `make PYTHON=D:/miniconda3/python.exe`，或直接运行构建脚本。
-
-```powershell
-& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C examples/make-demo all
-# 若Makefile用外部CC，注入默认工具或CC变量：
-# xhccm make riscv32-unknown-elf-gcc CFLAGS=-O0 all
-# xhccm make CC=riscv32-unknown-elf-gcc CFLAGS=-O0 all
-D:\miniconda3\python.exe tools/deploy_sd.py
-D:\miniconda3\python.exe tests/test_sd.py
+```sh
+python tools/deploy_sd.py
+python tests/test_sd.py
 ```
 
-以上第一条命令从部署目录运行。部署目录默认 `../sd/xhcc/`，里面并列放两份应用和唯一 `packages/` 资源目录。测试以SD根作为WASI预开放目录，验证直接编译、make两源、mtime增量以及CC注入切换RV32。明文写在配方中的编译器名直接选择对应包，不受默认CC覆盖。
+The [deployment script](tools/deploy_sd.py) defaults to `../sd/xhcc/`; `--sd <directory>` overrides it. It installs sibling `xhcc.wasm` and `xhccm.wasm`, one shared `packages/` tree, generated make examples and an `installation.json` manifest. Run the following **from that deployed directory**, with the directory exposed to the guest as `/`:
 
-make采用有界子集，不启动shell。变量赋值、include、条件语句、十个文本函数、变量替换引用、显式/模式/后缀规则、order-only依赖、自动变量、增量/强制构建和有限文件命令已支持；-j1为串行兼容，大于1明确拒绝。其余GNU make函数、shell脚本和通用链接尚未实现。完整范围见 `docs/make-subset.md`。
-
-## 语言和输出
-
-继承 arkcc 的 C99 实现、C11 六关键词子集（`_Alignas/_Alignof/_Static_assert/_Generic/_Thread_local/_Atomic`）、ARMCC 扩展和可选优化/诊断。C11 子集不等于完整 C11；机器目标真实 TLS 尚未实现并明确拒绝，原子操作仍有目标和运行时边界。
-
-基本 asm 和 ARMCC asm 函数按目标支持；GNU 扩展 asm 支持一个32位 `=r` 输出、最多两个 `r/i` 输入及 `memory/cc` clobber，实际求值和回写。通用 GCC 约束分配、64位/内存操作数、多输出等尚未实现，会拒绝。
-
-机器目标 `-c` 生成标准 ELF ET_REL，不是私有 ARKOBJ 改后缀。ARM M3/M4/M7/M33已执行验证；M0/M0+/M1/M23需要Thumb-1指令选择，当前不假装支持。soft/softfp有CPU/FPU检查，hard-float调用ABI未实现。RV32为ILP32，i386为ILP32，AMD64为LP64。C后端输出C文本，不生成原生对象。
-
-`-frecord-sysv-abi` 可在 AMD64 前端记录版本化参数/返回计划，`-c --private-object --obj-ir` 可持久化检查；它不会启用原生 GCC 聚合 ABI 执行。IR v2 保留计划表和独立索引，读取 v1 时默认无计划。
-
-完整对照和限制见 `docs/feature-parity.md`、`object/README.md`。目标名称、ARM架构支持范围和C输出与wasm32目标的区别见 `docs/targets.md`。ARM包名为 `arm`，Cortex-M3仅是默认CPU。
-
-## GCC/armcc 参数
-
-提供 `-E/-S/-c`、`-fsyntax-only`、`-x c`、`-std=c99/c11/gnu99/gnu11`、O0/O1/O2、目标/CPU/ISA/ABI选项、`-I/-iquote/-isystem/-nostdinc`、`-D/-U/-include`、`-M/-MM/-MD/-MMD/-MF/-MT/-MQ/-MP`、`-dM/-P`、freestanding/hosted模式、警告控制、诊断格式、配置和原有优化开关。支持有界 `@response` 和多源顺序编译。
-
-未知或语义未实现的参数明确报错。现代入口尚不支持通用链接、DWARF ELF输出和全部GCC参数。通过 `--ark-compat` 保留原Ark CLI的私有对象、IPO、IR/LTO、partial link、scatter、MDK导入等入口；这些不是GNU链接器或GCC LTO兼容实现。
-
-```powershell
-& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. build/wasm/xhcc.wasm --ark-compat --help
+```sh
+wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhcc.wasm arm-none-eabi-gcc -c examples/make-demo/first.c -o examples/make-demo/first.o
+wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C examples/make-demo all
+wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C examples/make-demo -B CC=riscv32-unknown-elf-gcc CFLAGS=-O0 all
 ```
 
-## 配置包与规则引擎
+Keep `XHCC_PACKAGE_ROOT` absolute in the guest when using make's `-C`. An optional leading tool in `xhccm make [TOOL] ...` supplies the default `CC`; command-line `CC=...` overrides makefile assignments. A compiler name written explicitly in a recipe selects that named tool. The [SD test](tests/test_sd.py) checks direct compilation, make, multiple sources, incremental rebuilds and switching `CC` through a desktop WASI preopen. This is a deployment simulation, not a NuttX/WAMR hardware validation.
 
-`packages/<id>/package.ini` v3提供工具别名、目标、CPU、ABI、include、参数方言及可选规则文件。复制目录即可注册新工具/目标配置，不需逐包新增主入口分支。`options.ini`描述flag/value/joined参数映射，可独立模拟编译器参数名称。
+The make subset supports variable assignments and substitution references, includes, bounded conditionals, fourteen text/diagnostic functions (including `wildcard`, `origin`, `error` and `warning`), explicit/pattern/suffix rules, order-only dependencies, automatic variables, dependency files, incremental/forced builds and a few literal file commands. `-j1` selects serial execution; other job counts fail. There is no shell, recursive make, general linking or full GNU make compatibility. See the [exact syntax, commands and limits](docs/make-subset.md).
 
-RV32使用共享字段编码VM，R/I/S/B/U/J布局在外部 `encoding.rules`；标量32位算术、位运算、移位、比较及有符号/无符号除法取模的IR选择与寄存器模板在 `selection.rules`，v2每条规则最多8步且兼容v1。规则按需读取有界缓存。当前是**后端数据化第一阶段**：其余IR选择、ABI、通用寄存器分配、汇编助记符及重定位仍有C实现，任意全新ISA还不能只写目标名就实现。外部规则变体测试会在主程序SHA256不变时改变实际指令和执行结果。配置版本不匹配或规则越界必须失败。
+## Targets and language scope
 
-ARM、i386、AMD64和C也使用同一个XHTEMPLATE引擎读取外部发射模板，ARM额外迁出227条Thumb编码规则，x86迁出opcode/REP/REX表，C迁出ABI契约和帧/栈政策。CPU名称/别名/能力与目标数据布局也由cpus.rules和target.rules提供，ARM实际发射按外部指令特性需求检查SP/DP/DSP能力（现代-c/-S均执行），主前端按现有引擎契约消费并验证。所有目标都已有真实包规则路径，但复杂ABI、优化、部分选择及剩余重定位算法仍编译在主程序中。详细清单见 `docs/backend-externalization.md`，不能将当前状态等同于全部后端算法完全外置。
+Machine-target `-c` emits standard ELF relocatable objects (`ET_REL`). The C backend emits C source for another C compiler.
 
-外部资源按需读取；取消的子Wasm/共享stage实验不属于生产构建。协议与映射格式见 `docs/package-protocol.md`。
+| Target | Current scope | Main boundary |
+| --- | --- | --- |
+| ARM | Cortex-M3/M4/M7/M33, Thumb-2, base AAPCS, checked soft/softfp | No hard-float parameter ABI; M0/M0+/M1/M23 need Thumb-1 lowering |
+| RV32 | RV32IM, ILP32, software floating-point helper calls | No RV64 or hardware floating-point ABI |
+| i386 | ILP32, current scalar SysV subset and xhcc aggregate wire | No complete GNU aggregate ABI guarantee |
+| AMD64 | LP64, scalar SysV/SSE and tested variadic cases | Complete native SysV aggregate interoperability is not implemented |
+| C output | IR translated to C text | Not a wasm32 code-generation backend |
 
-## RAM 与 RTOS
+See [target definitions and architecture limits](docs/targets.md). The compiler runs in Wasm; compiling input C directly into wasm32/WASI is a separate, currently unimplemented backend.
 
-当前默认单个非共享 wasm32 linear memory initial=max=4 MiB，含arena、C栈、静态区和libc堆。整项任务还包括Wasm字节码、解释器数据、宿主栈和文件系统开销，所以不能用4 MiB linear memory宣称整机总占用达标。NuttX/WAMR待实际配置和真机测量。
+The frontend derives from arkcc's C99 implementation, with ARMCC extensions and a limited C11 keyword subset: `_Alignas`, `_Alignof`, `_Static_assert`, `_Generic`, `_Thread_local` and `_Atomic`. This does not establish full C11 support. Native TLS is rejected; atomics have target/runtime limits. Basic asm and ARMCC asm functions depend on the target. GNU extended asm currently accepts one 32-bit `=r` output, up to two `r/i` inputs and `memory/cc` clobbers; broader constraints are rejected. Details are in the [feature comparison](docs/feature-parity.md) and [object library documentation](object/README.md).
 
-默认arena1MiB；源32KiB、预处理64KiB、汇编128KiB、机器码32KiB、每层include16KiB/8层。大工程会显式超限，应按测量调整。ARM liveness工作区已按需分配，普通任务不固定占其约1.5MiB。
+### Experimental AMD64 scalar ABI plans
 
-Binaryen进行Oz与指令降级，WABT关闭相关扩展严格验证，Wasm仅使用WASI Preview1文件/标准流/参数等接口。Wasmtime进程RSS不是MCU内存证明。
+`-frecord-sysv-abi` records versioned argument/result plans; `-c --private-object --obj-ir` preserves them for inspection. `-fuse-sysv-abi-plan` additionally enables the **experimental scalar caller/callee consumer**, checking version 2 scalar eligibility, ABI identity and the rule fingerprint. Both flags are opt-in. Integers, floating-point values, pointers, register/stack spills and scalar variadic cases have execution coverage, including **xhcc caller → Clang callee and Clang caller → xhcc callee**.
 
-## 验证与来源
+Aggregate plans remain inspection metadata. Use mode explicitly rejects aggregate arguments/results, including small structures; native aggregate interoperability is not implemented. IR container v2 persists the plan table and independent references; the reader accepts v1 with no plans. See the [ABI plan contract and test evidence](docs/abi-plan-ir-v2.md).
 
-```powershell
-D:\miniconda3\python.exe tools/test.py
+## Command-line compatibility
+
+The modern driver provides `-E/-S/-c`, syntax-only checks, C language/standard selection, O0/O1/O2, target/CPU/ISA/ABI options, include paths and macros, dependency generation, diagnostics, bounded response files and sequential multi-source compilation. Unknown or unimplemented options fail explicitly.
+
+Tool aliases such as `arm-none-eabi-gcc`, `x86_64-linux-gnu-gcc` and `armcc` select argument interfaces; they do not imply a complete GNU GCC or commercial ARM compiler implementation. General linking, DWARF ELF output and the full GCC option set are not supported. `--ark-compat` retains legacy private-object, IR/LTO, IPO, partial-link, scatter and MDK-import interfaces; these are not GNU linker or GCC LTO compatibility claims.
+
+```sh
+wasmtime run --dir=. build/wasm/xhcc.wasm --ark-compat --help
 ```
 
-执行测试需GNU ARM工具链、Unicorn、pyelftools（可安装到build/test-deps）。测试包括GNU ARM混合链接，RV32/i386/AMD64标准ELF双布局执行，LP64、CPU/softfp、内联汇编、配置包和外部规则。若无full-target clang，额外LLVM异编译器混链测试明确跳过。
+## External packages and backend development
 
-基于MIT授权arkcc，来源见 `NOTICE.md`，许可保留于根目录 `LICENSE`。源码已整理为xhcc自有部件，无vendor目录。
+[Package manifests](docs/package-protocol.md) register aliases, targets, CPUs, ABI contracts, headers, option mappings and rule resources. Existing engines consume external templates, semantic selection, encodings, CPU/target layouts, ABI data, object descriptors and bounded relocation rules. Rule variants can change emitted instructions and executed behavior while the compiler module's SHA-256 remains unchanged.
+
+All five engines have real external-rule consumers. Some complex selection, ABI lowering, optimization and layout algorithms remain C code in the application. A new package can configure a supported engine; an arbitrary new ISA may require shared-contract and engine changes plus a rebuild. See [externalization status](docs/backend-externalization.md) and the repository's [backend-porting guide](docs/skills/port-backend/SKILL.md).
+
+## Memory and verification
+
+Default builds declare one non-shared wasm32 linear memory with initial = maximum = **4 MiB**, covering static data, the C stack, arena and libc heap. Runtime engine structures, bytecode, host stacks, WASI buffers and filesystem caches add to complete task RAM. Neither that cap nor Wasmtime process RSS proves a 4 MiB MCU deployment. NuttX/WAMR configuration and hardware peak-memory measurements remain necessary.
+
+The default arena is 1 MiB. Source/preprocessed/assembly/machine-code buffers and include depth have explicit bounds; larger inputs can fail with a limit diagnostic. External resources load on demand. Build-time Binaryen lowering and WABT validation restrict Wasm features; see [resource measurement](docs/resource-budget.md) for storage, maps and RAM distinctions.
+
+```sh
+python tools/test.py
+python tests/test_sd.py
+python tools/resource_report.py --self-test --json build/reports/resources.json --markdown build/reports/resources.md
+```
+
+Build and deploy before running SD tests. Integration tests use GNU ARM tools, Unicorn, pyelftools and, for relevant mixed-toolchain checks, a suitable Clang/LLVM installation. Reference-toolchain checks can skip when unavailable; a skipped test is not interoperability evidence. The regression entry includes real compilation, ELF checks, execution, rule variants, negative cases and scalar ABI plans. Resource reports describe the artifacts measured when generated, not fixed project specifications.
+
+## License and implementation sources
+
+The initial C frontend, IR and ARM emitter derive from MIT-licensed arkcc. See [source attribution](NOTICE.md) and the retained [MIT license](LICENSE). Target extensions are independently implemented from public ISA, ABI and object-format specifications; compiler compatibility is validated against external tools, without copying GPL compiler implementations into the project.

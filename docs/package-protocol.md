@@ -24,7 +24,7 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1` and the opt-in metadata capability `abi.plan-record.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
 
 `semantic.selector.v1` declares the bounded shared semantic selector contract:
 `XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
@@ -40,13 +40,28 @@ not authorize changing a frontend-coupled wire representation independently,
 and does not claim complete SysV aggregate interoperability. The production
 C/ARM/RISC-V/x86 packages declare the capabilities their active records consume;
 adding a requirement alone does not make an inactive library a production API.
-The optional `aggregate=aggregate.rules` path supplies aggregate planning rules
-for the production opt-in `-frecord-sysv-abi` consumer. Its
-`abi.plan-record.v1` capability denotes recording typed IR plan metadata only.
-The host validates the path without classifying aggregates. This recording mode
-does not switch the machine calling ABI or establish GCC/native aggregate
-interoperability; code generation still uses its existing calling convention.
-The compiler must validate actual support before accepting the requirement.
+The optional `aggregate=aggregate.rules` path supplies planning rules shared by
+two separate x86_64-only opt-ins. `-frecord-sysv-abi` and its
+`abi.plan-record.v1` capability record typed IR plan metadata only; recording
+does not switch the machine calling ABI. The separate `-fuse-sysv-abi-plan`
+option records and consumes certified scalar caller/callee plans. A package
+that requires this native-use feature should declare `abi.plan-scalar.v1`;
+that requirement must be accepted by the compiler's capability allowlist before
+use. Neither a capability declaration nor a rule file enables either flag by
+default. The host validates resource paths and capability-name syntax only.
+
+Scalar use requires canonical plan version 2 with `SCALAR_VERIFIED`, the correct
+ABI identity and a matching rule-file fingerprint. It covers the implemented
+integer, float/double and pointer placements, including register/stack spills
+and scalar variadic calls. Missing certification, stale fingerprints and
+aggregate arguments/results, including small single-fragment aggregates, are
+rejected. Aggregate plans remain record-only; this feature does not establish
+GCC/Clang native aggregate interoperability. Default compilation retains its
+existing lowering. The [IR plan contract](abi-plan-ir-v2.md) records the codec,
+IR references, validation and actual native scalar evidence: four codegen tests
+including bidirectional Clang execution. These results are not evidence of all
+ABI cases, SD deployment refresh or NuttX hardware support.
+
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.
 

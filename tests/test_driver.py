@@ -89,6 +89,22 @@ class DriverTests(unittest.TestCase):
                 result = self.run_xhcc('--obj-ir', *options, self.path('one.c'), success=False)
                 self.assertIn('--obj-ir requires', result.stderr)
 
+    def test_use_sysv_abi_plan_option(self):
+        for flags in (('-fuse-sysv-abi-plan',),
+                      ('-fuse-sysv-abi-plan', '-fno-record-sysv-abi'),
+                      ('-frecord-sysv-abi', '-fuse-sysv-abi-plan', '-fno-use-sysv-abi-plan')):
+            with self.subTest(flags=flags):
+                self.run_xhcc('x86_64-linux-gnu-gcc', '-c', *flags,
+                              '-o', self.path('use-sysv-plan.o'), self.path('one.c'))
+        for tool in ('arm-none-eabi-gcc', 'i686-linux-gnu-gcc', 'riscv32-unknown-elf-gcc', 'xh-c-gcc'):
+            with self.subTest(tool=tool):
+                result = self.run_xhcc(tool, '-c', '-fuse-sysv-abi-plan',
+                                       '-o', self.path('bad-sysv-plan.o'), self.path('one.c'), success=False)
+                self.assertIn('-fuse-sysv-abi-plan requires x86_64', result.stderr)
+                self.run_xhcc(tool, '-fuse-sysv-abi-plan', '-dumpmachine', success=False)
+        self.run_xhcc('arm-none-eabi-gcc', '-fsyntax-only', '-fuse-sysv-abi-plan',
+                      '-fno-use-sysv-abi-plan', self.path('one.c'))
+
     def test_record_sysv_abi_metadata_option(self):
         self.assertIn('record IR plan metadata only', self.run_xhcc('--help').stdout)
         self.run_xhcc('x86_64-linux-gnu-gcc', '-c', '-frecord-sysv-abi',

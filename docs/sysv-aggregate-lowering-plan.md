@@ -1,6 +1,6 @@
 # AMD64 SysV aggregate lowering：外部规则与共享机制方案
 
-本文是待实施设计，不是兼容性声明。仅面向 Linux/ELF System V AMD64；i386、Microsoft x64 和 C++ 非平凡对象另需独立契约。本文没有修改生产源码，没有构建或运行新的 reference compiler。
+本文记录完整 aggregate lowering 的设计与尚未完成部分，不是 aggregate 兼容性声明。scalar-only 计划消费现已提供，见 [abiplan-v1.md](abiplan-v1.md)；它不改变本文的 aggregate 边界。仅面向 Linux/ELF System V AMD64；i386、Microsoft x64 和 C++ 非平凡对象另需独立契约。本文没有修改生产源码，没有构建或运行新的 reference compiler。
 
 ## 当前边界与立即可见的风险
 
@@ -14,7 +14,7 @@
 
 最终规则必须以固定版本的 AMD64 psABI 分类、传参与返回章节为依据，并记录 PDF/hash/版本日期。权威项目入口是 [x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI)，参考实现应同时记录 LLVM 或 GCC 的完整 target compiler 版本。本次在线获取规范失败，下面给出的是需要对照固定规范复核的设计和待测向量，未声称已逐条核验最新版文本。
 
-当前配置的 WASI SDK clang 只保证 Wasm 工具链可用，不能假定能组装或生成 AMD64 reference 对象。已有 targets gate 在 full-target clang 缺失时会跳过混合对象检查。后续先查询 clang 的 targets，再试编译一份 `--target=x86_64-unknown-linux-gnu -ffreestanding -fno-pic -fno-pie -O0 -c` 文件；成功、ELF machine 正确且反汇编可检查，才能称其为 reference。可在后续经授权安装 MSYS2 完整 LLVM/GCC；本文没有安装工具。
+WASI SDK clang 不能单凭名称视为 native reference。后续已安装 full-target Clang 21.1.8，并确认其 x86/x86-64/RV32 targets；targets 混合对象 gate 与 scalar-only ABI-plan 双向混链已实际通过。完整 aggregate 向量仍需分别取得 reference 和执行结果，不能借 scalar 成功推断。
 
 reference 生成要同时保留源文件、命令、stderr、版本、对象及汇编。GNU as、LLVM MC 或 compiler 汇编输出可帮助解释分类，真实双向跨对象调用才是兼容性 gate。禁止把现有 xhcc 的错误输出当唯一 oracle。
 

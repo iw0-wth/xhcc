@@ -782,6 +782,10 @@ static int read_include(const char *name, char *buf, int cap, int quoted) {
             for (k = 0; k <= nl; ++k) relative[last + 1 + k] = name[k];
             rd = read_include_one(relative, buf, cap);
             if (rd != -1) return rd;
+        } else if (last < 0) {
+            /* A source named simply "file.c" lives in the current directory. */
+            rd=read_include_one(name,buf,cap);
+            if(rd!=-1)return rd;
         }
     }
 #endif

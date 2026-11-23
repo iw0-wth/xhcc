@@ -1,6 +1,6 @@
 # ABI plan v1：独立事务式参数分配原型
 
-此原型消费 [typeclass-v1.md](typeclass-v1.md) 的复制结果及外部 bank 描述。它尚未接入生产调用 lowering、前端 IR、LTO 或标准对象，不改变当前 xhcc aggregate private wire，不证明 GCC/Clang aggregate 互操作。
+此分配器消费 [typeclass-v1.md](typeclass-v1.md) 的复制结果及外部 bank 描述。计划现已支持前端记录、IR v2 持久化和多 TU 索引重定位；`-fuse-sysv-abi-plan` 可在 AMD64 生产代码生成中消费经认证的 scalar 计划。aggregate 分类与分配目前仍只供检查，不改变默认 aggregate private wire，不证明 GCC/Clang aggregate 互操作。
 
 接口位于 [xh_abiplan.h](../include/xh_abiplan.h)，实现为 [abiplan.c](../src/backend/rules/abiplan.c)，策略位于 [aggregate.rules](../packages/x86_64/aggregate.rules)，测试为 [test_abiplan.py](../tests/test_abiplan.py)。version=1 的 C 结构是进程内数据，不是序列化格式。
 
@@ -13,7 +13,7 @@
 
 v1 两 bank 各最多 32 slots，class 最多 8 种，stack slot 为不超过 64 的二次幂，call/max alignment 为不超过 256 的二次幂。每个分类最多两个片段。默认策略 GP=6、FP=8、stack slot=8、call alignment=16、最大参数 alignment=16，sret 预留 GP 第一个 slot。
 
-策略加载到调用者持有的值结构，不保留模板指针；typeclass 输出也是复制结构。同一个 aggregate alias 的 typeclass→abiplan 串联安全。共享模板仍只有一个目标缓存，切换 alias 会使其他模块的 raw pointer 失效；生产集成前必须处理该生命周期边界。修改同路径文件需显式释放模板缓存。
+策略加载到调用者持有的值结构，不保留模板指针；typeclass 输出也是复制结构。同一个 aggregate alias 的 typeclass→abiplan 串联安全。共享模板仍只有一个目标缓存，切换 alias 会使其他模块的 raw pointer 失效；当前 scalar consumer 在发射前读取规则指纹并验证计划，随后重新加载 x86 发射模板；发射期间不切换 alias。后续其他集成仍必须处理该生命周期边界。修改同路径文件需显式释放模板缓存。
 
 ## 事务与结果
 
@@ -37,12 +37,14 @@ MEMORY 分类无需伪造片段，直接产生 by-value stack plan。这与当�
 - 非法输入/overflow/64 参数边界的状态与输出原子性；外部容量变更真实改变 placement。
 - 实际 typeclass mixed 图结果输入 allocator，验证两个独立模块通过复制数据协作。
 
-这些位置记录为自主设计向量，未运行 reference compiler 双向混链。
+这些 aggregate 位置记录为自主设计向量，未运行 aggregate reference 双向混链。另有 [test_abi_plan_codegen.py](../tests/test_abi_plan_codegen.py) 在 `-fuse-sysv-abi-plan` 下通过 scalar 双 TU、aggregate 拒绝、过期指纹拒绝和 Clang 21.1.8 双向混链的 4 个用例，覆盖 GPR/SSE 溢栈、float、pointer 及 scalar varargs。该结果不扩展到 aggregate。
 
 ## IR 持久化审计与后续集成
 
-当前 [ir.h](../include/ir.h) 的 `IrInst.aux2` 和 `IrProgram.argbytes` 表示旧 wire size/flags，不能重解释为 fragment plan。应新增由 program pool 持有的 plan side table、call plan ID，以及 function 参数/结果 plan ID；64 参数、每参最多两个片段是 v1 明确边界。直接调用、仅声明 callee、函数指针及 variadic 边界必须取得完整类型事实。
+当前 [ir.h](../include/ir.h) 保留 `IrInst.aux2` / `IrProgram.argbytes` 的旧 wire 含义，另有 program-owned ABI plan side table，以及 call、function parameter/result 的 1-based plan ID。[irser.c](../src/ir/irser.c) 的 IR v2 使用独立 canonical codec，合并 TU 时给计划 ID 重定位。详见 [abi-plan-ir-v2.md](abi-plan-ir-v2.md)。
 
-[irser.c](../src/ir/irser.c) 已有 argbytes 写入/读取和 merge 时 base 调整机制；新 plan 需要独立版本、ABI identity 或规则指纹、call arg count、stack size、sret 资源及每片段显式字段。使用固定 u32 little-endian 字段与长度校验，不能 memcpy C struct（其中 padding/host size 不是稳定协议）。reader 必须检查完整 run 范围、整数溢出、fragment count 与 object extent；merge/LTO 需给 plan IDs 单独重定位并拒绝不一致 ABI identity。
+canonical plan v2 增加 `SCALAR_VERIFIED` 标记，由 builder 根据真实返回类型、参数及完成 C 参数调整的实际类型生成。v1 仍可读作检查元数据，不能通过新 consumer 认证。规则身份使用原始规则文件的 FNV-1a32 内容指纹，不信任包内手写 ID；它不是加密认证。
 
-本轮未改 IR 或 serializer。后续仍需返回值 register plan、call/callee lowering、MEMORY 按值复制、aggregate varargs 重建、序列化往返、双向 native 互操作，以及约 4MiB 预算的集成峰值测量。版本号和独立引擎通过不等于这些步骤已完成。
+opt-in AMD64 consumer 只接受版本、ABI ID、指纹及 scalar 形态匹配的计划，读取其中寄存器位置、stack offset、outgoing stack size 和 scalar 结果类别。aggregate（包括单片段小 aggregate）、缺计划、旧版未认证计划及过期规则指纹明确拒绝。默认代码生成仍使用原有路径，record-only 模式也不切换调用约定。
+
+后续仍需 aggregate 返回寄存器 plan、MEMORY 按值复制、aggregate varargs 重建、完整 native aggregate caller/callee lowering 与双向混链，以及约 4MiB 预算的集成峰值测量。scalar 子集执行通过不等于完整 SysV aggregate ABI 已完成。

@@ -53,6 +53,8 @@ const ArkBackend *ark_backend_x86_64_msvc(void);
 /* True 64-bit backend (name "x86_64", SysV AMD64, pointer_size 8).
  * ark_backend_i386() is the same object ark_backend_x86_64() returns. */
 const ArkBackend *ark_backend_amd64(void);
+/* Opt-in scalar-only persisted ABI-plan consumption (AMD64 engine). */
+extern int g_xhcc_use_sysv_abi_plan;
 const ArkBackend *ark_backend_i386(void);
 const ArkBackend *ark_backend_riscv32(void);
 const ArkBackend *ark_backend_c(void);

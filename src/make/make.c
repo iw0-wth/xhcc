@@ -29,7 +29,7 @@ typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*la
 typedef struct Node { struct Node *next; char *name; int state,failed,changed; } Node;
 typedef struct Make {
     Mem *mem; size_t used; Var *vars; Rule *rules,*last,*current;
-    Node *nodes; char *first,*phony; int error,dry,force,silent,keep;
+    Node *nodes; char *first,*phony; int error,dry,force,silent,keep,recipe_conflict,multi_rule;
 } Make;
 typedef struct Auto { const char *target,*first,*all,*stem; } Auto;
 static int fail(Make *m,const char *what,const char *detail) {
@@ -347,6 +347,37 @@ static int condition(Make *m,char *s,Condition *stack,int *count,int *active) {
     stack[*count].parent=*active;stack[*count].match=match;stack[*count].had_else=0;(*count)++;
     *active=*active&&match;return 1;
 }
+typedef struct MergeDeps {char old[TEXT],added[TEXT],result[TEXT];char *names[WORDS];int normal[WORDS],count;} MergeDeps;
+static int merge_dependencies(Make *m,Rule *rule,const char *text) {
+    MergeDeps *d=(MergeDeps *)alloc(m,sizeof(*d));char *sets[2];int k,i,j,rc=-1;size_t used=0;
+    if(!d)return -1;strcpy(d->old,rule->deps?rule->deps:"");strcpy(d->added,text);sets[0]=d->old;sets[1]=d->added;
+    for(k=0;k<2;k++) {
+        char *part=sets[k],*bar=separator(part,'|'),*args[WORDS+1];int count,phase;
+        if(bar){*bar++=0;if(separator(bar,'|')){fail(m,"multiple order-only separators",0);goto done;}}
+        for(phase=0;phase<2;phase++) {
+            if(phase&&!bar)break;count=words(m,phase?bar:part,args,0);if(count<0)goto done;
+            for(i=0;i<count;i++) {
+                for(j=0;j<d->count;j++)if(!strcmp(d->names[j],args[i]))break;
+                if(j==d->count){if(j==WORDS){fail(m,"too many merged prerequisites",0);goto done;}d->names[d->count++]=args[i];}
+                if(!phase)d->normal[j]=1;
+            }
+        }
+    }
+    for(k=1;k>=0;k--) {
+        int any=0;for(i=0;i<d->count;i++)if(d->normal[i]==k)any=1;
+        if(!k&&any&&put(m,d->result,&used," |"))goto done;
+        for(i=0;i<d->count;i++)if(d->normal[i]==k) {
+            if(used&&put(m,d->result,&used," "))goto done;
+            /* Canonical quoting keeps prerequisite spaces intact. */
+            if(put(m,d->result,&used,"\""))goto done;
+            {const char *p=d->names[i];for(;*p;p++){char c[2]={*p,0};if((*p=='"'||*p=='\\')&&put(m,d->result,&used,"\\"))goto done;if(put(m,d->result,&used,c))goto done;}}
+            if(put(m,d->result,&used,"\""))goto done;
+        }
+    }
+    {char *merged=copy(m,d->result);if(!merged)goto done;if(rule->deps)release(m,rule->deps,strlen(rule->deps)+1);rule->deps=merged;}
+    rc=0;
+done:release(m,d,sizeof(*d));return rc;
+}
 static int parse(Make *m,const char *path,int optional,int depth) {
     FILE *f;char line[TEXT];int line_no=0,ncond=0,active=1;Condition conditions[8];
     if(depth>8)return fail(m,"include nesting/cycle limit",path);
@@ -360,7 +391,10 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         }
         if(m->error)break;
         if(recipe) {
-            Recipe *r;if(!active)continue;if(!m->current){fail(m,"recipe without a target",path);break;}
+            Recipe *r;if(!active)continue;
+            if(m->multi_rule){fail(m,"recipes on multiple-target declarations unsupported",path);break;}
+            if(m->recipe_conflict){fail(m,"conflicting recipes for target",m->current?m->current->target:path);break;}
+            if(!m->current){fail(m,"recipe without a target",path);break;}
             s=line+1;len=strlen(s);while(len&&(s[len-1]=='\n'||s[len-1]=='\r'))s[--len]=0;
             r=(Recipe *)alloc(m,sizeof(*r));if(!r)break;r->text=copy(m,s);if(!r->text)break;
             if(m->current->last)m->current->last->next=r;else m->current->recipes=r;m->current->last=r;continue;
@@ -379,14 +413,22 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         }
         colon=strchr(s,':');if(!colon){fail(m,"unsupported makefile statement",s);break;}
         *colon++=0;
-        {char target[TEXT],deps[TEXT],*ts[WORDS+1];int n;Rule *r;
+        {char target[TEXT],deps[TEXT],*ts[WORDS+1];int n,i;Rule *r;
             if(expand(m,trim(s),0,target,0)||expand(m,trim(colon),0,deps,0))break;
             if(strchr(deps,';')||strchr(deps,':')){fail(m,"unsupported rule syntax",deps);break;}
             if(!strcmp(target,".PHONY")) {char merged[TEXT];size_t z=0;merged[0]=0;if(m->phony&&(put(m,merged,&z,m->phony)||put(m,merged,&z," ")))break;if(put(m,merged,&z,deps))break;m->phony=copy(m,merged);m->current=0;continue;}
-            n=words(m,target,ts,0);if(n!=1){fail(m,"exactly one target per rule is supported",0);break;}
-            r=(Rule *)alloc(m,sizeof(*r));if(!r)break;r->target=copy(m,ts[0]);r->deps=copy(m,deps);if(!r->target||!r->deps)break;
-            if(m->last)m->last->next=r;else m->rules=r;m->last=r;m->current=r;
-            if(!m->first&&r->target[0]!='.'&&!strchr(r->target,'%'))m->first=r->target;
+            n=words(m,target,ts,0);if(n<=0){fail(m,"rule needs a target",0);break;}
+            m->multi_rule=n>1;m->recipe_conflict=0;m->current=0;
+            for(i=0;i<n;i++) {
+                if(n>1&&strchr(ts[i],'%')){fail(m,"multiple pattern targets unsupported",0);break;}
+                r=0;if(!strchr(ts[i],'%'))for(r=m->rules;r;r=r->next)if(!strcmp(r->target,ts[i]))break;
+                if(!r){r=(Rule *)alloc(m,sizeof(*r));if(!r)break;r->target=copy(m,ts[i]);if(!r->target)break;
+                    if(m->last)m->last->next=r;else m->rules=r;m->last=r;}
+                if(merge_dependencies(m,r,deps))break;
+                if(n==1){m->current=r;m->recipe_conflict=r->recipes!=0;}
+                if(!m->first&&r->target[0]!='.'&&!strchr(r->target,'%'))m->first=r->target;
+            }
+            if(m->error)break;
         }
     }
     if(ncond&&!m->error)fail(m,"unterminated conditional",path);
@@ -451,7 +493,7 @@ static int execute(Make *m,const char *text,const Auto *a) {
     if(rc){fprintf(stderr,"xhccm make: recipe failed (%d)%s\n",rc,ignore?" (ignored)":"");if(!ignore)return -1;}
     return 0;
 }
-typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];} Frame;
+typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];Rule combined;} Frame;
 static int build(Make *m,const char *name,int depth) {
     Node *node,*depnode;Rule *r,*chosen=0;Recipe *recipe;struct stat st,depst;
     Frame *frame=0;char *deps,*all,*stem,**dv;int dn,i,present,dirty,phony,normal;size_t used=0;
@@ -463,7 +505,14 @@ static int build(Make *m,const char *name,int depth) {
     frame=(Frame *)alloc(m,sizeof(*frame));if(!frame)goto bad;
     deps=frame->deps;all=frame->all;stem=frame->stem;dv=frame->dv;
     for(r=m->rules;r;r=r->next)if(!strcmp(r->target,name)){chosen=r;break;}
-    if(!chosen)for(r=m->rules;r;r=r->next)if(pattern(r->target,name,stem)){chosen=r;break;}
+    if(!chosen||!chosen->recipes)for(r=m->rules;r;r=r->next)if(r->recipes&&pattern(r->target,name,stem)) {
+        if(chosen) {
+            Rule *combined=&frame->combined;char *expanded=(char *)alloc(m,TEXT);
+            if(!expanded)goto bad;if(substitute(m,r->deps,stem,expanded)){release(m,expanded,TEXT);goto bad;}
+            if(merge_dependencies(m,combined,expanded)||merge_dependencies(m,combined,chosen->deps)){release(m,expanded,TEXT);goto bad;}
+            release(m,expanded,TEXT);combined->target=(char *)name;combined->recipes=r->recipes;chosen=combined;
+        }else chosen=r;break;
+    }
     if(!chosen&&strlen(name)>2&&!strcmp(name+strlen(name)-2,".o"))
         for(r=m->rules;r;r=r->next)if(!strcmp(r->target,".c.o")) {
             size_t len=strlen(name);chosen=r;memcpy(stem,name,len-2);stem[len-2]=0;break;
@@ -508,10 +557,10 @@ static int build(Make *m,const char *name,int depth) {
         if(!chosen&&dn&&execute(m,"$(CC) $(CPPFLAGS) $(CFLAGS) -c \"$<\" -o \"$@\"",&a))goto bad;
         node->changed=1;
     }
-    node->state=2;release(m,frame,sizeof(*frame));return 0;
+    node->state=2;if(frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return 0;
 bad:
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
-    if(node){node->state=2;node->failed=1;}release(m,frame,sizeof(*frame));return -1;
+    if(node){node->state=2;node->failed=1;}if(frame&&frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return -1;
 }
 int xh_make_main(int argc,char **argv) {
     Make m;int i,rc=0,nt=0;char *targets[WORDS],*file="Makefile",cwd[TEXT];Mem *p;
