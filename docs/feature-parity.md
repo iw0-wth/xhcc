@@ -111,8 +111,9 @@ historical compiler binaries.
 
 IR container version 2 persists independently indexed call/function plans and
 accepts v1 payloads with no plans. Canonical plan codec v2 certifies scalar-only
-plans with flags=1 and supported small-integer-structure plans with flags=2;
-these are alternatives, and flags=3 is rejected. Old canonical v1 plans decode
+plans with flags=1, supported small-integer-structure plans with flags=2, and
+single-SSE floating-structure signatures with flags=4. These values are mutually
+exclusive; 3/5/6/7 and unknown values are rejected. Old canonical v1 plans decode
 with flags=0 and cannot drive native use. `-frecord-sysv-abi` records supported
 classifications without changing machine ABI. `-fuse-sysv-abi-plan` is a separate
 x86_64-only opt-in that validates the rule fingerprint and consumes certified
@@ -122,16 +123,22 @@ Scalar integers, float/double, pointers, register/stack spills and scalar
 variadic access are covered. The aggregate subset is nonempty structures of
 1 through 8 bytes with integer/pointer fields or recursively certified nested
 structures, proper natural alignment and in-bounds fields, no packing/bitfields
-and no aggregate variadic actuals. Floating fields, unions, arrays, larger sizes
-and MEMORY/sret remain unsupported in use mode, though some can still be recorded.
+and no aggregate variadic actuals. Natural pure-floating F4 {float}, F8
+{float,float} and D8 {double} are also supported when the classifier proves
+exactly one SSE fragment (`abi.plan-small-sse-struct.v1`). Flags=4 may combine
+separate eligible scalar/integer-structure/SSE-structure parameters, but mixed
+integer/float fields inside one structure remain unsupported. Unions, arrays,
+larger or multi-fragment forms and MEMORY/sret remain unsupported in use mode,
+though some can still be recorded.
 The `abi.plan-small-int-struct.v2` capability covers exact partial-byte access:
 `IR_AUX_AGGREGATE_EXACT=0x40000` loads only the real 1–8 object bytes while
 retaining the one/two-word IR shape; stores and parameter copies preserve exact
 extents. Older 4/8-only consumers must not claim this capability.
 
-Seven codegen tests passed on root 906421, including struct1–8 args/returns,
-after-six-GPR stack spills, pointer fields and unchanged adjacent canaries,
-with xhcc/xhcc and both Clang mixing directions. Scalar two-TU/FP/variadic tests, unsupported aggregate
+Eight codegen tests passed on root 906911, including integer struct1–8 and
+F4/F8/D8 args/returns, GPR/SSE budget exhaustion and stack spills, pointer fields,
+GPR/SSE mixed signatures and unchanged adjacent canaries, with xhcc/xhcc and both
+Clang mixing directions. Scalar two-TU/FP/variadic tests, unsupported aggregate
 rejections and stale-fingerprint LTO rejection also passed. No Clang test was
 skipped. This proves the tested small-integer-structure subset, not complete
 SysV aggregate ABI interoperability.
