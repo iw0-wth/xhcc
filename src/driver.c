@@ -403,7 +403,7 @@ static void usage(void) {
        "  -f[no-]record-sysv-abi (x86_64): record IR plan metadata only;\n"
        "    does not enable native GCC aggregate ABI execution\n"
        "  -f[no-]use-sysv-abi-plan (x86_64, default disabled):\n"
-       "    certified scalars, 1-8-byte integer structs, and single-SSE-slot float structs only;\n"
+       "    certified scalar and aggregate subsets only; see ABI-plan contract\n"
        "    enabled use always implies record, even after -fno-record-sysv-abi;\n"
        "    unsupported aggregate plans are rejected by the backend\n"
        "  -fhosted selects hosted macros; it does not provide a complete libc\n"

@@ -329,7 +329,7 @@ static int setvar(Make *m,char *name,const char *value,int op,int command) {
     if(!*name)return fail(m,"empty variable name",0);
     if(v&&(op=='?'||(!forced&&(v->overridden||(v->command&&!command)))))return 0;
     if(op==':'||(op=='+'&&v&&v->simple)) {if(expand(m,value,0,text,0))return -1;value=text;}
-    if(op=='+'&&v) {char joined[TEXT];joined[0]=0;if(put(m,joined,&n,v->value)||put(m,joined,&n," ")||put(m,joined,&n,value))return -1;v->value=copy(m,joined);}
+    if(op=='+'&&v) {char joined[TEXT];joined[0]=0;if(put(m,joined,&n,v->value)||(*v->value&&put(m,joined,&n," "))||put(m,joined,&n,value))return -1;v->value=copy(m,joined);}
     else {
         if(!v){v=(Var *)alloc(m,sizeof(*v));if(!v)return -1;v->name=copy(m,name);v->next=m->vars;m->vars=v;}
         v->value=copy(m,value);v->simple=op==':';
@@ -457,7 +457,8 @@ static int target_assignment(Make *m,char *target,char *text) {
     if(eq>text&&strchr(":?+",eq[-1]))op=*--eq;
     value=strchr(eq,'=')+1;*eq=0;name=trim(text);value=trim(value);
     if(!*name||strpbrk(name," \t\r\n"))return fail(m,"invalid target variable name",name);
-    n=words(m,target,names,0);if(n!=1||strchr(names[0],'%'))return fail(m,"target variables require one explicit target",0);
+    n=words(m,target,names,0);if(n!=1)return fail(m,"target variables require one target",0);
+    {char *percent=strchr(names[0],'%');if(percent&&strchr(percent+1,'%'))return fail(m,"multiple percent signs in variable pattern",names[0]);}
     r=explicit_rule(m,names[0]);if(!r)return -1;
     b=(Binding *)alloc(m,sizeof(*b));if(!b)return -1;b->name=copy(m,name);b->op=op;b->forced=forced;
     if(op==':'){char expanded[TEXT];if(expand(m,value,0,expanded,0))return -1;b->value=copy(m,expanded);}else b->value=copy(m,value);
@@ -659,24 +660,37 @@ bad:
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
     if(node){node->state=2;node->failed=1;}if(frame&&frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return -1;
 }
-static int build(Make *m,const char *name,int depth) {
-    Rule *rule;Binding *b;Var *saved=m->vars,*v;int rc=-1;
-    for(rule=m->rules;rule;rule=rule->next)if(!strcmp(rule->target,name))break;
-    if(!rule||!rule->bindings)return build_impl(m,name,depth);
-    for(b=rule->bindings;b;b=b->next) {
+static int apply_bindings(Make *m,Binding *bindings) {
+    Binding *b;
+    for(b=bindings;b;b=b->next) {
         Var *existing=variable(m,b->name),*local;
         if(existing&&(b->op=='?'||(!b->forced&&(existing->command||existing->overridden))))continue;
-        local=(Var *)alloc(m,sizeof(*local));if(!local)goto done;
+        local=(Var *)alloc(m,sizeof(*local));if(!local)return -1;
         if(existing){local->simple=existing->simple;local->value=copy(m,existing->value);}else local->value=copy(m,"");
-        local->name=copy(m,b->name);if(!local->name||!local->value)goto done;
+        local->name=copy(m,b->name);if(!local->name||!local->value)return -1;
         local->next=m->vars;m->vars=local;
-        if(setvar(m,b->name,b->value,(b->op==':'||b->op=='?')?'=':b->op,b->forced?2:0))goto done;
+        if(setvar(m,b->name,b->value,(b->op==':'||b->op=='?')?'=':b->op,b->forced?2:0))return -1;
         if(b->op==':')local->simple=1;
+    }return 0;
+}
+typedef struct PatternBindings {Rule *rules[WORDS];size_t stems[WORDS];int count;} PatternBindings;
+static int build(Make *m,const char *name,int depth) {
+    Rule *rule,*explicit=0;Var *saved=m->vars,*v;PatternBindings *matches=0;int rc=-1,i,j;
+    for(rule=m->rules;rule;rule=rule->next)if(rule->bindings) {
+        const char *stem;size_t length;
+        if(!strchr(rule->target,'%')){if(!strcmp(rule->target,name))explicit=rule;continue;}
+        if(!matchword(rule->target,name,&stem,&length))continue;
+        if(!matches){matches=(PatternBindings *)alloc(m,sizeof(*matches));if(!matches)goto done;}
+        if(matches->count==WORDS){fail(m,"too many matching variable patterns",name);goto done;}
+        i=matches->count++;while(i&&matches->stems[i-1]<length){matches->rules[i]=matches->rules[i-1];matches->stems[i]=matches->stems[i-1];i--;}
+        matches->rules[i]=rule;matches->stems[i]=length;
     }
+    if(matches)for(j=0;j<matches->count;j++)if(apply_bindings(m,matches->rules[j]->bindings))goto done;
+    if(explicit&&apply_bindings(m,explicit->bindings))goto done;
     rc=build_impl(m,name,depth);
 done:
     while(m->vars!=saved){v=m->vars;m->vars=v->next;release(m,v->name,strlen(v->name)+1);release(m,v->value,strlen(v->value)+1);release(m,v,sizeof(*v));}
-    return rc;
+    release(m,matches,sizeof(*matches));return rc;
 }
 int xh_make_main(int argc,char **argv) {
     Make m;int i,rc=0,nt=0;char *targets[WORDS],*file="Makefile",cwd[TEXT];Mem *p;

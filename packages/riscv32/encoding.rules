@@ -79,3 +79,147 @@ bits 0 12 8 12
 bits 1 0 5 7
 bits 2 0 7 0
 end
+rule R_ADD 3 0x00000033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SUB 3 0x40000033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SLL 3 0x00001033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SLT 3 0x00002033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SLTU 3 0x00003033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_XOR 3 0x00004033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SRL 3 0x00005033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SRA 3 0x40005033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_OR 3 0x00006033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_AND 3 0x00007033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_MUL 3 0x02000033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_DIV 3 0x02004033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_DIVU 3 0x02005033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_REM 3 0x02006033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_REMU 3 0x02007033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_MULH 3 0x02001033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_MULHSU 3 0x02002033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_MULHU 3 0x02003033
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end

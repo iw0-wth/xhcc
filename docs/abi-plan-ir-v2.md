@@ -4,7 +4,7 @@ The IR carries persistent SysV AMD64 classification/placement plans. Recording
 and native consumption are separate opt-ins: `-frecord-sysv-abi` records metadata;
 `-fuse-sysv-abi-plan` records and consumes verified scalar, certified **1–8-byte
 integer-structure**, **single-SSE 4/8-byte floating-structure**, or certified
-**16-byte two-long integer-pair** plans
+**16-byte two-long integer-pair** or certified **LD/DL/DD 16-byte pair** plans
 for caller/callee placement. Default compilation retains its original lowering.
 Other aggregate plans remain record-only and are explicitly rejected by use mode.
 Scalar interoperability is tested below; complete aggregate SysV interoperability
@@ -28,8 +28,11 @@ A second subset permits natural pure-floating structures of size 4 or 8:
 one float (F4), two floats (F8), or one double (D8), with classification verified
 to be exactly one SSE fragment. The 16-byte subset is deliberately narrower:
 exactly two `TYPE_LONG` fields at offsets 0 and 8, each 8 bytes, in a naturally
-aligned 16-byte structure. It is certified as two INTEGER fragments. Other
-16-byte forms, mixed SSE/INTEGER fields, packed/unaligned/bitfield, union,
+aligned 16-byte structure. It is certified as two INTEGER fragments. A separate
+pair subset permits exactly {TYPE_LONG, TYPE_DOUBLE}, {TYPE_DOUBLE, TYPE_LONG}
+or {TYPE_DOUBLE, TYPE_DOUBLE}, naturally aligned at offsets 0 and 8 in 16 bytes.
+It is certified as INTEGER/SSE, SSE/INTEGER or SSE/SSE respectively. Other
+16-byte forms, arbitrary mixed layouts, packed/unaligned/bitfield, union,
 array-field, larger and other multi-fragment aggregates remain rejected. Aggregate values through
 variadic `...` are rejected even when the same structure is valid as a named
 parameter. Integer-structure arguments/results use their certified GPR locations;
@@ -146,6 +149,16 @@ source certification are required. The outer IR container remains version 2,
 and canonical plan codec remains version 2; no raw C structures or new opaque
 return-offset field is introduced.
 
+`abi.plan-mixed-pair.v1` adds the exact LD/DL/DD pair subset. It reuses the
+16-byte by-value-address IR input and caller-owned return buffer. Placement
+allocates INTEGER and SSE banks independently and atomically: if either bank
+cannot fit the complete aggregate, the whole object goes to the stack and
+neither bank is partially consumed. Thus a following scalar can still use a
+register in either bank. Result bank indices are also independent: LD and DL
+use RAX plus XMM0 in their respective fragment order, while DD uses XMM0/XMM1.
+Raw fragment bits are moved, not numerically converted. Default codegen and
+aggregate variadic rejection remain unchanged.
+
 ## Canonical plan codec, versions 1 and 2
 
 All fields below are `u32` little-endian, written individually. No raw C struct,
@@ -173,13 +186,15 @@ Version 2 verification values are:
 | 2 (`SMALL_INTEGER_AGGREGATE_VERIFIED`) | The complete signature/call mixes supported scalars with at least one certified 1–8-byte integer/pointer structure. |
 | 4 (`SMALL_SSE_AGGREGATE_VERIFIED`) | The signature/call includes a certified pure-floating single-SSE struct4/8; its other components may be supported scalars or certified integer structures. |
 | 8 (`INTEGER_PAIR_AGGREGATE_VERIFIED`) | The complete signature/call includes a certified 16-byte two-long structure; other components must also belong to a supported subset. |
+| 16 (`MIXED_PAIR_AGGREGATE_VERIFIED`) | The signature/call includes a certified natural LD/DL/DD 16-byte pair; every component still requires its own supported source-type proof. |
 
-Values 0, 1, 2, 4 and 8 are the only accepted certification values. They are
+Values 0, 1, 2, 4, 8 and 16 are the only accepted certification values. They are
 alternatives, not bit masks to combine: 3, 5, 6, 7 and other combinations are
 rejected. Combining source proofs produces the highest required supported
-level (8, then 4, then 2, then 1), or 0 if any component is unsupported. This is a
-capability level for the complete signature, not permission to mix integer and
-float fields inside one structure. Every nested structure must independently satisfy the exact
+level (16, then 8, then 4, then 2, then 1), or 0 if any component is unsupported.
+These values are not OR masks: for example 3, 7, 9, 17 and 31 are invalid. This
+is a capability level for the complete signature, not permission for arbitrary
+mixed fields beyond the exact certified LD/DL/DD layouts. Every nested structure must independently satisfy the exact
 1–8-byte, field-bounds and natural-alignment checks; a placement resembling a
 single integer fragment is insufficient proof. Variadic aggregate actuals clear
 native eligibility. Version 1 decodes with flags=0 and remains record-compatible,
@@ -235,7 +250,7 @@ this two-test result.
 
 ## Native execution evidence
 
-`tests/test_abi_plan_codegen.py` passed **9/9** against root artifact 910138,
+`tests/test_abi_plan_codegen.py` passed **10/10** against root artifact 911959,
 with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
 
 1. Two separately compiled xhcc translation units execute integer registers and
@@ -263,6 +278,19 @@ with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
    multiple simultaneously live caller result buffers, nested returns and
    unchanged destination canaries. Each combined check returns 0.
 
+10. LD/DL/DD parameters/results execute in the same three routes with canaries
+    and multiple live return buffers. Six occupied GPRs force LD wholly to the
+    stack while a following double still uses SSE; eight occupied SSE registers
+    force DL to the stack while a following long still uses a GPR. With seven
+    SSE registers occupied, DD rolls back wholly and the final double uses the
+    remaining register. Checks return 0 in all routes.
+
+The mixed-pair test initially exposed an assembler symbol/register ambiguity:
+legal C function `dl` was encoded as an indirect CALL RDX rather than a symbol
+call. Restricting indirect-register operands to native register width corrected
+that assembler defect. The function name and all ABI checks were retained; the
+full ten-test suite then passed. This was distinct from ABI placement logic.
+
 The canary gate initially exposed a missing 16-bit mov operand-size prefix in
 three assembler paths: a textual word store encoded as a dword store. After the
 prefix correction, the unchanged seven-test suite passed. This records a real
@@ -276,14 +304,15 @@ The preceding IR persistence and builder/codec suites remain separate evidence.
 ## Next phase and package guidance
 
 Remaining aggregate integration includes other 16-byte and larger/multi-fragment
-structures, mixed integer/SSE fields, MEMORY/sret, unions/arrays, packed/bitfield
+structures and mixed layouts beyond the exact LD/DL/DD pairs, MEMORY/sret,
+unions/arrays, packed/bitfield
 layouts and aggregate variadic access. Those need their own source certification,
 caller/callee lowering and mixed-toolchain execution tests. Recording their
 classifications does not establish native support.
 
 Package/skill documentation must distinguish record mode, certified scalar/
 1–8-byte integer structures, single-SSE 4/8-byte structures or certified two-long
-16-byte structure use, and unsupported
+16-byte or exact LD/DL/DD pair structure use, and unsupported
 aggregate use. Neither flag
 is enabled by default. Capability names must describe an integrated consumer
 and its schema; accepting an option is not a universal ABI guarantee.

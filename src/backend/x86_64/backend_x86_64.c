@@ -2029,13 +2029,13 @@ int g_xhcc_use_sysv_abi_plan=0;
 static const IrAbiPlan *amd_plan(IrProgram*p,int index){return index>0&&index<=p->abi_plan_count?p->abi_plans[index-1]:0;}
 static int amd_scalar_type(Type*t){return !t || t->kind==TYPE_VOID || t->kind==TYPE_PTR || type_is_integer(t) || t->kind==TYPE_FLOAT || t->kind==TYPE_DOUBLE;}
 static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint){unsigned k,j;if(!p||!xh_sysv_plan_wire_size(p)||p->version<2||!p->flags||p->abi_id!=1||p->rule_fingerprint!=fingerprint||p->sret||p->result.memory||p->result.count>2)return 0;
- if(p->result.count==2&&(p->flags!=8||p->result.fragments[0].class_id!=1||p->result.fragments[1].class_id!=1||p->result.fragments[0].offset||p->result.fragments[1].offset!=8||p->result.fragments[0].size!=8||p->result.fragments[1].size!=8))return 0;
- for(k=0;k<p->arg_count;k++){const XhAbiArgumentPlan*a=&p->args[k];int pair=a->size==16;if((a->size>8&&!pair)||(pair&&p->flags!=8)||a->count>(pair?2u:1u)||(!a->by_value_stack&&a->count!=(pair?2u:1u))||(a->by_value_stack&&(a->stack_extent!=(pair?16u:8u)||a->stack_offset%8)))return 0;for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];if(f->object_offset!=(pair?8*j:0)||f->bank>1||f->index>=(f->bank?8u:6u)||(pair&&(f->bank||f->size!=8)))return 0;}}
+ if(p->result.count==2&&((p->flags!=8&&p->flags!=16)||(p->result.fragments[0].class_id!=1&&p->result.fragments[0].class_id!=2)||(p->result.fragments[1].class_id!=1&&p->result.fragments[1].class_id!=2)||p->result.fragments[0].offset||p->result.fragments[1].offset!=8||p->result.fragments[0].size!=8||p->result.fragments[1].size!=8))return 0;
+ for(k=0;k<p->arg_count;k++){const XhAbiArgumentPlan*a=&p->args[k];int pair=a->size==16;if((a->size>8&&!pair)||(pair&&p->flags!=8&&p->flags!=16)||a->count>(pair?2u:1u)||(!a->by_value_stack&&a->count!=(pair?2u:1u))||(a->by_value_stack&&(a->stack_extent!=(pair?16u:8u)||a->stack_offset%8)))return 0;for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];if(f->object_offset!=(pair?8*j:0)||f->bank>1||f->index>=(f->bank?8u:6u)||(pair&&f->size!=8))return 0;}}
  return 1;}
 static int amd_validate_plans(IrProgram*p){unsigned fingerprint=xh_template_fingerprint("x86_64.aggregate");int fi,i,k;
  for(fi=0;fi<p->func_count;fi++){IrFunc*f=p->funcs[fi];const IrAbiPlan*signature=amd_plan(p,f->parameter_plan),*result=amd_plan(p,f->result_plan);
-  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type)&&!xh_sysv_small_integer_struct(f->ret_type)&&!xh_sysv_small_sse_struct(f->ret_type)&&!xh_sysv_integer_pair_struct(f->ret_type))goto bad;
-  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&!xh_sysv_small_integer_struct(f->param_types[k])&&!xh_sysv_small_sse_struct(f->param_types[k])&&!xh_sysv_integer_pair_struct(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
+  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type)&&!xh_sysv_small_integer_struct(f->ret_type)&&!xh_sysv_small_sse_struct(f->ret_type)&&!xh_sysv_integer_pair_struct(f->ret_type)&&!xh_sysv_mixed_pair_struct(f->ret_type))goto bad;
+  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&!xh_sysv_small_integer_struct(f->param_types[k])&&!xh_sysv_small_sse_struct(f->param_types[k])&&!xh_sysv_integer_pair_struct(f->param_types[k])&&!xh_sysv_mixed_pair_struct(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
   for(i=0;i<f->code_count;i++)if(f->code[i].op==IR_CALL){IrInst*inst=&f->code[i];const IrAbiPlan*call=amd_plan(p,inst->abi_plan);unsigned n=(unsigned)inst->val;if(inst->name&&inst->name[0]=='?')n--;if(!amd_plan_ok(call,fingerprint)||call->arg_count!=n||(call->result.count==2&&(!((inst->val>>36)&1)||((inst->val>>37)&0xFFFF)!=16)))goto bad;}
  }
  return 0;
@@ -2199,7 +2199,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 if(function_plan&&function_plan->args[k].size==16){
                     const XhAbiArgumentPlan*saved=&function_plan->args[k];int j;
                     tmp=-framelo-stage_stride*(k+1);
-                    for(j=0;j<2;j++){if(saved->by_value_stack){amd_mem_rd(&buf,"mov","rax","qword",xh_x86_number("abi.stack.argument_base")+(int)saved->stack_offset+8*j);amd_rd_mem(&buf,"mov","qword",tmp+8*j,"rax");}else{int reg=(int)saved->fragments[j].index;amd_rd_mem(&buf,"mov","qword",tmp+8*j,amd_argreg64(reg));if(int_used<=reg)int_used=reg+1;}}
+                    for(j=0;j<2;j++){if(saved->by_value_stack){amd_mem_rd(&buf,"mov","rax","qword",xh_x86_number("abi.stack.argument_base")+(int)saved->stack_offset+8*j);amd_rd_mem(&buf,"mov","qword",tmp+8*j,"rax");}else{int reg=(int)saved->fragments[j].index;if(saved->fragments[j].bank){char xmm[16];snprintf(xmm,sizeof(xmm),"xmm%d",reg);amd_rd_mem(&buf,"movq","qword",tmp+8*j,xmm);if(sse_used<=reg)sse_used=reg+1;}else{amd_rd_mem(&buf,"mov","qword",tmp+8*j,amd_argreg64(reg));if(int_used<=reg)int_used=reg+1;}}}
                     k++;continue;
                 }
                 param_class=x86_type_class(pt,0,f->is_variadic,pi-1);
@@ -2793,7 +2793,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         if(call_plan){const XhAbiArgumentPlan*saved=&call_plan->args[k];if(saved->by_value_stack){cls[k]=2;where[k]=(int)saved->stack_offset;nstk++;}else{cls[k]=(int)saved->fragments[0].bank;where[k]=(int)saved->fragments[0].index;if(cls[k]==0&&int_used<=where[k])int_used=where[k]+1;if(cls[k]==1&&sse_used<=where[k])sse_used=where[k]+1;}}
                         else cls[k]=xh_x86_allocate(&argument_class[k],&int_used,&sse_used,&nstk,&where[k]);
                     }
-                    if(call_plan){unsigned a,j;for(a=0;a<call_plan->arg_count;a++)for(j=0;j<call_plan->args[a].count;j++){const XhAbiPlanLocation*l=&call_plan->args[a].fragments[j];if(!l->bank&&int_used<=(int)l->index)int_used=(int)l->index+1;}}
+                    if(call_plan){unsigned a,j;for(a=0;a<call_plan->arg_count;a++)for(j=0;j<call_plan->args[a].count;j++){const XhAbiPlanLocation*l=&call_plan->args[a].fragments[j];if(!l->bank&&int_used<=(int)l->index)int_used=(int)l->index+1;if(l->bank&&sse_used<=(int)l->index)sse_used=(int)l->index+1;}}
                     asmbuf_puts(&buf, xh_x86_rule("text.d142bbe448005ce7"));
                     if (nstk > 0) {
                         asmbuf_puts(&buf, xh_x86_rule("text.cb03efe8ee360a4b"));
@@ -2822,7 +2822,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     for (k = 0; k < n; k++) {
                         int b, tmp;
                         if (cls[k] == 2) continue;
-                        if(call_plan&&call_plan->args[k].size==16){int j;tmp=-framelo-stage_stride*(k+1);for(j=0;j<2;j++)amd_mem_rd(&buf,"mov",amd_argreg64((int)call_plan->args[k].fragments[j].index),"qword",tmp+8*j);continue;}
+                        if(call_plan&&call_plan->args[k].size==16){int j;tmp=-framelo-stage_stride*(k+1);for(j=0;j<2;j++){const XhAbiPlanLocation*fragment=&call_plan->args[k].fragments[j];if(fragment->bank){char xmm[16];snprintf(xmm,sizeof(xmm),"xmm%u",fragment->index);amd_mem_rd(&buf,"movq",xmm,"qword",tmp+8*j);}else amd_mem_rd(&buf,"mov",amd_argreg64((int)fragment->index),"qword",tmp+8*j);}continue;}
                         if (wires) b = wires[k] & 0xFFFF;
                         else b = (k < 16 && ((argmask >> (2 * k + 1)) & 1)) ? 8 : 4;
                         tmp = -framelo - stage_stride * (k + 1);
@@ -2869,7 +2869,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         asmbuf_putc(&buf, '\n');
                     }
                     asmbuf_puts(&buf, xh_x86_rule("text.b0d7482d199fb842"));
-                    if(register_pair_result){char lo[32],hi[32];const char*args[2];snprintf(lo,sizeof(lo),"%+d",-sret_buf);snprintf(hi,sizeof(hi),"%+d",-sret_buf+8);args[0]=lo;args[1]=hi;asmbuf_puts(&buf,xh_x86_expand("aggregate16.result",args,2));asmbuf_puts(&buf,xh_x86_rule("text.de1843ef75a9fb24"));break;}
+                    if(register_pair_result){char lo[32],hi[32];const char*args[2];snprintf(lo,sizeof(lo),"%+d",-sret_buf);snprintf(hi,sizeof(hi),"%+d",-sret_buf+8);args[0]=lo;args[1]=hi;{char key[64];snprintf(key,sizeof(key),"aggregate16.result.%c%c",call_plan->result.fragments[0].class_id==2?'s':'i',call_plan->result.fragments[1].class_id==2?'s':'i');asmbuf_puts(&buf,xh_x86_expand(key,args,2));}asmbuf_puts(&buf,xh_x86_rule("text.de1843ef75a9fb24"));break;}
                     if (sret_call) {
                         /* The IR value of a struct-returning call is the
                          * address of the result, and the front end copies the
@@ -2920,7 +2920,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
 
                 case IR_RETURN: {
                     Type *rt = f->ret_type;
-                    if(function_plan&&function_plan->result.count==2){asmbuf_puts(&buf,xh_x86_rule("aggregate16.return"));asmbuf_puts(&buf,xh_x86_rule("text.433c6caaac074862"));break;}
+                    if(function_plan&&function_plan->result.count==2){{char key[64];snprintf(key,sizeof(key),"aggregate16.return.%c%c",function_plan->result.fragments[0].class_id==2?'s':'i',function_plan->result.fragments[1].class_id==2?'s':'i');asmbuf_puts(&buf,xh_x86_rule(key));}asmbuf_puts(&buf,xh_x86_rule("text.433c6caaac074862"));break;}
                     XhX86AbiClass result_class=x86_type_class(rt,1,0,0);
                     int two=result_class.words==2;
                     if(function_plan)result_class.bank=function_plan->result.count&&function_plan->result.fragments[0].class_id==2?1:0;
@@ -4252,6 +4252,15 @@ static void xa_process_line(X86Asm *a, const char *line) {
             }
             break;
         }
+    }
+
+    /* CALL/JMP only admit address-sized GPRs. Names such as dl/ax/r8b are
+     * legal C symbols; parsing them as narrow registers must not turn a direct
+     * relocation into an indirect jump through an unrelated full register. */
+    if((xa_strieq(mn,"call")||xa_strieq(mn,"jmp"))&&ops[0].kind==XOP_REG&&ops[0].reg_size!=(a->mode64?8:4)){
+        const char *target=opstart;
+        if(xa_read_ident(&target,ops[0].sym,(int)sizeof(ops[0].sym))){ops[0].kind=XOP_MEM;ops[0].has_sym=1;}
+        else{a->error_count++;return;}
     }
 
     /* --- Directives --- */

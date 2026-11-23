@@ -3174,3 +3174,27 @@ end
 rule aggregate16.copy
 text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 16\n    rep movsb\n
 end
+rule aggregate16.return.ii
+text     pop rcx\n    mov rax, qword ptr [rcx]\n    mov rdx, qword ptr [rcx+8]\n
+end
+rule aggregate16.result.ii
+text     mov qword ptr [rbp${0}], rax\n    mov qword ptr [rbp${1}], rdx\n    lea rax, [rbp${0}]\n
+end
+rule aggregate16.return.is
+text     pop rcx\n    mov rax, qword ptr [rcx]\n    movq xmm0, qword ptr [rcx+8]\n
+end
+rule aggregate16.result.is
+text     mov qword ptr [rbp${0}], rax\n    movq qword ptr [rbp${1}], xmm0\n    lea rax, [rbp${0}]\n
+end
+rule aggregate16.return.si
+text     pop rcx\n    movq xmm0, qword ptr [rcx]\n    mov rax, qword ptr [rcx+8]\n
+end
+rule aggregate16.result.si
+text     movq qword ptr [rbp${0}], xmm0\n    mov qword ptr [rbp${1}], rax\n    lea rax, [rbp${0}]\n
+end
+rule aggregate16.return.ss
+text     pop rcx\n    movq xmm0, qword ptr [rcx]\n    movq xmm1, qword ptr [rcx+8]\n
+end
+rule aggregate16.result.ss
+text     movq qword ptr [rbp${0}], xmm0\n    movq qword ptr [rbp${1}], xmm1\n    lea rax, [rbp${0}]\n
+end

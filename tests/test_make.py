@@ -432,8 +432,41 @@ class MakeTests(unittest.TestCase):
         self.assertIn('restored=undefined:arm-none-eabi-gcc:outside', result.stdout)
         self.assertEqual(int.from_bytes((self.directory / 'one.o').read_bytes()[18:20], 'little'), 40)
         self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 243)
-        self.makefile('%.o: CC = arm-none-eabi-gcc\nall:\n')
-        self.assertIn('one explicit target', self.run_make(success=False).stderr)
+        self.makefile('%%.o: CC = arm-none-eabi-gcc\nall:\n')
+        self.assertIn('multiple percent', self.run_make(success=False).stderr)
+
+    def test_pattern_variables_specificity_and_compilers(self):
+        for directory in ('arm', 'rv'):
+            (self.directory / directory).mkdir()
+            (self.directory / directory / 'unit.c').write_text('int unit(void){return 7;}\n')
+        self.makefile('all: arm/unit.o rv/unit.o after\n'
+                      'all: CC = missing-parent\n'
+                      '%.o: CC = arm-none-eabi-gcc\n'
+                      '%unit.o: ORDER += medium\n'
+                      '%.o: ORDER += broad\n'
+                      'rv/%.o: CC = riscv32-unknown-elf-gcc\n'
+                      'rv/%.o: ORDER += directory\n'
+                      'arm/unit.o: ORDER += explicit\n'
+                      '%.o: %.c\n\t' + self.recipe() + '\n'
+                      '\t@echo order=$@/$(ORDER)\n'
+                      'after:\n\t@echo restored=$(origin ORDER)\n')
+        result = self.run_make()
+        self.assertIn('order=arm/unit.o/broad medium explicit', result.stdout)
+        self.assertIn('order=rv/unit.o/broad directory medium', result.stdout)
+        self.assertIn('restored=undefined', result.stdout)
+        self.assertEqual(int.from_bytes((self.directory / 'arm/unit.o').read_bytes()[18:20], 'little'), 40)
+        self.assertEqual(int.from_bytes((self.directory / 'rv/unit.o').read_bytes()[18:20], 'little'), 243)
+        self.assertNotIn(' -c ', self.run_make().stdout)
+
+    def test_pattern_variables_command_override_and_explicit_priority(self):
+        self.makefile('all: one.o two.o\n'
+                      '%.o: CC = missing-pattern\n'
+                      't%.o: override CC = riscv32-unknown-elf-gcc\n'
+                      'two.o: override CC = arm-none-eabi-gcc\n'
+                      '%.o: %.c\n\t' + self.recipe() + '\n')
+        self.run_make('CC=arm-none-eabi-gcc')
+        for name in ('one.o', 'two.o'):
+            self.assertEqual(int.from_bytes((self.directory / name).read_bytes()[18:20], 'little'), 40)
 
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [

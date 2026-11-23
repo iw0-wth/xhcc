@@ -24,7 +24,7 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1`, `abi.plan-small-int-struct.v2`, `abi.plan-small-sse-struct.v1` and `abi.plan-int-pair.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1`, `abi.plan-small-int-struct.v2`, `abi.plan-small-sse-struct.v1`, `abi.plan-int-pair.v1` and `abi.plan-mixed-pair.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
 
 `semantic.selector.v1` declares the bounded shared semantic selector contract:
 `XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
@@ -99,7 +99,7 @@ three naturally aligned structures: F4 (one float, 4 bytes), FPair8 (two floats,
 original source type and a single-SSE classification; neither byte width nor a
 single placement fragment alone is sufficient. Flag value 4 certifies this
 signature class. Legal canonical certification values are mutually exclusive
-0, 1, 2, 4 and 8; combined or unknown values such as 3 are rejected. A signature
+0, 1, 2, 4, 8 and 16; combined or unknown values such as 3 are rejected. A signature
 containing both an already certified integer structure and an eligible SSE
 structure uses the highest class, flag 4, rather than bitwise flag combination.
 This does not permit mixed integer/floating fields inside one structure.
@@ -142,6 +142,25 @@ including parameter/return handling, multiple simultaneously live result
 buffers, nested calls, whole-argument stack rollback and canary checks. This
 certifies the exact two-long subset, not all 16-byte structures, arbitrary
 long-long/mixed-field forms or complete SysV aggregate interoperability.
+
+`abi.plan-mixed-pair.v1` separately certifies exactly three naturally aligned
+16-byte, offset-0/8 source structures: `{TYPE_LONG, TYPE_DOUBLE}` (LD),
+`{TYPE_DOUBLE, TYPE_LONG}` (DL), and `{TYPE_DOUBLE, TYPE_DOUBLE}` (DD). Each
+field is 64 bits. Builder type/classification proof produces signature class 16,
+the highest currently eligible class; it does not redefine the older two-long
+flag-8 contract or authorize arbitrary mixed fields. Native result locations
+use independent bank ordinals: INTEGER fragments select RAX then RDX, SSE
+fragments select XMM0 then XMM1. Thus DL's INTEGER result uses RAX, not RDX
+merely because it is the second object fragment. Parameter allocation must roll
+back both banks when a complete argument cannot fit. The validated 16-byte
+`BYVALUE_ADDRESS` protocol, internal result buffer and `sret=0` meaning remain
+unchanged. Use is still explicit and disabled by default.
+
+The 911959-byte production root passed all ten ABI plan codegen tests with
+Clang enabled and no skips (6.966 seconds). The mixed-pair fixture validates
+LD/DL/DD caller/callee routes, independent return-bank placement, both-bank
+rollback, canaries and multiple live buffers. This is evidence for those three
+source classes, not all 16-byte structures or full SysV aggregate support.
 
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.

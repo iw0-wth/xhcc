@@ -2234,19 +2234,6 @@ static int rv_sym_addr(RvAsm *a, const char *name, int dir) {
 
 /* ---- one instruction -------------------------------------------------- */
 static void rv_insn(RvAsm *a, const char **pp) {
-    static const struct { const char *n; int f3; int f7; } rtab[] = {
-        {"add",0x0,0x00},{"sub",0x0,0x20},{"sll",0x1,0x00},{"slt",0x2,0x00},
-        {"sltu",0x3,0x00},{"xor",0x4,0x00},{"srl",0x5,0x00},{"sra",0x5,0x20},
-        {"or",0x6,0x00},{"and",0x7,0x00},
-        {"mul",0x0,0x01},{"div",0x4,0x01},{"divu",0x5,0x01},
-        {"rem",0x6,0x01},{"remu",0x7,0x01},
-        /* RV32M high-half multiplies. IR_64BINARY TOK_MUL emits
-         * `mulhu` for the carry out of the low 32x32 product, so an
-         * assembler without it refused every 64-bit multiply in the
-         * whole language ("unknown riscv32 mnemonic").  All three are
-         * R-type with funct7=0000001; only funct3 differs. */
-        {"mulh",0x1,0x01},{"mulhsu",0x2,0x01},{"mulhu",0x3,0x01}
-    };
     static const struct { const char *n; int f3; } itab[] = {
         {"addi",0x0},{"slti",0x2},{"sltiu",0x3},{"xori",0x4},
         {"ori",0x6},{"andi",0x7}
@@ -2507,8 +2494,8 @@ static void rv_insn(RvAsm *a, const char **pp) {
     }
 
     /* ---- base instruction forms --------------------------------------- */
-    for (i = 0; i < (int)(sizeof(rtab) / sizeof(rtab[0])); i++) {
-        if (rv_streq_(rtab[i].n, mn)) {
+    {const char*encoding=xh_rv_r_encoding(mn);
+        if(encoding){
             int rd = rv_read_reg(&p), rs1, rs2;
             rv_skip_ws(&p);
             if (*p++ != ',') { rv_error(a, "line %s: the operand list needs a comma", "", ""); return; }
@@ -2520,7 +2507,7 @@ static void rv_insn(RvAsm *a, const char **pp) {
                 rv_error(a, "line %s: this instruction needs three registers", "", "");
                 return;
             }
-            rv_ins(a, rv_enc_r(rtab[i].f7, rs2, rs1, rtab[i].f3, rd, RV_OP_RTYPE));
+            {int args[3]={rd,rs1,rs2};rv_ins(a,rv_rule(encoding,args,3));}
             *pp = p;
             return;
         }
@@ -2950,7 +2937,7 @@ int xhcc_rv_write_elf(const char*path,unsigned char*code,int len){
 static int rv_assemble(const char *asm_text, unsigned char *out, int cap) {
     RvAsm a;
     int i, total;
-    rv_rule_errors=0;if(xh_rules_load()||xh_rv_registers_load())return -1;
+    rv_rule_errors=0;if(xh_rules_load()||xh_rv_registers_load()||xh_rv_mnemonics_load())return -1;
 
     a.src = asm_text;
     a.out = out;

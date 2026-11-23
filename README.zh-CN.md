@@ -59,7 +59,7 @@ wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C exa
 
 使用 make 的 `-C` 时，`XHCC_PACKAGE_ROOT` 应保持为 guest 中的绝对路径。`xhccm make [TOOL] ...` 可通过开头工具名注入默认 `CC`；命令行 `CC=...` 优先于普通 makefile 赋值，显式 `override` 赋值则优先于命令行。配方中明确写出的编译器名直接选择对应工具。[SD 测试](tests/test_sd.py) 通过桌面 WASI 预开放目录验证直接编译、make、多源、增量和切换 `CC`，属于部署模拟，不是 NuttX/WAMR 真机验证。
 
-make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、include、有界条件语句、二十四个文本/控制/诊断函数（含惰性求值的 `if`、局部作用域的 `foreach`、`value`、`flavor`、`findstring`、`join`、`wildcard`、`origin`、`error`、`warning`）、显式/模式/后缀规则、order-only 依赖、自动变量、依赖文件、增量/强制构建以及少量字面文件命令。单个显式目标可定义变量并向前置依赖继承；命令行值优先，目标使用 `override` 时除外，退出作用域恢复绑定。不支持模式专属变量和多目标变量声明。`-j1` 为串行执行，其他并行数明确拒绝。不支持 shell、递归 make、环境变量导入/export、通用链接或完整 GNU make。准确语法、命令与限制见 [make 子集文档](docs/make-subset.md)。
+make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、include、有界条件语句、二十四个文本/控制/诊断函数（含惰性求值的 `if`、局部作用域的 `foreach`、`value`、`flavor`、`findstring`、`join`、`wildcard`、`origin`、`error`、`warning`）、显式/模式/后缀规则、order-only 依赖、自动变量、依赖文件、增量/强制构建以及少量字面文件命令。显式目标与模式专属变量可向前置依赖继承，退出作用域恢复绑定。匹配模式按由宽到窄的特异性应用（stem 由长到短），显式目标变量最后应用；命令行值仍优先，使用 `override` 时除外。多目标变量声明仍不支持。`-j1` 为串行执行，其他并行数明确拒绝。不支持 shell、递归 make、环境变量导入/export、通用链接或完整 GNU make。准确语法、命令与限制见 [make 子集文档](docs/make-subset.md)。
 
 ## 目标和语言范围
 
@@ -70,7 +70,7 @@ make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、in
 | ARM | Cortex-M3/M4/M7/M33、Thumb-2、base AAPCS、受检 soft/softfp | 无 hard-float 参数 ABI；M0/M0+/M1/M23 需要 Thumb-1 lowering |
 | RV32 | RV32IM、ILP32、软件浮点辅助调用 | 无 RV64 或硬浮点 ABI |
 | i386 | ILP32、当前标量 SysV 子集及 xhcc 聚合 wire | 不保证完整 GNU 聚合 ABI |
-| AMD64 | LP64、标量 SysV/SSE 和已测变参场景；可选有限小结构体及恰为两个 `long` 的 16 字节结构体 | 完整原生 SysV 聚合互操作尚未实现 |
+| AMD64 | LP64、标量 SysV/SSE 和已测变参场景；可选有限小结构体及特定 16 字节 `long`/`double` 双字段结构体 | 完整原生 SysV 聚合互操作尚未实现 |
 | C 输出 | IR 转为 C 文本 | 不是 wasm32 代码生成后端 |
 
 详细范围见 [目标与架构边界](docs/targets.md)。编译器本身运行于 Wasm；将输入 C 直接编译为 wasm32/WASI 需要另一目标后端，目前尚未实现。
@@ -79,9 +79,9 @@ make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、in
 
 ### AMD64 实验性 ABI 计划
 
-`-frecord-sysv-abi` 记录版本化参数/返回计划，`-c --private-object --obj-ir` 可保留计划供检查。`-fuse-sysv-abi-plan` 进一步启用**实验性 caller/callee 消费路径**，支持认证标量，以及有限的自然对齐结构体具名参数与返回值：1–8 字节整数/指针结构体（含递归满足条件的嵌套结构体），单 SSE 片段的纯浮点结构体 `{float}`、`{float, float}`、`{double}`，以及严格为自然对齐 LP64 `{long a; long b;}`、两个字段均为 64 位 `TYPE_LONG` 的结构体。两个选项仍默认关闭。use 模式校验版本 2 源类型资格标志（`SCALAR_VERIFIED=1`、`SMALL_INTEGER_AGGREGATE_VERIFIED=2`、`SMALL_SSE_AGGREGATE_VERIFIED=4` 或 `INTEGER_PAIR_AGGREGATE_VERIFIED=8`）、ABI 身份和规则指纹，不能仅凭片段布局猜测资格。双 `long` 扩展注册为 `abi.plan-int-pair.v1`。
+`-frecord-sysv-abi` 记录版本化参数/返回计划，`-c --private-object --obj-ir` 可保留计划供检查。`-fuse-sysv-abi-plan` 进一步启用**实验性 caller/callee 消费路径**，支持认证标量，以及有限的自然对齐结构体具名参数与返回值：1–8 字节整数/指针结构体（含递归满足条件的嵌套结构体），单 SSE 片段的纯浮点结构体 `{float}`、`{float, float}`、`{double}`，以及严格自然对齐的 16 字节 LP64 双字段形状 `{long, long}`、`{long, double}`、`{double, long}`、`{double, double}`（`long` 必须为 64 位 `TYPE_LONG`）。两个选项仍默认关闭。use 模式校验一个版本 2 源类型资格认证（`SCALAR_VERIFIED=1`、`SMALL_INTEGER_AGGREGATE_VERIFIED=2`、`SMALL_SSE_AGGREGATE_VERIFIED=4`、`INTEGER_PAIR_AGGREGATE_VERIFIED=8` 或 `MIXED_PAIR_AGGREGATE_VERIFIED=16`）、ABI 身份和规则指纹。签名采用所需最高认证，不按位 OR 合并，不能仅凭片段布局猜测资格。双字段扩展注册为 `abi.plan-int-pair.v1` 和 `abi.plan-mixed-pair.v1`。
 
-执行测试覆盖标量整数、浮点、指针、寄存器/栈溢出参数及标量变参，也覆盖有限结构体的参数/返回、GP 寄存器耗尽后的栈传递和指针字段。精确尺寸的 IR 读写保持结构体字节范围，页边界及 canary 测试覆盖 1/2/3/5/6/7 字节场景及栈传递。纯浮点结构体测试覆盖参数/返回、八个 SSE 参数寄存器用尽后的栈传递、GP/SSE 混合及 canary。同一签名可组合合格的整数结构体与 SSE 结构体，但单个结构体内混合整数和浮点字段仍不支持。双 `long` 结构体参数使用两个 GP 寄存器，不足时将整个 16 字节参数回退到栈，并保留剩余寄存器供后续参数使用；原生返回走 RAX/RDX，内部结果缓冲仍独立保留。测试覆盖溢栈、尾参数寄存器、多返回缓冲和 canary。覆盖包含 **xhcc caller → Clang callee 与 Clang caller → xhcc callee 双向互操作**。use 模式拒绝 packed 结构体、位域、union、数组、其他大于 8 字节的结构体（包括其他 16 字节形状）、变参聚合实参及其他未支持聚合形状。其余聚合计划仍仅供记录检查，不代表完整原生 SysV 聚合互操作。IR 容器 v2 持久化计划表和独立引用，读取 v1 时按无计划处理。合同与测试证据见 [ABI 计划文档](docs/abi-plan-ir-v2.md)。
+执行测试覆盖标量整数、浮点、指针、寄存器/栈溢出参数及标量变参，也覆盖有限结构体的参数/返回、GP 寄存器耗尽后的栈传递和指针字段。精确尺寸的 IR 读写保持结构体字节范围，页边界及 canary 测试覆盖 1/2/3/5/6/7 字节场景及栈传递。纯浮点结构体测试覆盖参数/返回、八个 SSE 参数寄存器用尽后的栈传递、GP/SSE 混合及 canary。同一签名可组合合格的整数结构体与 SSE 结构体；8 字节结构体内混合整数和浮点字段仍未获认证。已支持的 16 字节双字段形状使用两个 GP/SSE 片段，任一所需 bank 不足时将整个参数回退到栈，保留未用寄存器供后续参数使用。返回寄存器序号按 bank 独立分配（RAX/RDX 与 XMM0/XMM1），内部结果缓冲仍独立保留。测试覆盖溢栈、尾参数寄存器、多个存活结果缓冲和 canary。覆盖包含 **xhcc caller → Clang callee 与 Clang caller → xhcc callee 双向互操作**。use 模式拒绝 packed 结构体、位域、union、数组、其他大于 8 字节的结构体（包括其他 16 字节形状）、变参聚合实参及其他未支持聚合形状。其余聚合计划仍仅供记录检查，不代表完整原生 SysV 聚合互操作。IR 容器 v2 持久化计划表和独立引用，读取 v1 时按无计划处理。合同与测试证据见 [ABI 计划文档](docs/abi-plan-ir-v2.md)。
 
 ## 命令行兼容范围
 

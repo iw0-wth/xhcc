@@ -202,6 +202,57 @@ int entry(void) {
      else:self.invoke(src,obj)
      objects.append(obj)
     self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
+ def test_mixed_pair16_clang_routes_independent_bank_rollback(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'reference Clang required')
+  header='struct LD { long a; double b; }; struct DL { double a; long b; }; struct DD { double a,b; };\n'
+  library_text=header+'''
+struct LD ld(long n) { struct LD p; p.a=n; p.b=n+0.5; return p; }
+struct DL dl(long n) { struct DL p; p.a=n+0.25; p.b=n+10; return p; }
+struct DD dd(long n) { struct DD p; p.a=n+0.5;p.b=n+1.5;return p; }
+double take_ld(struct LD p) { return p.a+p.b; }
+double take_dl(struct DL p) { return p.a+p.b; }
+double take_dd(struct DD p) { return p.a+p.b; }
+double gp_full(long a,long b,long c,long d,long e,long f,struct LD p,double tail) { return a+b+c+d+e+f+p.a+p.b+tail; }
+double fp_full(double a,double b,double c,double d,double e,double f,double g,double h,struct DL p,long tail) { return a+b+c+d+e+f+g+h+p.a+p.b+tail; }
+double sse_pair_rollback(double a,double b,double c,double d,double e,double f,double g,struct DD p,double tail) { return a+b+c+d+e+f+g+p.a+p.b+tail; }
+'''
+  caller_text=header+'''
+struct LD ld(long);struct DL dl(long);struct DD dd(long);
+double take_ld(struct LD);double take_dl(struct DL);double take_dd(struct DD);
+double gp_full(long,long,long,long,long,long,struct LD,double);
+double fp_full(double,double,double,double,double,double,double,double,struct DL,long);
+double sse_pair_rollback(double,double,double,double,double,double,double,struct DD,double);
+int entry(void) {
+ struct GuardLD { long before;struct LD p;long after; } a;
+ struct GuardDL { long before;struct DL p;long after; } b;
+ struct GuardDD { long before;struct DD p;long after; } c;
+ struct LD a2;struct DL b2;struct DD c2;
+ a.before=91;a.after=93;b.before=95;b.after=97;c.before=99;c.after=101;
+ a.p=ld(3);b.p=dl(4);c.p=dd(5);a2=ld(7);b2=dl(8);c2=dd(9);
+ if(a.before!=91||a.after!=93||b.before!=95||b.after!=97||c.before!=99||c.after!=101)return 1;
+ if(a.p.a!=3||a.p.b!=3.5||b.p.a!=4.25||b.p.b!=14||c.p.a!=5.5||c.p.b!=6.5)return 2;
+ if(a2.a!=7||a2.b!=7.5||b2.a!=8.25||b2.b!=18||c2.a!=9.5||c2.b!=10.5)return 3;
+ if(take_ld(a.p)!=6.5||take_dl(b.p)!=18.25||take_dd(c.p)!=12.0)return 4;
+ if(gp_full(1,2,3,4,5,6,a.p,2.5)!=30.0)return 5;
+ if(fp_full(1,2,3,4,5,6,7,8,b.p,9)!=63.25)return 6;
+ if(sse_pair_rollback(1,2,3,4,5,6,7,c.p,8)!=48.0)return 7;
+ return 0;
+}
+'''
+  with tempfile.TemporaryDirectory(prefix='abi-mixed-pair-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(library_text);caller.write_text(caller_text)
+   for route in ['xhcc','clang-library','clang-caller']:
+    objects=[]
+    for src in [library,caller]:
+     reference=(route=='clang-library' and src==library) or (route=='clang-caller' and src==caller)
+     obj=work/(src.stem+'_'+route+'.o')
+     if reference:
+      p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-O0','-ffreestanding','-fno-stack-protector','-fno-pic','-c',str(src),'-o',str(obj)],cwd=ROOT,capture_output=True,text=True)
+      self.assertEqual(p.returncode,0,p.stderr)
+     else:self.invoke(src,obj)
+     objects.append(obj)
+    self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
  def test_variadic_aggregate_is_rejected(self):
   cases=['struct S { int x; }; extern int f(int,...); int entry(void) { struct S a={3};return f(1,a); }']
   with tempfile.TemporaryDirectory(prefix='abi-small-reject-',dir=ROOT/'build') as tmp:

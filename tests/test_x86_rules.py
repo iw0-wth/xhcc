@@ -308,6 +308,19 @@ return sd(a)==-4294967297.0 && ud(u)==boundary.d && sf(-2147483648LL)==-21474836
     with obj.open('rb') as f:code=ELFFile(f).get_section_by_name('.text').data()
     expected=['668901','668b11','6689d0'] if target=='x86' else ['66448901','66448b09','664589c8']
     for value in expected:self.assertIn(bytes.fromhex(value),code)
+ def test_branch_target_symbols_named_like_narrow_registers(self):
+  source=OUT/'narrow_branch_symbols.c';source.write_text('int dl(void){return 3;}int al(void){return 5;}int r8b(void){return 7;}int entry(void){return dl()+al()+r8b();}\n')
+  for target,tool in [('x86','i386-elf-gcc'),('x86_64','x86_64-elf-gcc')]:
+   with self.subTest(target=target):
+    obj=OUT/(target+'_narrow_symbols.o');p=subprocess.run([sys.executable,'tools/xhcc.py',tool,'-O0','-c',str(source.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stdout+p.stderr);self.assertEqual(self.execute(obj,target=='x86_64'),15)
+    with obj.open('rb') as f:
+     elf=ELFFile(f);symbols=elf.get_section_by_name('.symtab');targets=[]
+     for sec in elf.iter_sections():
+      if sec['sh_type'] in ['SHT_RELA','SHT_REL']:
+       for rel in sec.iter_relocations():
+        name=symbols.get_symbol(rel['r_info_sym']).name
+        if name in ['dl','al','r8b']:targets.append(name)
+     self.assertEqual(sorted(targets),['al','dl','r8b'])
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

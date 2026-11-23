@@ -1972,7 +1972,7 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
                (index=ir_program_add_abi_plan(out,plan))<0){
                 ark_log("[irgen] error: unsupported function signature for SysV ABI plan recording\n");g_irgen_errors++;continue;
             }
-            if(g_irgen_use_sysv_abi_plan && !(plan->flags & (XH_SYSV_PLAN_SCALAR_VERIFIED | XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED | XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED | XH_SYSV_PLAN_INTEGER_PAIR_AGGREGATE_VERIFIED))){
+            if(g_irgen_use_sysv_abi_plan && !(plan->flags & (XH_SYSV_PLAN_SCALAR_VERIFIED | XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED | XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED | XH_SYSV_PLAN_INTEGER_PAIR_AGGREGATE_VERIFIED | XH_SYSV_PLAN_MIXED_PAIR_AGGREGATE_VERIFIED))){
                 ark_log("[irgen] error: SysV ABI plan codegen requires a certified supported signature; unsupported aggregate signature rejected\n");g_irgen_errors++;continue;
             }
             f->parameter_plan=index;f->result_plan=index;
@@ -6112,7 +6112,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                                 node->u.call.callee&&node->u.call.callee->type?(int)node->u.call.callee->type->kind:-1,
                                 node->u.call.callee&&node->u.call.callee->type&&node->u.call.callee->type->base?(int)node->u.call.callee->type->base->kind:-1,
                                 node->type?(int)node->type->kind:-1);g_irgen_errors++;
-                        }else if(g_irgen_use_sysv_abi_plan && !(plan->flags & (XH_SYSV_PLAN_SCALAR_VERIFIED | XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED | XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED | XH_SYSV_PLAN_INTEGER_PAIR_AGGREGATE_VERIFIED))){
+                        }else if(g_irgen_use_sysv_abi_plan && !(plan->flags & (XH_SYSV_PLAN_SCALAR_VERIFIED | XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED | XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED | XH_SYSV_PLAN_INTEGER_PAIR_AGGREGATE_VERIFIED | XH_SYSV_PLAN_MIXED_PAIR_AGGREGATE_VERIFIED))){
                             ark_log("[irgen] error: SysV ABI plan codegen requires a certified supported call; unsupported aggregate call rejected\n");g_irgen_errors++;
                         }else g->fn->code[g->fn->code_count-1].abi_plan=index;
                     }

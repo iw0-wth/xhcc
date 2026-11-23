@@ -52,8 +52,20 @@ Supported syntax and behavior:
   makefile is read using the then-current global context; other bindings resolve
   when the target is entered, in declaration order. A shared prerequisite uses
   its first traversal's context, as it is built once. Variable-only declarations
-  do not choose a default goal and cannot carry recipes. Pattern-specific and
-  multiple-target variable declarations remain unsupported.
+  do not choose a default goal and cannot carry recipes. Multiple-target
+  variable declarations remain unsupported.
+  Pattern-specific forms such as `%.o: CFLAGS += -O1` and `src/%.o: CC = tool`
+  use the same bindings and precedence. Matching patterns are applied from
+  longest stem to shortest stem, with declaration order for equal stem lengths;
+  explicit target bindings then apply. Patterns override ordinary inherited
+  parent values, while command-line and override protections still apply.
+  At most 128 variable patterns may match one target; multiple `%` characters
+  in a variable pattern are rejected. Scope storage shares the make budget.
+  GNU make 4.4.1 comparison confirms that `rv/unit.o` applies `%.o`, `rv/%.o`,
+  then `%unit.o`: their stems have lengths 7, 4, and 3 respectively. Explicit
+  target bindings apply after these, and ordinary inherited parent bindings
+  are replaced by matching patterns. The integration tests exercise both
+  directory-selected compiler architectures and restoration outside that scope.
 - Nested references and text functions `strip`, `addprefix`, `addsuffix`,
   `notdir`, `basename`, `subst`, `filter`, `filter-out`, `sort`, and `patsubst`.
   Function arguments can contain nested variable references/functions. `filter`
@@ -149,7 +161,7 @@ inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
 This does **not** implement full GNU make: functions beyond the twenty-four listed,
-conditionals beyond the listed forms, pattern-specific variables,
+conditionals beyond the listed forms, multiple-target variable declarations,
 export/environment variable import, grouped targets and recipes shared by
 multiple targets, double-colon/static pattern rules, inline recipes,
 secondary expansion, implicit wildcard expansion outside the function,

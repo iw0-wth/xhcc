@@ -57,7 +57,7 @@ static int safe_relative(const char *s) {
   return 1;
 }
 static int package_requirements(const Package *pkg) {
-  static const char *supported[]={"abi.plan-int-pair.v1","abi.plan-small-sse-struct.v1","abi.plan-small-int-struct.v2","abi.plan-small-int-struct.v1","abi.plan-scalar.v1","abi.plan-record.v1","semantic.selector.v1","abi.decision.v1","cpu.descriptor.v1","target.descriptor.v1","relocation.vm.v1","object.descriptor.v1","codegen.templates.v1","package.options.v1","encoding.fields.v1","selection.profile.v3","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
+  static const char *supported[]={"abi.plan-mixed-pair.v1","abi.plan-int-pair.v1","abi.plan-small-sse-struct.v1","abi.plan-small-int-struct.v2","abi.plan-small-int-struct.v1","abi.plan-scalar.v1","abi.plan-record.v1","semantic.selector.v1","abi.decision.v1","cpu.descriptor.v1","target.descriptor.v1","relocation.vm.v1","object.descriptor.v1","codegen.templates.v1","package.options.v1","encoding.fields.v1","selection.profile.v3","selection.scalar32.v1","selection.scalar32.v2","object.elf32","object.elf64",0};
   const char *p=pkg->requires;
   while(*p){const char *end=strchr(p,',');size_t n=end?(size_t)(end-p):strlen(p);int i,known=0;size_t k;
     if(!n||n>=96||p[0]<'a'||p[0]>'z')goto invalid;

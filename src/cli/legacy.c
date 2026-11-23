@@ -87,7 +87,7 @@ static void usage(void) {
         "  -g                 emit DWARF debug sections (implies --dwarf2;\n"
         "                     use --dwarf3 for DWARF 3)\n"
         "  -f[no-]use-sysv-abi-plan  experimental x86_64, default disabled;\n"
-        "                     certified scalars, 1-8-byte integer structs, and single-SSE-slot float structs only;\n"
+        "                     certified scalar and aggregate subsets only; see ABI-plan contract\n"
         "                     enabled use implies record; other aggregates rejected\n"
         "  -Wno-unused        suppress unused warnings\n"
         "  -config <file>     load arkcc INI config file\n"

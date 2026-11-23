@@ -185,6 +185,21 @@ unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff00000123
    for bad in [original.replace('a0 10\\n','a0 11\\n'),original.replace('rule isa.register_count\ntext 32','rule isa.register_count\ntext 16'),original.replace('fp 8\\n','fp 8\\na0 10\\n')]:
     rules.write_text(bad);path=OUT/'aliasbad.c';path.write_text('int entry(void){return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'aliasbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('register ABI contract',p.stderr)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_r_mnemonic_descriptor_and_encoding_oracle(self):
+  import struct
+  table=[('add',0,0),('sub',0,0x20),('sll',1,0),('slt',2,0),('sltu',3,0),('xor',4,0),('srl',5,0),('sra',5,0x20),('or',6,0),('and',7,0),('mul',0,1),('div',4,1),('divu',5,1),('rem',6,1),('remu',7,1),('mulh',1,1),('mulhsu',2,1),('mulhu',3,1)]
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  # The integrated assembler is exercised by user inline assembly; inspect
+  # actual .text bytes against independently computed ISA field values.
+  instructions='\\n'.join(f'{name} t0, t1, t2' for name,_,_ in table);source='int entry(void){asm("'+instructions+'");return 1;}';exe=self.compile(source,'r_oracle')
+  with exe.open('rb') as f:data=ELFFile(f).get_section_by_name('.text').data()
+  expected=b''.join(struct.pack('<I',(f7<<25)|(7<<20)|(6<<15)|(f3<<12)|(5<<7)|0x33) for _,f3,f7 in table);self.assertIn(expected,data)
+  with tempfile.TemporaryDirectory(prefix='xh-rv-rform-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();rules.write_text(original.replace('add R_ADD rr_r\\n','add R_ADD rr_r\\nplus R_ADD rr_r\\n'))
+   source='int entry(void){int result;asm volatile("li a1, 17\\n li a2, 25\\n plus %0, a1, a2" : "=r"(result));return result;}';changed=self.compile(source,'plus42',root);self.assertEqual(self.execute(changed),42)
+   for row in ['mv R_ADD rr_r','plus MISSING rr_r','plus R_ADD bad','add R_ADD rr_r','plus R rr_r']:
+    rules.write_text(original.replace('add R_ADD rr_r\\n','add R_ADD rr_r\\n'+row+'\\n'));path=OUT/'rbad.c';path.write_text('int entry(void){return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'rbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

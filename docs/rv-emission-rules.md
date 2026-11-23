@@ -153,6 +153,26 @@ are not a mechanism for inventing a new register file.
 A same-SHA test adds `argfirst 10`, uses it both as argument-register spelling
 and in inline assembly, and executes the compiled result as 42.
 
+## External R-format mnemonic descriptors
+
+`isa.mnemonics.r` maps mnemonic tokens to three-argument encoding rule keys
+and the finite `rr_r` operand shape (rd, rs1, rs2). The 18 standard R-format
+instructions now have dedicated package encoding rules whose base contains
+opcode/funct3/funct7. The assembler's former R mnemonic/field table is removed;
+its shared three-register parsing mechanism passes normalized arguments to the
+selected external encoder. Generic R encoding remains for existing pseudo
+instruction lowering.
+
+The descriptor is bounded to 64 rows/16 KiB and allocated for actual rows.
+Duplicate names, fixed pseudo/other-format name collisions, unknown operand
+shapes, absent encoding keys and incompatible encoder argument counts fail
+loading. The table may add a new spelling for an existing supported encoding;
+it does not invent an ABI or change the native parser's operand grammar.
+Tests check all 18 emitted words against independent ISA field calculations and
+add `plus R_ADD rr_r` to a copied package; unchanged compiler execution returns
+42 using the new mnemonic. I/shift/load/store/branch descriptor tables remain
+native pending later bounded migrations.
+
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for
 their native engine family. The shared template VM enforces syntax, bounds,

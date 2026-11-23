@@ -113,8 +113,9 @@ IR container version 2 persists independently indexed call/function plans and
 accepts v1 payloads with no plans. Canonical plan codec v2 certifies scalar-only
 plans with flags=1, supported small-integer-structure plans with flags=2, and
 single-SSE floating-structure signatures with flags=4, and certified two-long
-integer-pair signatures with flags=8. Only 0/1/2/4/8 are accepted, mutually
-exclusive values; combinations such as 3/5/6/7/9 and unknown values are rejected. Old canonical v1 plans decode
+integer-pair signatures with flags=8, and exact LD/DL/DD pair signatures with
+flags=16. Only 0/1/2/4/8/16 are accepted, mutually exclusive values; OR combinations
+such as 3/5/6/7/9/17/31 and unknown values are rejected. Old canonical v1 plans decode
 with flags=0 and cannot drive native use. `-frecord-sysv-abi` records supported
 classifications without changing machine ABI. `-fuse-sysv-abi-plan` is a separate
 x86_64-only opt-in that validates the rule fingerprint and consumes certified
@@ -135,18 +136,25 @@ uses `IR_ARG_BYVALUE_ADDRESS=0x80000`, object size 16 and optional alignment onl
 the backend reads two by-value fragments from the single IR address. The existing
 CALL bit36 reserves an internal caller result buffer, while plan.sret=0 means
 no ABI hidden RDI pointer: RAX/RDX hold the result and are copied into that buffer.
-Unions, arrays, other 16-byte/larger forms, mixed classes and MEMORY/sret remain
-unsupported in use mode, though some can still be recorded.
+`abi.plan-mixed-pair.v1` additionally certifies only the natural 16-byte layouts
+{long,double}, {double,long} and {double,double}, exact TYPE_LONG/TYPE_DOUBLE
+fields at offsets 0 and 8. INTEGER/SSE argument and result banks are allocated
+independently; insufficient capacity in either bank rolls the entire object to
+the stack without partially consuming either bank. DD returns in XMM0/XMM1;
+LD/DL use independent RAX/XMM0 locations. Unions, arrays, other 16-byte/larger
+forms, arbitrary mixed layouts and MEMORY/sret remain unsupported in use mode,
+though some can still be recorded.
 The `abi.plan-small-int-struct.v2` capability covers exact partial-byte access:
 `IR_AUX_AGGREGATE_EXACT=0x40000` loads only the real 1–8 object bytes while
 retaining the one/two-word IR shape; stores and parameter copies preserve exact
 extents. Older 4/8-only consumers must not claim this capability.
 
-Nine codegen tests passed on root 910138, including integer struct1–8,
-F4/F8/D8 and two-long struct16 args/returns, GPR/SSE budget exhaustion and stack
-rollback/spills, pointer fields, multiple live/nested return buffers, GPR/SSE
-mixed signatures and unchanged adjacent canaries, with xhcc/xhcc and both Clang
-mixing directions. Scalar two-TU/FP/variadic tests, unsupported aggregate
+Ten codegen tests passed on root 911959, including integer struct1–8,
+F4/F8/D8, two-long struct16 and exact LD/DL/DD args/returns, independent GPR/SSE
+budget exhaustion and whole-object rollback/spills, pointer fields, multiple
+live/nested return buffers and unchanged adjacent canaries, with xhcc/xhcc and
+both Clang mixing directions. The legal function name `dl` remains in the fixture;
+an exposed assembler symbol/register ambiguity was fixed without renaming it. Scalar two-TU/FP/variadic tests, unsupported aggregate
 rejections and stale-fingerprint LTO rejection also passed. No Clang test was
 skipped. This proves the tested small-integer-structure subset, not complete
 SysV aggregate ABI interoperability.
