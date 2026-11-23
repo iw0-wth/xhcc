@@ -89,10 +89,42 @@ class AbiPlanCodegen(unittest.TestCase):
      else:self.invoke(src,obj)
      objects.append(obj)
     self.assertEqual(self.execute(objects,work/(route+'_combined.o')),1,route)
- def test_irregular_size_and_variadic_aggregate_are_rejected(self):
-  cases=['struct S { char a,b,c; }; struct S f(struct S a) { return a; }',
-         'struct S { char a,b,c,d,e; }; struct S f(struct S a) { return a; }',
-         'struct S { int x; }; extern int f(int,...); int entry(void) { struct S a={3};return f(1,a); }']
+ def test_irregular_integer_struct_bytes_canaries_spill_and_clang(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'reference Clang required')
+  declarations=[];definitions=[];checks=[]
+  for size in [1,2,3,5,6,7]:
+   fields=' '.join(f'unsigned char b{i};' for i in range(size))
+   declarations.append(f'struct S{size} {{ {fields} }};')
+   definitions.append(f'struct S{size} echo{size}(struct S{size} x) {{ x.b0 += 1; return x; }}')
+   expression='+'.join(f'x.b{i}' for i in range(size))
+   definitions.append(f'long spill{size}(long a,long b,long c,long d,long e,long f,struct S{size} x,long tail) {{ return a+b+c+d+e+f+{expression}+tail; }}')
+   checks.append(f'''{{ struct W{size} {{ unsigned char before; struct S{size} value; unsigned char after; }} w;
+    struct S{size} input={{ {','.join(str(i+1) for i in range(size))} }};
+    w.before=91;w.after=93;w.value=echo{size}(input);
+    if(w.before!=91||w.after!=93||w.value.b0!=2||w.value.b{size-1}!={2 if size==1 else size})return {size};
+    if(spill{size}(1,2,3,4,5,6,input,9)!={30+size*(size+1)//2})return {size+10}; }}''')
+  prototypes=[]
+  for size in [1,2,3,5,6,7]:
+   prototypes.append(f'struct S{size} echo{size}(struct S{size}); long spill{size}(long,long,long,long,long,long,struct S{size},long);')
+  header='\n'.join(declarations)+'\n'
+  with tempfile.TemporaryDirectory(prefix='abi-irregular-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);library=work/'library.c';caller=work/'caller.c'
+   library.write_text(header+'\n'.join(definitions)+'\n')
+   caller.write_text(header+'\n'.join(prototypes)+'\nint entry(void) {'+'\n'.join(checks)+'return 0;}\n')
+   for route in ['xhcc','clang-library','clang-caller']:
+    objects=[]
+    for src in [library,caller]:
+     reference=(route=='clang-library' and src==library) or (route=='clang-caller' and src==caller)
+     obj=work/(src.stem+'_'+route+'.o')
+     if reference:
+      p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-O0','-ffreestanding','-fno-stack-protector','-fno-pic','-c',str(src),'-o',str(obj)],cwd=ROOT,capture_output=True,text=True)
+      self.assertEqual(p.returncode,0,p.stderr)
+     else:self.invoke(src,obj)
+     objects.append(obj)
+    self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
+ def test_variadic_aggregate_is_rejected(self):
+  cases=['struct S { int x; }; extern int f(int,...); int entry(void) { struct S a={3};return f(1,a); }']
   with tempfile.TemporaryDirectory(prefix='abi-small-reject-',dir=ROOT/'build') as tmp:
    work=Path(tmp)
    for i,text in enumerate(cases):

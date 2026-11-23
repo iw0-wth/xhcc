@@ -23,7 +23,7 @@
 #define DEPTH 32
 
 typedef struct Mem { struct Mem *next; } Mem;
-typedef struct Var { struct Var *next; char *name,*value; int simple,command,is_default; } Var;
+typedef struct Var { struct Var *next; char *name,*value; int simple,command,is_default,local; } Var;
 typedef struct Recipe { struct Recipe *next; char *text; } Recipe;
 typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*last; } Rule;
 typedef struct Node { struct Node *next; char *name; int state,failed,changed; } Node;
@@ -168,16 +168,41 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     else if(!strcmp(expr,"error"))kind=13;else if(!strcmp(expr,"warning"))kind=14;
     else if(!strcmp(expr,"dir"))kind=15;else if(!strcmp(expr,"suffix"))kind=16;
     else if(!strcmp(expr,"word"))kind=17;else if(!strcmp(expr,"words"))kind=18;
+    else if(!strcmp(expr,"if"))kind=19;else if(!strcmp(expr,"foreach"))kind=20;
+    else if(!strcmp(expr,"findstring"))kind=21;else if(!strcmp(expr,"join"))kind=22;
     else return fail(m,"unsupported make function",expr);
     raw[0]=rest;
-    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10||kind==17) {
-        int required=kind==6||kind==10?3:2;
+    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10||kind==17||kind>=19) {
+        int required=kind==6||kind==10||kind==20?3:2;
         while(argc<required) {p=separator(raw[argc-1],',');if(!p)return fail(m,"missing function argument",expr);*p=0;raw[argc++]=p+1;}
+    }
+    if(kind==19) {
+        char *other=separator(raw[1],',');if(other)*other++=0;
+        if(expand(m,trim(raw[0]),a,values[0],depth+1))return -1;
+        out[0]=0;return expand(m,*trim(values[0])?raw[1]:other?other:"",a,out,depth+1)?-1:1;
+    }
+    if(kind==20) {
+        char *items[WORDS],*name;Var local;int count,rc=1;
+        if(expand(m,raw[0],a,values[0],depth+1)||expand(m,raw[1],a,values[1],depth+1))return -1;
+        name=trim(values[0]);if(!*name||strpbrk(name," \t\r\n"))return fail(m,"foreach expects one variable name",name);
+        count=wordlist(m,values[1],items);if(count<0)return -1;
+        memset(&local,0,sizeof(local));local.name=name;local.simple=1;local.local=1;local.next=m->vars;m->vars=&local;out[0]=0;
+        for(i=0;i<count;i++) {
+            local.value=items[i];
+            if(expand(m,raw[2],a,values[2],depth+1)||(i&&put(m,out,&used," "))||put(m,out,&used,values[2])){rc=-1;break;}
+        }
+        m->vars=local.next;return rc;
     }
     for(i=0;i<argc;i++)if(expand(m,raw[i],a,values[i],depth+1))return -1;
     out[0]=0;
+    if(kind==21)return put(m,out,&used,strstr(values[1],values[0])?values[0]:"")?-1:1;
+    if(kind==22) {
+        char *left[WORDS],*right[WORDS];int nl=wordlist(m,values[0],left),nr=wordlist(m,values[1],right),count;
+        if(nl<0||nr<0)return -1;count=nl>nr?nl:nr;
+        for(i=0;i<count;i++){if(i&&put(m,out,&used," "))return -1;if(i<nl&&put(m,out,&used,left[i]))return -1;if(i<nr&&put(m,out,&used,right[i]))return -1;}return 1;
+    }
     if(kind==11)return wildcard(m,values[0],out)?-1:1;
-    if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->command?"command line":v->is_default?"default":"file";
+    if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->local?"automatic":v->command?"command line":v->is_default?"default":"file";
         if(a&&*name&&!name[1]&&strchr("@<^*",*name))origin="automatic";
         return put(m,out,&used,origin)?-1:1;}
     if(kind==13)return fail(m,"error",values[0]);

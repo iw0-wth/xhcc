@@ -2,7 +2,7 @@
 
 The IR carries persistent SysV AMD64 classification/placement plans. Recording
 and native consumption are separate opt-ins: `-frecord-sysv-abi` records metadata;
-`-fuse-sysv-abi-plan` records and consumes verified scalar or certified **4/8-byte integer-structure** plans for
+`-fuse-sysv-abi-plan` records and consumes verified scalar or certified **1–8-byte integer-structure** plans for
 caller/callee placement. Default compilation retains its original lowering.
 Other aggregate plans remain record-only and are explicitly rejected by use mode.
 Scalar interoperability is tested below; complete aggregate SysV interoperability
@@ -20,12 +20,13 @@ silently replaced with a guessed plan. Use mode additionally requires a version
 2 plan with a supported verification flag and matching ABI identity/rule fingerprint. Integers,
 float/double and pointers, including stack spills and variadic calls, are within
 the scalar consumer. The small-aggregate phase also supports nonempty structures
-of exactly 4 or 8 bytes, containing only integer/pointer fields or recursively
-eligible nested structures. Packed/unaligned/bitfield, floating-field, union,
-array-field and other-sized aggregates remain rejected. Aggregate values through
+of 1 through 8 bytes, containing only integer/pointer fields or recursively
+eligible nested structures with proper natural alignment and in-bounds fields.
+Packed/unaligned/bitfield, floating-field, union, array-field and larger
+aggregates remain rejected. Aggregate values through
 variadic `...` are rejected even when the same structure is valid as a named
 parameter. Structure arguments may use one GPR or spill to the stack; certified
-4/8-byte structure results are returned through the supported integer result
+1–8-byte structure results are returned through the supported integer result
 location. Function/array parameter types
 undergo the required C pointer adjustment before planning. `_Generic`-selected
 function designators recover prototypes from real declared symbols; argument
@@ -84,6 +85,23 @@ independent of it, so old size/alignment/pointer/FP-class metadata is not
 reinterpreted as a plan. Unknown opcodes, invalid name fields, bad plan indices,
 malformed plan records and truncated bodies fail deserialization.
 
+## Exact object access and capability boundary
+
+For native plan use, partial aggregate loads carry
+`IR_AUX_AGGREGATE_EXACT=0x40000` on `IR_LOAD_IDX`. Its value is the actual
+1–8-byte object width; the output retains the legacy `ceil(bytes/4)` IR word
+shape. The AMD64 consumer reads only those bytes. Callee parameter copies and
+returned-value stores likewise preserve the object's exact extent, including
+3/5/6/7-byte objects. This is essential for adjacent objects and page boundaries;
+rounding an object access to 4 or 8 bytes is not authorized by a rounded call slot.
+
+Serialization validates the width and flag combination. Other engines or
+non-use modes must reject this extension rather than reinterpret it as ordinary
+loads. The feature capability is `abi.plan-small-int-struct.v2`, separate from
+canonical codec version 2 and the outer IR version. Flags=2 remains the same
+certification value, but consumers limited to the older 4/8-byte subset must not
+claim this newer capability.
+
 ## Canonical plan codec, versions 1 and 2
 
 All fields below are `u32` little-endian, written individually. No raw C struct,
@@ -108,13 +126,13 @@ Version 2 verification values are:
 | --- | --- |
 | 0 | No native-use certification; record/inspect only. |
 | 1 (`SCALAR_VERIFIED`) | Result, named parameters and actuals are supported scalars, after C parameter decay; void results are allowed. |
-| 2 (`SMALL_INTEGER_AGGREGATE_VERIFIED`) | The complete signature/call mixes supported scalars with at least one certified 4/8-byte integer/pointer structure. |
+| 2 (`SMALL_INTEGER_AGGREGATE_VERIFIED`) | The complete signature/call mixes supported scalars with at least one certified 1–8-byte integer/pointer structure. |
 
 Values 1 and 2 are alternatives, not independent bits to OR: **3 is rejected**,
 as are other unknown values. Combining source-type proofs produces 2 when any
 eligible small structure is present, 1 for scalar-only, and 0 if any component
 is unsupported. Every nested structure must independently satisfy the exact
-4/8-byte, field-bounds and natural-alignment checks; a placement resembling a
+1–8-byte, field-bounds and natural-alignment checks; a placement resembling a
 single integer fragment is insufficient proof. Variadic aggregate actuals clear
 native eligibility. Version 1 decodes with flags=0 and remains record-compatible,
 but native use rejects it. The outer IR container stays version 2; adding this
@@ -169,7 +187,7 @@ this two-test result.
 
 ## Native execution evidence
 
-`tests/test_abi_plan_codegen.py` passed **6/6** against root artifact 905474,
+`tests/test_abi_plan_codegen.py` passed **7/7** against root artifact 906421,
 with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
 
 1. Two separately compiled xhcc translation units execute integer registers and
@@ -183,22 +201,30 @@ with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
 5. Struct4 and struct8 arguments/results, a structure passed after six occupied
    GPR slots, and a pointer-field structure execute in three routes: xhcc/xhcc,
    Clang callee and Clang caller. Each combined fixture returns 1.
-6. Three-/five-byte structures and aggregate variadic actuals are rejected.
+6. Struct1/2/3/5/6/7 arguments/results and after-six-GPR spills execute through
+   the same three compilation routes. Destination canaries before and after
+   each object remain unchanged; each combined check returns 0.
+7. Aggregate variadic actuals remain explicitly rejected.
+
+The canary gate initially exposed a missing 16-bit mov operand-size prefix in
+three assembler paths: a textual word store encoded as a dword store. After the
+prefix correction, the unchanged seven-test suite passed. This records a real
+boundary failure and fix rather than a weakened byte-check fixture.
 
 This establishes the tested certified small-integer-structure subset, not full
 SysV aggregate interoperability. Recursive certification is a source contract;
-this execution fixture directly covers flat struct4/8 and pointer-field forms.
+this execution fixture directly covers flat sizes 1 through 8 and pointer fields.
 The preceding IR persistence and builder/codec suites remain separate evidence.
 
 ## Next phase and package guidance
 
-Remaining aggregate integration includes irregular sizes, larger/multi-fragment
+Remaining aggregate integration includes larger/multi-fragment
 structures, floating/mixed classes, MEMORY/sret, unions/arrays, packed/bitfield
 layouts and aggregate variadic access. Those need their own source certification,
 caller/callee lowering and mixed-toolchain execution tests. Recording their
 classifications does not establish native support.
 
 Package/skill documentation must distinguish record mode, certified scalar/
-4-or-8-byte integer-structure use, and unsupported aggregate use. Neither flag
+1–8-byte integer-structure use, and unsupported aggregate use. Neither flag
 is enabled by default. Capability names must describe an integrated consumer
 and its schema; accepting an option is not a universal ABI guarantee.

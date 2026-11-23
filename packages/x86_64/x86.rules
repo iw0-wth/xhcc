@@ -3111,3 +3111,51 @@ end
 rule int64.unary.plus.unsigned
 text     pop rdx\n    pop rax\n    mov eax, eax\n    shl rdx, 32\n    or rax, rdx\n    mov rdx, rax\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
 end
+rule aggregate.load.1
+text     pop rcx\n    pop rax\n    imul rcx, 1\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    push rdx\n
+end
+rule aggregate.parameter.copy.1
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 1\n    rep movsb\n
+end
+rule aggregate.load.2
+text     pop rcx\n    pop rax\n    imul rcx, 2\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    push rdx\n
+end
+rule aggregate.parameter.copy.2
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 2\n    rep movsb\n
+end
+rule aggregate.load.3
+text     pop rcx\n    pop rax\n    imul rcx, 3\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+2]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    push rdx\n
+end
+rule aggregate.parameter.copy.3
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 3\n    rep movsb\n
+end
+rule aggregate.load.4
+text     pop rcx\n    pop rax\n    imul rcx, 4\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+3]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+2]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    push rdx\n
+end
+rule aggregate.parameter.copy.4
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 4\n    rep movsb\n
+end
+rule aggregate.load.5
+text     pop rcx\n    pop rax\n    imul rcx, 5\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+4]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+3]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+2]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    mov rax, rdx\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule aggregate.parameter.copy.5
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 5\n    rep movsb\n
+end
+rule aggregate.load.6
+text     pop rcx\n    pop rax\n    imul rcx, 6\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+5]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+4]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+3]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+2]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    mov rax, rdx\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule aggregate.parameter.copy.6
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 6\n    rep movsb\n
+end
+rule aggregate.load.7
+text     pop rcx\n    pop rax\n    imul rcx, 7\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+6]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+5]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+4]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+3]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+2]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    mov rax, rdx\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule aggregate.parameter.copy.7
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 7\n    rep movsb\n
+end
+rule aggregate.load.8
+text     pop rcx\n    pop rax\n    imul rcx, 8\n    add rax, rcx\n    xor edx, edx\n    movzx ecx, byte ptr [rax+7]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+6]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+5]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+4]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+3]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+2]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+1]\n    or rdx, rcx\n    shl rdx, 8\n    movzx ecx, byte ptr [rax+0]\n    or rdx, rcx\n    mov rax, rdx\n    shr rdx, 32\n    mov eax, eax\n    push rax\n    push rdx\n
+end
+rule aggregate.parameter.copy.8
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 8\n    rep movsb\n
+end

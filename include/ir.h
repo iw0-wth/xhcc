@@ -50,6 +50,9 @@
  * size is greater than 4) on IR_PUSH_VAR, IR_STORE, IR_LOAD_IDX and
  * IR_STORE_IDX so the backend neither splits it in two nor widens it. */
 #define IR_AUX_SLOT64 0x2000
+/* LOAD_IDX only: exact 1..8 aggregate bytes -> ceil(bytes/4) IR words.
+ * Opt-in AMD64 plan consumer only; other engines/modes must reject it. */
+#define IR_AUX_AGGREGATE_EXACT 0x40000
 
 #if ARKCC_FEATURE_COMPLEX
 #define IR_AUX_COMPLEX 0x800

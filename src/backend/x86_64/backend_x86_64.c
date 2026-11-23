@@ -2279,6 +2279,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     if (sz <= 0) sz = 4;
                     tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
                     dst = (int)I->val - framelo;
+                    if(function_plan && f->param_types && k<f->param_count && f->param_types[k]->kind==TYPE_STRUCT){
+                        char key[64],source[32],destination[32];const char *args[2];
+                        snprintf(key,sizeof(key),"aggregate.parameter.copy.%d",sz);
+                        snprintf(source,sizeof(source),"%+d",tmp);snprintf(destination,sizeof(destination),"%+d",dst);args[0]=source;args[1]=destination;
+                        asmbuf_puts(&buf,xh_x86_expand(key,args,2));break;
+                    }
                     if (sz > xh_x86_number("abi.aggregate.direct_limit")) {
                         /* The wire carried the aggregate's address. */
                         amd_mem_rd(&buf, "mov", "rsi", "qword", tmp);
@@ -2518,6 +2524,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     int es = (int)I->val;
                     int uns = (I->aux & 0x1) != 0;
                     int slot64 = (I->aux & IR_AUX_SLOT64) != 0;
+                    if(I->aux&IR_AUX_AGGREGATE_EXACT){char key[64];if(!g_xhcc_use_sysv_abi_plan||es<1||es>8){amd_unsupported(&buf,"invalid or disabled exact aggregate byte load");break;}snprintf(key,sizeof(key),"aggregate.load.%d",es);asmbuf_puts(&buf,xh_x86_rule(key));break;}
                     if (es == 16) {
                         amd_unsupported(&buf, "16-byte array element load");
                         break;
@@ -4095,6 +4102,7 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
         return;
     }
     if (d->kind == XOP_REG && s->kind == XOP_REG) {
+        if(sz==2)xa_emit(a,(unsigned char)xh_x86_number("encoding.byte.66"));
         xa_rex(a, w, s->reg, d->reg, -1);
         xa_emit(a, (unsigned char)((sz == 1) ? 0x88 : 0x89));
         xa_modrm_reg(a, s->reg, d->reg);
@@ -4131,10 +4139,12 @@ static void xa_emit_mov(X86Asm *a, X86Operand *d, X86Operand *s) {
         }
     } else if (d->kind == XOP_REG && s->kind == XOP_MEM) {
         int byte_load = (sz == 1 && a->mode64);
+        if(sz==2)xa_emit(a,(unsigned char)xh_x86_number("encoding.byte.66"));
         xa_rex_rm(a, w, d->reg, s);
         xa_emit(a, (unsigned char)(byte_load ? 0x8A : 0x8B));
         xa_modrm_mem(a, d->reg, s);
     } else if (d->kind == XOP_MEM && s->kind == XOP_REG) {
+        if(sz==2)xa_emit(a,(unsigned char)xh_x86_number("encoding.byte.66"));
         xa_rex_rm(a, w, s->reg, d);
         xa_emit(a, (unsigned char)((sz == 1) ? 0x88 : 0x89));
         xa_modrm_mem(a, s->reg, d);

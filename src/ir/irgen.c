@@ -919,6 +919,11 @@ static void irgen_float_to_bool(IrGen *g, int is_dbl);
 static void irgen_bool_norm_top(IrGen *g, Type *t);
 static Type *irgen_expr_type(AstNode *e);
 static void irgen_store_small_agg(IrGen *g, int off, int sz);
+static void irgen_load_small_agg(IrGen *g, int sz) {
+    if(g_irgen_use_sysv_abi_plan)
+        ir_emit(g->fn,IR_LOAD_IDX,sz,0,IR_AUX_AGGREGATE_EXACT);
+    else ir_emit(g->fn,IR_LOAD_IDX,sz>4?8:4,0,0);
+}
 static void irgen_widen_to_64(IrGen *g, Type *src_t, Type *dst_t);
 static void irgen_truncate_int(IrGen *g, Type *dst_t);
 /* Pointer <-> 64-bit integer conversion.  A pointer occupies ONE IR word,
@@ -3029,7 +3034,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
                     } else {
                         irgen_lvalue_addr(g, node->u.unary.operand);
                         ir_emit(g->fn, IR_PUSH_INT, 0, 0, 0);
-                        ir_emit(g->fn, IR_LOAD_IDX, 8, 0, 0);
+                        irgen_load_small_agg(g,type_size(rt));
                     }
                 } else if (rt && (rt->kind == TYPE_STRUCT || rt->kind == TYPE_UNION) &&
                            type_size(rt) > 0) {
@@ -3042,7 +3047,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
                     else {
                         irgen_lvalue_addr(g, node->u.unary.operand);
                         ir_emit(g->fn, IR_PUSH_INT, 0, 0, 0);
-                        ir_emit(g->fn, IR_LOAD_IDX, 4, 0, 0);
+                        irgen_load_small_agg(g,type_size(rt));
                     }
                 } else {
                     irgen_expr(g, node->u.unary.operand);
@@ -4875,7 +4880,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                         ir_emit(g->fn, IR_POP, 0, 0, 0);          /* drop address */
                         ir_emit(g->fn, IR_PUSH_ADDR, tmp, 0, 0);
                         ir_emit(g->fn, IR_PUSH_INT, 0, 0, 0);
-                        irgen_load_idx(g, 0, (sz > 4) ? 8 : 4, 0);
+                        irgen_load_small_agg(g,sz);
                         break;
                     }
                     /* Large struct: use IR_MEMCPY with addresses.
@@ -5735,7 +5740,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                      * a 1..3-byte object stays inside the frame. */
                     irgen_lvalue_addr(g, arg);
                     ir_emit(g->fn, IR_PUSH_INT, 0, 0, 0);
-                    ir_emit(g->fn, IR_LOAD_IDX, 4, 0, 0);
+                    irgen_load_small_agg(g,type_size(at));
                 } else if (at && (at->kind == TYPE_STRUCT || at->kind == TYPE_UNION) &&
                            type_size(at) > 4) {
                     if (arg->kind == AST_FUNC_CALL) {
@@ -5743,7 +5748,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                     } else {
                         irgen_lvalue_addr(g, arg);          /* [addr] */
                         ir_emit(g->fn, IR_PUSH_INT, 0, 0, 0);
-                        ir_emit(g->fn, IR_LOAD_IDX, 8, 0, 0);  /* two words, low first */
+                        irgen_load_small_agg(g,type_size(at)); /* exact bytes, old word shape */
                     }
                 } else {
                     irgen_expr(g, arg);

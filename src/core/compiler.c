@@ -3457,6 +3457,22 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
 {
     int asm_len;
     int code_size;
+#ifdef XHCC
+    {
+        int fi;
+        for(fi=0;fi<ir->func_count;fi++){
+            int ii;
+            for(ii=0;ii<ir->funcs[fi]->code_count;ii++){
+                IrInst *instruction=&ir->funcs[fi]->code[ii];
+                if(instruction->op==IR_LOAD_IDX && (instruction->aux&IR_AUX_AGGREGATE_EXACT) &&
+                   (!opts->use_sysv_abi_plan || !ark_streq(be->name,"x86_64") || instruction->val<1 || instruction->val>8)){
+                    diag_tool(DIAG_SEV_ERROR,opts->input_path,"exact aggregate loads require verified AMD64 ABI-plan use mode",0,0,0,0,0,0);
+                    return ARK_ERR_CODEGEN;
+                }
+            }
+        }
+    }
+#endif
 
     /* --vector-table is a property of code generation, and this function is
      * the one place every path to code generation passes through: a single

@@ -333,6 +333,40 @@ class MakeTests(unittest.TestCase):
         self.makefile('all: bad good\nbad:\n\tunknown-tool\ngood:\n\techo survivor\n')
         self.assertIn('survivor', self.run_make('--keep-going', success=False).stdout)
 
+    def test_lazy_if_foreach_objects_findstring_join(self):
+        (self.directory / 'two.c').write_text(
+            '#if VALUE != 7\n#error lazy-if flags missing\n#endif\nint two(void){return VALUE;}\n')
+        self.makefile('MODE = debug\nNAMES = one two\n'
+                      'OBJECTS := $(foreach item,$(NAMES),$(item).o)\n'
+                      'CFLAGS := $(if $(findstring debug,$(MODE)),-DVALUE=7,$(error unselected))\n'
+                      'EMPTY := $(if ,$(error unselected),safe)\n'
+                      'all: $(OBJECTS)\n'
+                      '\t@echo empty=$(EMPTY) joined=$(join a b c,.o .d)\n'
+                      '\t@echo extra=$(join a,.o .d)\n'
+                      '%.o: %.c\n\t' + self.recipe('arm-none-eabi-gcc') + '\n')
+        result = self.run_make()
+        self.assertEqual(result.stdout.count(' -c '), 2)
+        self.assertIn('empty=safe joined=a.o b.d c', result.stdout)
+        self.assertIn('extra=a.o .d', result.stdout)
+        self.assertNotIn(' -c ', self.run_make().stdout)
+
+    def test_foreach_scope_and_lazy_errors(self):
+        self.makefile('ITEM = file-value\n'
+                      'LOOP := $(foreach ITEM,one two,$(ITEM):$(origin ITEM))\n'
+                      'AFTER := $(ITEM):$(origin ITEM)\n'
+                      'NESTED := $(foreach ITEM,a b,$(foreach ITEM,c d,$(ITEM)))\n'
+                      'all:\n\t@echo loop=$(LOOP) after=$(AFTER) nested=$(NESTED)\n')
+        result = self.run_make('ITEM=command-value')
+        self.assertIn('loop=one:automatic two:automatic after=command-value:command line nested=c d c d', result.stdout)
+        self.makefile('X := $(if yes,$(error selected),safe)\nall:\n')
+        self.assertIn('selected', self.run_make(success=False).stderr)
+        self.makefile('X := $(if ,safe,$(error selected-else))\nall:\n')
+        self.assertIn('selected-else', self.run_make(success=False).stderr)
+        self.makefile('X := $(foreach i,' + ' '.join(['x'] * 129) + ',$(i))\nall:\n')
+        self.assertIn('too many function words', self.run_make(success=False).stderr)
+        self.makefile('TEXT = ' + 'x' * 1100 + '\nX := $(foreach i,a b,$(TEXT))\nall:\n')
+        self.assertIn('exceeds limit', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

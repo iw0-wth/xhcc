@@ -68,7 +68,7 @@ $Py = 'C:\Users\wth09\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\
 | 模板 | 通过共享模板 VM 提供文本/参数替换。模板存在不代表 IR 调度、寄存器分配、控制流和调用算法都已外置。 |
 | 语义选择 | 将规范化 family/operation/width/sign/form 映射模板与 pop/push；校验实际栈效果。未匹配的操作必须明确失败或列出有测试的兼容 fallback。 |
 | 编码 | 使用有界字段编码、符号范围和对齐验证。Thumb 半字顺序、x86 变长字段等要按实际目标接口处理，不把一个 32 位 scatter VM 宣称为任意编码器。 |
-| ABI | 核对参数/返回、变参、聚合、间接传递、栈对齐、callee-saved、运行库和跨 TU。关系表不能自行改变前端耦合 wire 表示；有限 schema 不等于通用平台 ABI。`aggregate=aggregate.rules` 有两个 x86_64 opt-in：`-frecord-sysv-abi`/`abi.plan-record.v1` 仅记录 typed IR 元数据；`-fuse-sysv-abi-plan` 消费版本 2 `SCALAR_VERIFIED` 标量 caller/callee 计划，校验 ABI 身份和规则指纹，支持已实现的整数/FP/指针及溢栈、标量变参。需要后者的包声明 `abi.plan-scalar.v1` 并由编译器能力表验证；声明不默认启用选项。另有 `abi.plan-small-int-struct.v1` 支持 builder flag 2 认证的自然对齐 4/8 字节整数/指针字段结构参数与返回；其余聚合仍被 use 模式拒绝。这个窄子集不等于完整 GCC/Clang SysV 聚合互操作，默认选项仍关闭。 |
+| ABI | 核对参数/返回、变参、聚合、间接传递、栈对齐、callee-saved、运行库和跨 TU。关系表不能自行改变前端耦合 wire 表示；有限 schema 不等于通用平台 ABI。`aggregate=aggregate.rules` 有两个 x86_64 opt-in：`-frecord-sysv-abi`/`abi.plan-record.v1` 仅记录 typed IR 元数据；`-fuse-sysv-abi-plan` 消费版本 2 `SCALAR_VERIFIED` 标量 caller/callee 计划，校验 ABI 身份和规则指纹，支持已实现的整数/FP/指针及溢栈、标量变参。需要后者的包声明 `abi.plan-scalar.v1` 并由编译器能力表验证；声明不默认启用选项。另有 `abi.plan-small-int-struct.v1` 保留自然对齐 4/8 字节整数/指针结构合同，v2 扩展为 1..8 字节；两者均要求 builder flag 2 认证，依赖不规则尺寸的包须声明 `abi.plan-small-int-struct.v2`。仅 x86_64 use 路径可消费 `IR_AUX_AGGREGATE_EXACT` 的 1..8 字节精确传输，序列化与跨引擎 guard 必须验证；其余聚合仍被 use 模式拒绝。这个窄子集不等于完整 GCC/Clang SysV 聚合互操作，默认选项仍关闭。 |
 | 对象 | 生成真实标准 ELF32/ELF64，交叉检查 class/machine/endian/flags/attributes、section、symbol、relocation。不得输出自定义 ARK 容器却称标准 ELF；C 输出包应明确输出 C 源码而非伪目标文件。 |
 | 重定位 | 共享有限 VM 验证跨度、范围、对齐、指令形状、配对上下文并原子提交。枚举支持公式；外部标准 ELF relocation 留给 GNU/LLVM linker，不能称已经实现全部公式。 |
 
@@ -103,9 +103,9 @@ if ($LASTEXITCODE) { throw 'build failed' }
 - [语义缓存](../../../tests/test_semantic_cache.py)、[字段/选择](../../../tests/test_rules.py)、[对象](../../../tests/test_object_rules.py)、[补丁](../../../tests/test_relocation_rules.py)：真实 C VM 和坏输入边界。
 - [ARM](../../../tests/test_arm_rules.py)、[ARM relocation](../../../tests/test_arm_relocation.py)、[RV](../../../tests/test_rv_templates.py)、[x86](../../../tests/test_x86_rules.py)、[C 输出](../../../tests/test_c_rules.py)、[跨目标](../../../tests/test_targets.py)：真实编译、链接、执行，而非仅断言字符串。
 
-新增 ABI 子集时先按接口阶段记录候选能力，再由实际互操作测试决定是否宣称支持。已接入的 `abi.plan-small-int-struct.v1` 仅覆盖 4/8 字节自然对齐、仅含受支持整数/指针字段的结构；排除 packed、浮点字段、bitfield、union、array、变参聚合及其它尺寸。计划 `SMALL_INTEGER_AGGREGATE_VERIFIED=2` 必须来自 builder 对原始类型图的认证，不得从单个 INTEGER fragment 猜测。后续扩展仍须验证 capability 注册、caller/callee 消费、非法/伪造计划拒绝、实际 Clang 双向混链；通过前保留 pending，不扩展既有测试证据，不默认启用选项。
+新增 ABI 子集时先按接口阶段记录候选能力，再由实际互操作测试决定是否宣称支持。已接入的 `abi.plan-small-int-struct.v1` 保留 4/8 字节自然对齐整数/指针结构的兼容合同，`abi.plan-small-int-struct.v2` 扩展为 1..8 字节同类结构；依赖精确不规则尺寸传输的新包要求 v2，不因新二进制同时支持 v1 就把旧能力合同扩大。两者排除 packed、浮点字段、bitfield、union、array、变参聚合及超范围尺寸。计划 `SMALL_INTEGER_AGGREGATE_VERIFIED=2` 必须来自 builder 对原始类型图的认证，不得从单个 INTEGER fragment 猜测。后续扩展仍须验证 capability 注册、caller/callee 消费、非法/伪造计划拒绝、实际 Clang 双向混链；通过前保留 pending，不扩展既有测试证据，不默认启用选项。
 
-ABI 计划改动还需依据 [计划 codegen 测试](../../../tests/test_abi_plan_codegen.py) 验证双 TU、Clang 双向混链、超范围 aggregate use 拒绝与过期指纹拒绝。实际 905474 字节根产物已在启用 Clang 的六项测试中全部通过：除标量外，窄结构 fixture 验证 4/8 字节参数/返回、GPR 溢栈和指针字段，经 xhcc 双 TU、Clang caller、Clang callee 三条路线均返回 1；packed、bitfield、float、union、array、16/3/5 字节及变参聚合被拒绝。不能将该结果扩展为 <=16 字节混合聚合、完整 SysV、刷新后的 SD 或实机支持结论；记录模式、标量 use、窄结构 use 和其余聚合未支持须分开验收。
+ABI 计划改动还需依据 [计划 codegen 测试](../../../tests/test_abi_plan_codegen.py) 验证双 TU、Clang 双向混链、超范围 aggregate use 拒绝与过期指纹拒绝。实际 906421 字节根产物已在启用 Clang 的七项测试中全部通过：保留标量、4/8 字节参数/返回、GPR 溢栈、指针字段及三条工具链路线，并覆盖 1/2/3/5/6/7 字节不规则结构的 guard page、canary 与 GPR spill。`IR_AUX_AGGREGATE_EXACT` 的序列化、1..8 合法范围和仅 x86_64 use 消费约束须保留；不要以对齐后的 8 字节访问替代精确长度。packed、bitfield、float、union、array、超 8 字节及变参聚合仍被拒绝。不能将该结果扩展为 <=16 字节混合聚合、完整 SysV、刷新后的 SD 或实机支持结论；记录模式、标量 use、窄结构 use 和其余聚合未支持须分开验收。
 
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 

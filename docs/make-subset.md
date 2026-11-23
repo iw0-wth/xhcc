@@ -48,6 +48,17 @@ Supported syntax and behavior:
   `words text` counts words. A zero, negative, malformed or overflowing word index
   fails. Paths use `/`; these functions share the normal text and word limits.
   Unknown functions and malformed references fail.
+- `if condition,then[,else]` expands the condition, trims surrounding whitespace,
+  and expands only the selected branch. Missing else yields empty text; errors
+  or warnings in an unselected branch are not evaluated.
+  `foreach variable,list,text` expands the name and word list, then expands text
+  once per list word with a temporary simple variable. The local binding overrides
+  file/command-line values during the loop, reports origin `automatic`, and is
+  restored on exit (including failure). Nested loops are supported within the
+  ordinary expansion-depth, 128-word, 2047-byte and memory limits.
+  `findstring find,in` returns the searched substring if present, otherwise empty.
+  `join list1,list2` concatenates corresponding words, preserving unmatched words
+  from the longer list. Both lists use normal whitespace splitting.
 - `wildcard` enumerates existing paths with `*` and `?` in the final path
   component. Directory components must be literal; bracket classes, backslashes,
   and whitespace in discovered paths are rejected. Unmatched patterns contribute
@@ -117,7 +128,7 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions beyond the eighteen listed,
+This does **not** implement full GNU make: functions beyond the twenty-two listed,
 conditionals beyond the listed forms, target-specific variables,
 export/environment variable import, grouped targets and recipes shared by
 multiple targets, double-colon/static pattern rules, inline recipes,

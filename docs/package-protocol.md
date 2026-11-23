@@ -24,7 +24,7 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the narrow structure-plan capability `abi.plan-small-int-struct.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1` and `abi.plan-small-int-struct.v2`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
 
 `semantic.selector.v1` declares the bounded shared semantic selector contract:
 `XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
@@ -62,26 +62,36 @@ validation. Native test results are bounded by the specific signatures checked;
 they do not establish all SysV ABI cases, SD deployment refresh or NuttX
 hardware support.
 
-`abi.plan-small-int-struct.v1` is the integrated narrow native-use contract for
-naturally aligned 4- or 8-byte structures containing only supported
-integer/pointer fields. Canonical version 2 flag
-`SMALL_INTEGER_AGGREGATE_VERIFIED=2` comes from builder verification of the
+`abi.plan-small-int-struct.v1` retains the original naturally aligned 4/8-byte
+integer/pointer structure contract. `abi.plan-small-int-struct.v2` extends that
+contract to naturally aligned structures of every size from 1 through 8 bytes,
+containing only supported integer/pointer fields. Packages that depend on the
+1/2/3/5/6/7-byte extension require v2; v1 remains accepted for the original
+subset and is not redefined to promise the new sizes. Canonical plan version 2
+flag `SMALL_INTEGER_AGGREGATE_VERIFIED=2` comes from builder verification of the
 original type graph; a single INTEGER placement fragment is not proof of
-eligibility. A package depending on this subset declares the capability, and
-use still requires explicit `-fuse-sysv-abi-plan`. Packed, floating-field,
-bitfield, union, array and variadic aggregate shapes are excluded, as are
-structures of unsupported size. This does not add general <=16-byte or mixed
-INTEGER/SSE aggregate support and does not change default lowering.
+eligibility. Use still requires explicit `-fuse-sysv-abi-plan`. Packed,
+floating-field, bitfield, union, array and variadic aggregate shapes remain
+excluded. This does not add general <=16-byte or mixed INTEGER/SSE aggregate
+support and does not change default lowering.
 
-The actual root artifact of 905474 bytes passed all six
+`IR_AUX_AGGREGATE_EXACT` marks an exact aggregate transfer length of 1..8 bytes.
+Its serialized value and consumption are guarded: only the x86_64 plan-use path
+may consume it; malformed lengths and cross-engine use are rejected. Consumers
+must preserve exact byte counts instead of rounding an irregular structure to
+an eight-byte read or write. Plan certification, the exact-transfer marker and
+the capability version are separate checks, not substitutes for one another.
+
+The actual root artifact of 906421 bytes passed all seven
 [ABI plan codegen tests](../tests/test_abi_plan_codegen.py) with Clang enabled.
-The narrow structure fixture checks 4/8-byte parameters and returns, GPR spills
-and pointer fields through three execution routes: both translation units built
-by xhcc, a Clang caller with xhcc callee, and an xhcc caller with Clang callee;
-each returned 1. Negative tests reject packed, bitfield, floating-field, union,
-array, 16/3/5-byte and variadic aggregate cases. Those results validate this
-subset rather than complete native SysV aggregate interoperability; they are
-separate from deployment or hardware evidence.
+The suite includes the original 4/8-byte parameter/return, GPR-spill and pointer
+fixtures plus irregular 1/2/3/5/6/7-byte structures, page-guard and canary checks
+and GPR spills. Native mixed-toolchain routes include xhcc-built caller/callee,
+Clang caller with xhcc callee, and xhcc caller with Clang callee. Packed,
+bitfield, floating-field, union, array, oversized and variadic aggregate cases
+remain negative coverage. These results validate this <=8-byte subset rather
+than complete native SysV aggregate interoperability; they are separate from
+deployment or hardware evidence.
 
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.

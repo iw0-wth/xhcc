@@ -120,14 +120,18 @@ locations. Defaults retain the previous calling path.
 
 Scalar integers, float/double, pointers, register/stack spills and scalar
 variadic access are covered. The aggregate subset is nonempty structures of
-exactly 4 or 8 bytes with integer/pointer fields or recursively certified nested
-structures, proper natural alignment, no packing/bitfields and no aggregate
-variadic actuals. Floating fields, unions, arrays, other sizes and MEMORY/sret
-remain unsupported in use mode, though some can still be recorded.
+1 through 8 bytes with integer/pointer fields or recursively certified nested
+structures, proper natural alignment and in-bounds fields, no packing/bitfields
+and no aggregate variadic actuals. Floating fields, unions, arrays, larger sizes
+and MEMORY/sret remain unsupported in use mode, though some can still be recorded.
+The `abi.plan-small-int-struct.v2` capability covers exact partial-byte access:
+`IR_AUX_AGGREGATE_EXACT=0x40000` loads only the real 1–8 object bytes while
+retaining the one/two-word IR shape; stores and parameter copies preserve exact
+extents. Older 4/8-only consumers must not claim this capability.
 
-Six codegen tests passed on root 905474, including actual struct4/8 args/returns,
-after-six-GPR stack spill and pointer-field execution, with xhcc/xhcc and both
-Clang mixing directions. Scalar two-TU/FP/variadic tests, unsupported aggregate
+Seven codegen tests passed on root 906421, including struct1–8 args/returns,
+after-six-GPR stack spills, pointer fields and unchanged adjacent canaries,
+with xhcc/xhcc and both Clang mixing directions. Scalar two-TU/FP/variadic tests, unsupported aggregate
 rejections and stale-fingerprint LTO rejection also passed. No Clang test was
 skipped. This proves the tested small-integer-structure subset, not complete
 SysV aggregate ABI interoperability.

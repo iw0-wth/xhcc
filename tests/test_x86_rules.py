@@ -285,6 +285,29 @@ return sd(a)==-4294967297.0 && ud(u)==boundary.d && sf(-2147483648LL)==-21474836
     if obj.exists():obj.unlink()
     self.invoke(root,'variant-gcc',probe,obj,ok=False)
   self.assertEqual(hashlib.sha256(self.compiler.read_bytes()).digest(),before)
+ def test_exact_small_aggregate_load_at_page_boundary(self):
+  # Compiler-generated argument/return loads must never read past the object.
+  # The following page is deliberately unmapped in the actual CPU emulator.
+  for size in [1,2,3,5,6,7]:
+   with self.subTest(size=size):
+    source=OUT/f'exact_guard{size}.c';fields=''.join(f'unsigned char c{i};' for i in range(size));checksum='+'.join(f'x.c{i}' for i in range(size))
+    source.write_text(f'struct S{{{fields}}}; int take(struct S x){{return {checksum};}} int entry(void){{return take(*(struct S*){0x51000-size});}}\n')
+    obj=source.with_suffix('.o');exe=source.with_suffix('.elf');p=subprocess.run([sys.executable,'tools/xhcc.py','x86_64-elf-gcc','-fuse-sysv-abi-plan','-O0','-c',str(source.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+    p=subprocess.run([str(SDK/'ld.lld.exe'),'-m','elf_x86_64','--image-base=0','-Ttext=0x10000','-e','entry','-o',str(exe),str(obj)],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+    with exe.open('rb') as f:
+     elf=ELFFile(f);entry=elf.get_section_by_name('.symtab').get_symbol_by_name('entry')[0]['st_value'];uc=Uc(UC_ARCH_X86,UC_MODE_64);uc.mem_map(0x10000,0x30000);uc.mem_map(0x50000,0x1000);uc.mem_map(0x700000,0x20000)
+     for sec in elf.iter_sections():
+      if sec['sh_flags']&2 and sec['sh_type']!='SHT_NOBITS':uc.mem_write(sec['sh_addr'],sec.data())
+     uc.mem_write(0x51000-size,bytes(range(1,size+1)));uc.reg_write(UC_X86_REG_RSP,0x71eff8);uc.mem_write(0x71eff8,struct.pack('<Q',0x3f000));uc.emu_start(entry,0x3f000,count=200000);self.assertEqual(uc.reg_read(UC_X86_REG_RAX),size*(size+1)//2)
+ def test_mov_word_operand_prefix_bytes_and_canary(self):
+  for target in ['x86','x86_64']:
+   with self.subTest(target=target):
+    source=OUT/(target+'_word_mov.c');text='mov ecx, 0x20000\\nmov dword ptr [ecx], 0x77665544\\nmov ax, 0x1234\\nmov word ptr [ecx], ax\\nmov dx, word ptr [ecx]\\nmov ax, dx\\nmov eax, dword ptr [ecx]' if target=='x86' else 'mov rcx, 0x20000\\nmov dword ptr [rcx], 0x77665544\\nmov r8w, 0x1234\\nmov word ptr [rcx], r8w\\nmov r9w, word ptr [rcx]\\nmov r8w, r9w\\nmov eax, dword ptr [rcx]'
+    source.write_text('int entry(void){int out;asm volatile("'+text+'" : "=r"(out));return out;}\n');obj=source.with_suffix('.o');p=subprocess.run([sys.executable,'tools/xhcc.py','i386-elf-gcc' if target=='x86' else 'x86_64-elf-gcc','-c',str(source.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+    self.assertEqual(self.execute(obj,target=='x86_64'),0x77661234)
+    with obj.open('rb') as f:code=ELFFile(f).get_section_by_name('.text').data()
+    expected=['668901','668b11','6689d0'] if target=='x86' else ['66448901','66448b09','664589c8']
+    for value in expected:self.assertIn(bytes.fromhex(value),code)
  def test_scalar_boundaries(self):
   # Division/shift unsignedness, narrow types and floating sequences cross the
   # actual compiler/assembler/linker boundary on both x86 modes.

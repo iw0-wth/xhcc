@@ -38,6 +38,9 @@ static const char *ir_wire_inst_error(const IrInst *I) {
     int operands;
     if ((int)I->op < 0 || (int)I->op >= (int)IR_OP_COUNT)
         return "an instruction has an unknown opcode";
+    if (I->op==IR_LOAD_IDX && (I->aux&IR_AUX_AGGREGATE_EXACT) &&
+        (I->val<1 || I->val>8 || I->aux!=IR_AUX_AGGREGATE_EXACT))
+        return "invalid exact aggregate load width or flags";
     if (I->name) {
         switch (I->op) {
         case IR_NOP: /* legacy optimizers can retain debug names on NOPs */
