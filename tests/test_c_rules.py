@@ -175,6 +175,35 @@ class CRules(unittest.TestCase):
         self.assertIn('char frame[9000]', output)
         self.assertIn('ark_slot stk[300]', output)
 
+    def test_bitfield_selection_changes_signed_extraction_same_sha(self):
+        original = self.source.read_text(encoding='utf-8')
+        before = hashlib.sha256(COMPILER.read_bytes()).digest()
+        try:
+            self.source.write_text('struct Bits { signed int value:4; unsigned int tail:28; }; '
+                                   'int main(void) { struct Bits b; b.value=-8; b.tail=7; return b.value<0 ? 41 : 9; }\n', encoding='utf-8')
+            base = self.compile(self.original, 'bitfield_signed')
+            variant = self.original.replace('bitfield LOAD 32 s seq.bitfield.LOAD.32.s 1 1',
+                                            'bitfield LOAD 32 s seq.bitfield.LOAD.32.u 1 1', 1)
+            self.assertNotEqual(variant, self.original)
+            changed = self.compile(variant, 'bitfield_unsigned')
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            self.assertEqual([self.run_arm_generated_c(arm, output) for output in [base, changed]], [41, 9])
+            self.assertEqual(hashlib.sha256(COMPILER.read_bytes()).digest(), before)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
+    def test_bitfield_full_width_and_last_bit_execute(self):
+        original = self.source.read_text(encoding='utf-8')
+        try:
+            self.source.write_text('struct Full { signed int s:32; }; struct Last { unsigned int pad:31; unsigned int top:1; }; '
+                                   'int main(void) { struct Full f; struct Last b; f.s=-2147483647-1; b.pad=0; b.top=1; '
+                                   'return f.s<0 && b.top==1 ? 73 : 9; }\n', encoding='utf-8')
+            output = self.compile(self.original, 'bitfield_boundaries')
+            arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+            self.assertEqual(self.run_arm_generated_c(arm, output), 73)
+        finally:
+            self.source.write_text(original, encoding='utf-8')
+
     def test_named_aggregate_self_pointer_is_finite(self):
         original = self.source.read_text(encoding='utf-8')
         try:
@@ -368,6 +397,11 @@ int main(int argc,char**argv){
  else if(!strcmp(argv[1],"call17")){inst.op=IR_CALL;inst.name="entry";inst.val=17;}
  else if(!strcmp(argv[1],"callnull")){inst.op=IR_CALL;inst.name=0;inst.val=0;}
  else if(!strcmp(argv[1],"indirect0")){inst.op=IR_CALL;inst.name="?";inst.val=0;}
+ else if(!strcmp(argv[1],"bitzero")){inst.op=IR_LOAD_FLD;inst.val=0;inst.aux=0;}
+ else if(!strcmp(argv[1],"bitwide")){inst.op=IR_STORE_FLD;inst.val=0;inst.aux=33;}
+ else if(!strcmp(argv[1],"bitoffset")){inst.op=IR_LOAD_FLD;inst.val=31;inst.aux=2;}
+ else if(!strcmp(argv[1],"bitflags")){inst.op=IR_LOAD_FLD;inst.val=0;inst.aux=0x401;}
+ else if(!strcmp(argv[1],"simdflags")){inst.op=IR_SIMD_ADD8;inst.aux=1;}
  else if(!strcmp(argv[1],"binary")){inst.op=IR_BINARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"unary")){inst.op=IR_UNARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"compare")){inst.op=IR_FCMP;inst.aux=99999;}
@@ -437,7 +471,7 @@ class CBackendRejections(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), '-3 -2 0 -1 1 -15')
 
     def test_invalid_ir_operator_and_type_limits_reject_without_output(self):
-        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0', 'typecycle', 'typedepth']:
+        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0', 'typecycle', 'typedepth', 'bitzero', 'bitwide', 'bitoffset', 'bitflags', 'simdflags']:
             with self.subTest(mode=mode):
                 result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
                                         cwd=ROOT, capture_output=True, text=True, timeout=30)

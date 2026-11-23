@@ -63,6 +63,56 @@ static int put(Make *m,char *out,size_t *n,const char *s) {
 static Var *variable(Make *m,const char *name) {
     Var *v;for(v=m->vars;v;v=v->next)if(!strcmp(v->name,name))return v;return 0;
 }
+static int expand(Make *m,const char *s,const Auto *a,char *out,int depth);
+/* Find separators only at the outer level of nested make references. */
+static char *separator(char *s,char wanted) {
+    char close[16];int level=0;
+    for(;*s;s++) {
+        if(*s=='$'&&(s[1]=='('||s[1]=='{')) {if(level==16)return 0;close[level++]=s[1]=='('?')':'}';s++;}
+        else if(level&&*s==close[level-1])level--;
+        else if(!level&&*s==wanted)return s;
+    }return 0;
+}
+static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,char values[3][TEXT]) {
+    char *rest=expr,*raw[3],*p;int argc=1,i,kind;size_t used=0;
+    while(*rest&&!isspace((unsigned char)*rest))rest++;
+    if(!*rest)return 0;*rest++=0;while(isspace((unsigned char)*rest))rest++;
+    if(!strcmp(expr,"strip"))kind=1;else if(!strcmp(expr,"addprefix"))kind=2;
+    else if(!strcmp(expr,"addsuffix"))kind=3;else if(!strcmp(expr,"notdir"))kind=4;
+    else if(!strcmp(expr,"basename"))kind=5;else if(!strcmp(expr,"subst"))kind=6;
+    else return fail(m,"unsupported make function",expr);
+    raw[0]=rest;
+    if(kind==2||kind==3||kind==6) {
+        int required=kind==6?3:2;
+        while(argc<required) {p=separator(raw[argc-1],',');if(!p)return fail(m,"missing function argument",expr);*p=0;raw[argc++]=p+1;}
+    }
+    for(i=0;i<argc;i++)if(expand(m,raw[i],a,values[i],depth+1))return -1;
+    out[0]=0;
+    if(kind==6) {
+        size_t from=strlen(values[0]);p=values[2];
+        while(*p){char c[2]={*p,0};if(from&&!strncmp(p,values[0],from)){if(put(m,out,&used,values[1]))return -1;p+=from;}else{if(put(m,out,&used,c))return -1;p++;}}
+        if(!from&&put(m,out,&used,values[1]))return -1;
+    } else {
+        p=values[kind==2||kind==3?1:0];
+        while(*p) {
+            char *word,*end,*base,*dot;while(isspace((unsigned char)*p))p++;if(!*p)break;
+            word=p;while(*p&&!isspace((unsigned char)*p))p++;end=p;if(*p)*p++=0;
+            if(kind==4){base=strrchr(word,'/');if(base)word=base+1;}
+            if(kind==5){base=strrchr(word,'/');dot=strrchr(word,'.');if(dot&&(!base||dot>base))*dot=0;}
+            if(used&&put(m,out,&used," "))return -1;
+            if(kind==2&&put(m,out,&used,values[0]))return -1;
+            if(put(m,out,&used,word))return -1;
+            if(kind==3&&put(m,out,&used,values[0]))return -1;
+            (void)end;
+        }
+    }return 1;
+}
+static int function(Make *m,char *expr,const Auto *a,char *out,int depth) {
+    char (*values)[TEXT];int rc;
+    if(!strpbrk(expr," \t\r\n"))return 0;
+    values=(char (*)[TEXT])alloc(m,3*TEXT);if(!values)return -1;
+    rc=function_inner(m,expr,a,out,depth,values);release(m,values,3*TEXT);return rc;
+}
 static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
     size_t n=0;out[0]=0;
     if(depth>8)return fail(m,"recursive variable expansion",s);
@@ -72,11 +122,22 @@ static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
         s++;
         if(*s=='$'){one[0]='$';s++;if(put(m,out,&n,one))return -1;continue;}
         if(*s=='('||*s=='{') {
-            char name[TEXT],nested[TEXT],close=*s++=='('?')':'}'; size_t k=0;Var *v;
-            while(*s&&*s!=close) {if(k+1>=sizeof(name))return fail(m,"variable name too long",0);name[k++]=*s++;}
-            if(!*s)return fail(m,"unterminated variable reference",0);s++;name[k]=0;
-            if(strchr(name,' ')||strchr(name,'\t')||strchr(name,':')||strchr(name,'$'))return fail(m,"unsupported variable expression",name);
-            v=variable(m,name);
+            char name[TEXT],nested[TEXT],close[16];size_t k=0;int level=1,fr;Var *v;
+            close[0]=*s++=='('?')':'}';
+            while(*s&&level) {
+                if(*s==close[level-1]){level--;if(!level){s++;break;}}
+                else if(*s=='$'&&(s[1]=='('||s[1]=='{')) {
+                    if(level==16)return fail(m,"variable nesting limit",0);
+                    if(k+2>=sizeof(name))return fail(m,"variable expression too long",0);
+                    name[k++]=*s++;close[level++]=*s=='('?')':'}';
+                }
+                if(k+1>=sizeof(name))return fail(m,"variable expression too long",0);name[k++]=*s++;
+            }
+            if(level)return fail(m,"unterminated variable reference",0);name[k]=0;
+            fr=function(m,name,a,nested,depth);if(fr<0)return -1;
+            if(fr){if(put(m,out,&n,nested))return -1;continue;}
+            if(strchr(name,':'))return fail(m,"unsupported variable expression",name);
+            if(strchr(name,'$')){if(expand(m,name,a,nested,depth+1))return -1;v=variable(m,nested);}else v=variable(m,name);
             if(v) {if(v->simple)value=v->value;else {if(expand(m,v->value,a,nested,depth+1))return -1;value=nested;}}
             if(put(m,out,&n,value))return -1;
         } else {
@@ -135,8 +196,45 @@ static char *readline(char *s,int cap,FILE *f) {
     char *r=fgets(s,cap,f);size_t n;if(!r)return r;n=strlen(s);
     if(n>=2&&s[n-2]=='\r'&&s[n-1]=='\n'){s[n-2]='\n';s[n-1]=0;}return r;
 }
+typedef struct Condition {int parent,match,had_else;} Condition;
+static int condition(Make *m,char *s,Condition *stack,int *count,int *active) {
+    char *arg=s;int kind=0,match=0;
+    {const char *names[]={"ifeq","ifneq","ifdef","ifndef","else","endif"};int j;
+     for(j=0;j<6;j++){size_t len=strlen(names[j]);if(!strncmp(s,names[j],len)&&(!s[len]||isspace((unsigned char)s[len])))break;}
+     if(j==6)return 0;}
+    while(*arg&&!isspace((unsigned char)*arg))arg++;
+    if(*arg)*arg++=0;arg=trim(arg);
+    if(!strcmp(s,"ifeq"))kind=1;else if(!strcmp(s,"ifneq"))kind=2;
+    else if(!strcmp(s,"ifdef"))kind=3;else if(!strcmp(s,"ifndef"))kind=4;
+    else if(!strcmp(s,"else"))kind=5;else if(!strcmp(s,"endif"))kind=6;else return 0;
+    if(kind>=5) {
+        Condition *c;if(!*count)return fail(m,"unmatched conditional",s);
+        if(*arg)return fail(m,"unsupported conditional suffix",arg);
+        c=&stack[*count-1];
+        if(kind==5){if(c->had_else)return fail(m,"duplicate else",0);c->had_else=1;*active=c->parent&&!c->match;}
+        else {*active=c->parent;(*count)--;}return 1;
+    }
+    if(*count==8)return fail(m,"conditional nesting limit",0);
+    if(*active) {
+        char expanded[TEXT];
+        if(kind<=2) {
+            char *comma,*end;char lhs[TEXT],rhs[TEXT];size_t len=strlen(arg);
+            if(len<3||*arg!='('||arg[len-1]!=')')return fail(m,"conditional expects (left,right)",s);
+            arg[len-1]=0;arg++;comma=separator(arg,',');if(!comma)return fail(m,"conditional missing comma",s);*comma++=0;
+            end=trim(arg);comma=trim(comma);
+            if(expand(m,end,0,lhs,0)||expand(m,comma,0,rhs,0))return -1;
+            match=!strcmp(lhs,rhs);if(kind==2)match=!match;
+        } else {
+            Var *v;if(expand(m,arg,0,expanded,0))return -1;
+            if(!*expanded||strpbrk(expanded," \t"))return fail(m,"conditional expects variable name",arg);
+            v=variable(m,expanded);match=v&&*v->value;if(kind==4)match=!match;
+        }
+    }
+    stack[*count].parent=*active;stack[*count].match=match;stack[*count].had_else=0;(*count)++;
+    *active=*active&&match;return 1;
+}
 static int parse(Make *m,const char *path,int optional,int depth) {
-    FILE *f;char line[TEXT];int line_no=0;
+    FILE *f;char line[TEXT];int line_no=0,ncond=0,active=1;Condition conditions[8];
     if(depth>8)return fail(m,"include nesting/cycle limit",path);
     f=fopen(path,"r");if(!f){if(optional&&errno==ENOENT)return 0;return fail(m,"cannot read makefile",path);}
     while(readline(line,sizeof(line),f)) {
@@ -148,13 +246,15 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         }
         if(m->error)break;
         if(recipe) {
-            Recipe *r;if(!m->current){fail(m,"recipe without a target",path);break;}
+            Recipe *r;if(!active)continue;if(!m->current){fail(m,"recipe without a target",path);break;}
             s=line+1;len=strlen(s);while(len&&(s[len-1]=='\n'||s[len-1]=='\r'))s[--len]=0;
             r=(Recipe *)alloc(m,sizeof(*r));if(!r)break;r->text=copy(m,s);if(!r->text)break;
             if(m->current->last)m->current->last->next=r;else m->current->recipes=r;m->current->last=r;continue;
         }
         { char *p=line;int escaped=0;while(*p){if(*p=='#'&&!escaped){*p=0;break;}escaped=*p=='\\'&&!escaped;p++;} }
         s=trim(line);if(!*s)continue;
+        ar=condition(m,s,conditions,&ncond,&active);if(ar<0)break;if(ar)continue;
+        if(!active)continue;
         ar=assignment(m,s,0);if(ar<0)break;if(ar){m->current=0;continue;}
         if(!strncmp(s,"include ",8)||!strncmp(s,"-include ",9)||!strncmp(s,"sinclude ",9)) {
             int opt=*s!='i',n,i;char expanded[TEXT],*args[WORDS+1];s+=opt?9:8;
@@ -166,7 +266,7 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         *colon++=0;
         {char target[TEXT],deps[TEXT],*ts[WORDS+1];int n;Rule *r;
             if(expand(m,trim(s),0,target,0)||expand(m,trim(colon),0,deps,0))break;
-            if(strchr(deps,';')||strchr(deps,'|')||strchr(deps,':')){fail(m,"unsupported rule syntax",deps);break;}
+            if(strchr(deps,';')||strchr(deps,':')){fail(m,"unsupported rule syntax",deps);break;}
             if(!strcmp(target,".PHONY")) {char merged[TEXT];size_t z=0;merged[0]=0;if(m->phony&&(put(m,merged,&z,m->phony)||put(m,merged,&z," ")))break;if(put(m,merged,&z,deps))break;m->phony=copy(m,merged);m->current=0;continue;}
             n=words(m,target,ts,0);if(n!=1){fail(m,"exactly one target per rule is supported",0);break;}
             r=(Rule *)alloc(m,sizeof(*r));if(!r)break;r->target=copy(m,ts[0]);r->deps=copy(m,deps);if(!r->target||!r->deps)break;
@@ -174,6 +274,7 @@ static int parse(Make *m,const char *path,int optional,int depth) {
             if(!m->first&&r->target[0]!='.'&&!strchr(r->target,'%'))m->first=r->target;
         }
     }
+    if(ncond&&!m->error)fail(m,"unterminated conditional",path);
     if(ferror(f))fail(m,"error reading makefile",path);fclose(f);(void)line_no;return m->error?-1:0;
 }
 static int exists(const char *path,struct stat *st){return stat(path,st)==0;}
@@ -238,7 +339,7 @@ static int execute(Make *m,const char *text,const Auto *a) {
 typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];} Frame;
 static int build(Make *m,const char *name,int depth) {
     Node *node,*depnode;Rule *r,*chosen=0;Recipe *recipe;struct stat st,depst;
-    Frame *frame=0;char *deps,*all,*stem,**dv;int dn,i,present,dirty,phony;size_t used=0;
+    Frame *frame=0;char *deps,*all,*stem,**dv;int dn,i,present,dirty,phony,normal;size_t used=0;
     if(strlen(name)>=TEXT)return fail(m,"target path too long",0);
     if(depth>DEPTH)return fail(m,"dependency nesting limit",name);
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
@@ -262,7 +363,15 @@ static int build(Make *m,const char *name,int depth) {
         if(len>2&&!strcmp(name+len-2,".o")) {memcpy(stem,name,len-2);stem[len-2]=0;if(len+3>=TEXT){fail(m,"target path too long",name);goto bad;}deps[0]='"';memcpy(deps+1,name,len-1);deps[len]='c';deps[len+1]='"';deps[len+2]=0;}
         else if(!present&&!phony){fail(m,"no rule to make target",name);goto bad;}
     }
-    dn=words(m,deps,dv,0);if(dn<0)goto bad;all[0]=0;
+    /* Separate order-only dependencies before tokenization; accept a | with
+     * or without adjacent whitespace. Quoted path separators remain literal. */
+    {char *p=deps,*bar=0;int quote=0;
+     for(;*p;p++){if(*p=='\\'&&p[1]){p++;continue;}if(*p=='\''||*p=='"'){if(!quote)quote=*p;else if(quote==*p)quote=0;continue;}
+       if(*p=='|'&&!quote){if(bar){fail(m,"multiple order-only separators",0);goto bad;}bar=p;}}
+     if(bar){int more,j;char *ov[WORDS+1];*bar=0;dn=words(m,deps,dv,0);if(dn<0)goto bad;normal=dn;
+       more=words(m,bar+1,ov,0);if(more<0)goto bad;if(dn+more>WORDS){fail(m,"too many prerequisites",0);goto bad;}for(j=0;j<more;j++)dv[dn+j]=ov[j];dn+=more;
+     }else {dn=words(m,deps,dv,0);normal=dn;}}
+    if(dn<0)goto bad;all[0]=0;
     /* An existing file without an explicit rule is a leaf when no implicit
      * source exists. Preserve implicit rebuilds when the source is present. */
     if(!chosen&&present&&dn&&!exists(dv[0],&depst)) {
@@ -270,6 +379,7 @@ static int build(Make *m,const char *name,int depth) {
     }
     for(i=0;i<dn;i++) {
         int j;if(build(m,dv[i],depth+1)){node->failed=1;if(!m->keep)goto bad;continue;}
+        if(i>=normal)continue;
         if(!exists(dv[i],&depst)||!present||depst.st_mtime>st.st_mtime||isphony(m,dv[i]))dirty=1;
         for(depnode=m->nodes;depnode;depnode=depnode->next)if(!strcmp(depnode->name,dv[i])){if(depnode->changed)dirty=1;break;}
         for(j=0;j<i;j++)if(!strcmp(dv[j],dv[i]))break;
@@ -278,7 +388,7 @@ static int build(Make *m,const char *name,int depth) {
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
     if(node->failed)goto bad;
     if(dirty) {
-        Auto a;a.target=name;a.first=dn?dv[0]:"";a.all=all;a.stem=stem;
+        Auto a;a.target=name;a.first=normal?dv[0]:"";a.all=all;a.stem=stem;
         if(chosen)for(recipe=chosen->recipes;recipe;recipe=recipe->next)if(execute(m,recipe->text,&a))goto bad;
         if(!chosen&&dn&&execute(m,"$(CC) $(CPPFLAGS) $(CFLAGS) -c \"$<\" -o \"$@\"",&a))goto bad;
         node->changed=1;

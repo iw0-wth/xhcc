@@ -447,6 +447,8 @@ static int semantic_effect(const char *family,const char *operation,int pop,int 
     } else if (ark_streq(family,"frame") || ark_streq(family,"global")) {
         wanted_pop=ark_streq(operation,"STORE");wanted_push=!wanted_pop;
     } else if (ark_streq(family,"index")) { wanted_pop=2;wanted_push=1; }
+    else if (ark_streq(family,"bitfield")) { wanted_pop=ark_streq(operation,"STORE")?2:1;wanted_push=ark_streq(operation,"STORE")?0:1; }
+    else if (ark_streq(family,"simd")) { wanted_pop=2;wanted_push=1; }
     else if (ark_streq(family,"convert")) { wanted_pop=1;wanted_push=1; }
     else if (ark_streq(family,"stack")) {
         wanted_pop=ark_streq(operation,"SWAP")||ark_streq(operation,"MEMCPY")?2:1;

@@ -25,4 +25,8 @@ before=[(path.stat().st_mtime_ns,hashlib.sha256(path.read_bytes()).digest()) for
 make('all');after=[(path.stat().st_mtime_ns,hashlib.sha256(path.read_bytes()).digest()) for path in paths];assert before==after,'incremental make rewrote objects'
 make('-B','CC=riscv32-unknown-elf-gcc','CFLAGS=-O0','all')
 for path in paths:assert int.from_bytes(path.read_bytes()[18:20],'little')==243
+make('-f','Makefile.extended','-B','MODE=rv32','all')
+for path in paths:assert int.from_bytes(path.read_bytes()[18:20],'little')==243
+tracked=[path.stat().st_mtime_ns for path in paths]
+make('-f','Makefile.extended','MODE=rv32','all');assert tracked==[path.stat().st_mtime_ns for path in paths],'order-only phony prerequisite triggered rebuild'
 print('PASS SD sibling applications, shared packages, ARM direct/make, incremental make, injected RV32 CC')

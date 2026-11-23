@@ -17,6 +17,7 @@ example=dest/'examples/make-demo';example.mkdir(parents=True,exist_ok=True)
 (example/'first.c').write_text('int first(void){return 17;}\n',encoding='utf-8')
 (example/'second.c').write_text('int second(void){return 25;}\n',encoding='utf-8')
 (example/'Makefile').write_text('CC ?= arm-none-eabi-gcc\nCFLAGS ?= -O1 -mcpu=cortex-m3\nOBJECTS = first.o second.o\n.PHONY: all clean\nall: $(OBJECTS)\n%.o: %.c\n\t$(CC) $(CFLAGS) -c $< -o $@\nclean:\n\trm -f $(OBJECTS)\n',encoding='utf-8')
+(example/'Makefile.extended').write_text('MODE ?= arm\nSOURCES = first.c second.c\nOBJECTS := $(addsuffix .o,$(basename $(SOURCES)))\nifeq ($(MODE),rv32)\nCC = riscv32-unknown-elf-gcc\nCFLAGS = -O0\nelse\nCC = arm-none-eabi-gcc\nCFLAGS = -O1 -mcpu=cortex-m3\nendif\n.PHONY: all prepare\nall: $(OBJECTS)\nprepare:\n\tmkdir -p output\n%.o: %.c | prepare\n\t$(CC) $(CFLAGS) -c $< -o $@\n',encoding='utf-8')
 manifest={}
 for file in sorted(dest.rglob('*')):
  if file.is_file() and file.name!='installation.json' and not file.suffix.lower() in ('.o','.d'):

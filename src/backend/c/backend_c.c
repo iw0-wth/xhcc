@@ -141,6 +141,19 @@ static int c_memory(IrInst *I, IrFunc *f, IrProgram *prog, int *param_idx, AsmBu
     snprintf(buffer,sizeof buffer,"%d",xh_c_abi()->return_buffer_bytes);
     args[0]=val;args[1]=aux;args[2]=extra;args[3]="";args[4]=I->name?I->name:"";args[5]=buffer;
     switch (I->op) {
+        case IR_LOAD_FLD:case IR_STORE_FLD:
+            family="bitfield";op=I->op==IR_LOAD_FLD?"LOAD":"STORE";width=32;
+            size=I->op==IR_LOAD_FLD?I->aux&0xff:I->aux;
+            if(size<1||size>32||I->val<0||I->val>31||I->val+size>32 ||
+               (I->op==IR_LOAD_FLD&&(I->aux&~0x1ff))) {
+                xh_c_rules_error("invalid C bitfield width, offset or flags");return -1;
+            }
+            sign=I->op==IR_LOAD_FLD&&(I->aux&0x100)?"s":"u";
+            snprintf(aux,sizeof aux,"%d",size);break;
+        case IR_SIMD_ADD16:case IR_SIMD_SUB16:case IR_SIMD_ADD8:case IR_SIMD_SUB8:
+            if(I->aux){xh_c_rules_error("invalid C SIMD flags");return -1;}
+            family="simd";op=I->op==IR_SIMD_ADD16||I->op==IR_SIMD_ADD8?"ADD":"SUB";
+            width=I->op==IR_SIMD_ADD16||I->op==IR_SIMD_SUB16?16:8;break;
         case IR_GETARG:
             family="arg";op="LOAD";
             size=(I->aux>>8)&0xffffff;
@@ -1284,57 +1297,6 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
                     asmbuf_puts(&buf, xh_c_rule_text("ir_64push"));
                     break;
                 /* === Stack-based memcpy: pop order = dst, then src === */
-                /* === Bitfield store/load: val=bit offset, aux=bit width === */
-                case IR_STORE_FLD:
-                    /* aux = bit width. Use unsigned long long arithmetic so a
-                     * 32-bit field (`1 << 32`) is still well defined. */
-                    xh_c_rule_ints(&buf, "ir_store_fld_value", I->aux, 0);
-                    asmbuf_int(&buf, I->val);
-                    xh_c_rule_ints(&buf, "ir_store_fld_value_2", I->val, 0);
-                    break;
-                case IR_LOAD_FLD: {
-                    /* aux low 8 bits = bit width, aux bit 8 (0x100) = the field
-                     * is signed. Signed fields must be sign-extended after the
-                     * extract (C99 6.3.1.3): without it `int c:4` holding -8
-                     * read back as +8. The ARM backend already does this; the
-                     * C backend used to ignore the flag and, worse, used
-                     * `1 << (width|0x100)` (undefined shift) as the mask. */
-                    int fld_w = I->aux & 0xFF;
-                    int fld_signed = (I->aux & 0x100) != 0;
-                    if (fld_w < 0) fld_w = 0;
-                    if (fld_w > 32) fld_w = 32;
-                    xh_c_rule_ints(&buf, "ir_load_fld_value", I->val, 0);
-                    asmbuf_int(&buf, fld_w);
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld"));
-                    if (fld_signed && fld_w > 0 && fld_w < 32) {
-                        /* Narrow through (int) before the arithmetic shift so
-                         * the sign bit lands where a 32-bit shift expects it
-                         * (_v is 64-bit, so <<28 of 8 would stay positive). */
-                        xh_c_rule_ints(&buf, "ir_load_fld_value_2", 32 - fld_w, 0);
-                        asmbuf_int(&buf, 32 - fld_w);
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_2"));
-                    } else if (fld_signed && fld_w == 32) {
-                        asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_3"));
-                    }
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_load_fld_4"));
-                    break;
-                }
-                /* === 0.7.0+ SIMD emulation: arithmetic on packed lanes ===
-                 * SADD16/SSUB16: split a 32-bit word into two 16-bit lanes.
-                 * SADD8/SSUB8: split into four 8-bit lanes.
-                 * These emulate ARM DSP intrinsics for the host C backend. */
-                case IR_SIMD_ADD16:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_add16"));
-                    break;
-                case IR_SIMD_SUB16:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub16"));
-                    break;
-                case IR_SIMD_ADD8:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_add8"));
-                    break;
-                case IR_SIMD_SUB8:
-                    asmbuf_puts(&buf, xh_c_rule_text("ir_simd_sub8"));
-                    break;
                 default:
                     xh_c_rules_error("unsupported C IR instruction");
                     break;

@@ -1,0 +1,110 @@
+XHTEMPLATE 1
+# Standalone scalar aggregate prototype; not production ABI lowering.
+# leaf kinds INTEGER1 FLOAT32=2 FLOAT64=3 POINTER4; unsupported kinds reject.
+# Conservative root-alignment policy: packed base alignment below a leaf natural
+# alignment yields MEMORY, even at offset zero; native oracle remains required.
+rule typeclass.config
+text 1 8 16 5 0 4
+end
+rule typeclass.leaf.count
+text 4
+end
+rule typeclass.leaf.0
+text 1 1 1
+end
+rule typeclass.leaf.1
+text 2 2 4
+end
+rule typeclass.leaf.2
+text 3 2 8
+end
+rule typeclass.leaf.3
+text 4 1 8
+end
+rule typeclass.merge.count
+text 25
+end
+rule typeclass.cleanup.count
+text 2
+end
+rule typeclass.cleanup.0
+text 1 0 0 0
+end
+rule typeclass.cleanup.1
+text 2 3 1 2
+end
+rule typeclass.merge.0
+text 0 0 0
+end
+rule typeclass.merge.1
+text 0 1 1
+end
+rule typeclass.merge.2
+text 0 2 2
+end
+rule typeclass.merge.3
+text 0 3 3
+end
+rule typeclass.merge.4
+text 0 4 4
+end
+rule typeclass.merge.5
+text 1 0 1
+end
+rule typeclass.merge.6
+text 1 1 1
+end
+rule typeclass.merge.7
+text 1 2 1
+end
+rule typeclass.merge.8
+text 1 3 1
+end
+rule typeclass.merge.9
+text 1 4 4
+end
+rule typeclass.merge.10
+text 2 0 2
+end
+rule typeclass.merge.11
+text 2 1 1
+end
+rule typeclass.merge.12
+text 2 2 2
+end
+rule typeclass.merge.13
+text 2 3 2
+end
+rule typeclass.merge.14
+text 2 4 4
+end
+rule typeclass.merge.15
+text 3 0 3
+end
+rule typeclass.merge.16
+text 3 1 1
+end
+rule typeclass.merge.17
+text 3 2 2
+end
+rule typeclass.merge.18
+text 3 3 3
+end
+rule typeclass.merge.19
+text 3 4 4
+end
+rule typeclass.merge.20
+text 4 0 4
+end
+rule typeclass.merge.21
+text 4 1 4
+end
+rule typeclass.merge.22
+text 4 2 4
+end
+rule typeclass.merge.23
+text 4 3 4
+end
+rule typeclass.merge.24
+text 4 4 4
+end

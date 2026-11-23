@@ -146,6 +146,45 @@ class MakeTests(unittest.TestCase):
         os.utime(source, ns=(future, future))
         self.assertIn(' -c ', self.run_make('CC=arm-none-eabi-gcc --package-root ../packages').stdout)
 
+    def test_conditions_and_nested_text_functions(self):
+        self.makefile('MODE ?= debug\nDIR = obj/\nFILES = src/one.c src/two.c\n'
+                      'ifeq ($(strip $(MODE)),debug)\nCFLAGS = -DVALUE=7\n'
+                      'ifdef DIR\nSELECTED = yes\nelse\nSELECTED = wrong\nendif\n'
+                      'else\ninclude must-not-open.mk\nBAD := $(unsupported nope)\n'
+                      'broken inactive statement\nendif\n'
+                      'ifneq ($(MODE),release)\nifndef ABSENT\nEXTRA = enabled\nendif\nendif\n'
+                      'NAMES := $(addprefix $(DIR),$(addsuffix .o,$(basename $(notdir $(FILES)))))\n'
+                      'all: two.o\n\t@echo $(SELECTED) $(EXTRA) $(NAMES) $(subst one,ONE,$(NAMES))\n'
+                      'two.o: two.c\n\t' + self.recipe('arm-none-eabi-gcc') + '\n')
+        (self.directory / 'two.c').write_text(
+            '#if VALUE != 7\n#error conditional flag missing\n#endif\nint two(void){return VALUE;}\n')
+        result = self.run_make()
+        self.assertIn('yes enabled obj/one.o obj/two.o obj/ONE.o obj/two.o', result.stdout)
+
+    def test_order_only_does_not_trigger_rebuild(self):
+        self.makefile('.PHONY: prepare\nall: two.o\n'
+                      'two.o: two.c|prepare\n\t' + self.recipe('arm-none-eabi-gcc') + '\n'
+                      '\t@echo normal=$^ first=$<\nprepare:\n\tmkdir -p generated\n')
+        first = self.run_make()
+        self.assertIn('normal=two.c first=two.c', first.stdout)
+        old = (self.directory / 'two.o').stat().st_mtime_ns
+        second = self.run_make()
+        self.assertIn('mkdir -p generated', second.stdout)
+        self.assertNotIn(' -c ', second.stdout)
+        self.assertEqual((self.directory / 'two.o').stat().st_mtime_ns, old)
+
+    def test_condition_and_function_errors(self):
+        cases = ['else\n', 'ifeq (a,a)\nall:\n',
+                 'ifeq (a,a)\nelse ifeq (b,b)\nendif\n',
+                 'all:\n\techo $(unknown value)\n',
+                 'all:\n\techo $(addprefix one)\n',
+                 'all:\n\techo $(strip $(missing)\n',
+                 'ifdef X\n' * 9 + 'endif\n' * 9]
+        for content in cases:
+            with self.subTest(content=content):
+                self.makefile(content)
+                self.run_make(success=False)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

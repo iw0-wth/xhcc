@@ -1364,6 +1364,13 @@ text attribute attribute_tok_ge_12 64 s seq.attribute.attribute_tok_ge_12 0 0\n
 text attribute attribute_tok_ge_13 64 s seq.attribute.attribute_tok_ge_13 0 0\n
 text attribute attribute_tok_ge_14 64 s seq.attribute.attribute_tok_ge_14 0 0\n
 text attribute attribute_ir_cmp_jmp_eq_57 64 s seq.attribute.attribute_ir_cmp_jmp_eq_57 0 0\n
+text bitfield LOAD 32 u seq.bitfield.LOAD.32.u 1 1\n
+text bitfield LOAD 32 s seq.bitfield.LOAD.32.s 1 1\n
+text bitfield STORE 32 u seq.bitfield.STORE.32.u 2 0\n
+text simd ADD 16 s seq.simd.ADD.16.s 2 1\n
+text simd SUB 16 s seq.simd.SUB.16.s 2 1\n
+text simd ADD 8 s seq.simd.ADD.8.s 2 1\n
+text simd SUB 8 s seq.simd.SUB.8.s 2 1\n
 end
 rule semantic.operands
 text ark_a ark_c ark_fa ark_fc ark_ca ark_cc
@@ -2237,4 +2244,32 @@ end
 
 rule seq.attribute.attribute_ir_cmp_jmp_eq_57
 text __attribute__((section(".text.
+end
+
+rule seq.bitfield.LOAD.32.u
+text { long long _ad=stk[--sp].i; unsigned long long _mask=(1ULL << ${1})-1ULL; unsigned long long _v=((unsigned long long)*(unsigned int*)(intptr_t)_ad >> ${0}) & _mask; stk[sp++].i=(long long)_v; }
+end
+
+rule seq.bitfield.LOAD.32.s
+text { long long _ad=stk[--sp].i; unsigned long long _mask=(1ULL << ${1})-1ULL; unsigned long long _v=((unsigned long long)*(unsigned int*)(intptr_t)_ad >> ${0}) & _mask; stk[sp++].i=(_v & (1ULL << (${1}-1))) ? (long long)_v-(long long)(1ULL << ${1}) : (long long)_v; }
+end
+
+rule seq.bitfield.STORE.32.u
+text { long long _v=stk[--sp].i; long long _ad=stk[--sp].i; unsigned long long _mask=(1ULL << ${1})-1ULL; unsigned int *_p=(unsigned int*)(intptr_t)_ad; *_p=(unsigned int)(((unsigned long long)*_p & ~(_mask << ${0})) | (((unsigned long long)_v & _mask) << ${0})); }
+end
+
+rule seq.simd.ADD.16.s
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned lo=(_a&0xFFFF)+(_c&0xFFFF); unsigned hi=((_a>>16)&0xFFFF)+((_c>>16)&0xFFFF); stk[sp++].i=(long long)((unsigned)((hi<<16)|(lo&0xFFFF))); }
+end
+
+rule seq.simd.SUB.16.s
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned lo=(_a&0xFFFF)-(_c&0xFFFF); unsigned hi=((_a>>16)&0xFFFF)-((_c>>16)&0xFFFF); stk[sp++].i=(long long)((unsigned)((hi<<16)|(lo&0xFFFF))); }
+end
+
+rule seq.simd.ADD.8.s
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned b0=(_a&0xFF)+(_c&0xFF); unsigned b1=((_a>>8)&0xFF)+((_c>>8)&0xFF); unsigned b2=((_a>>16)&0xFF)+((_c>>16)&0xFF); unsigned b3=((_a>>24)&0xFF)+((_c>>24)&0xFF); stk[sp++].i=(long long)((unsigned)((b3<<24)|((b2&0xFF)<<16)|((b1&0xFF)<<8)|(b0&0xFF))); }
+end
+
+rule seq.simd.SUB.8.s
+text ark_c = stk[--sp].i; ark_a = stk[--sp].i; { unsigned _a=(unsigned)ark_a, _c=(unsigned)ark_c; unsigned b0=(_a&0xFF)-(_c&0xFF); unsigned b1=((_a>>8)&0xFF)-((_c>>8)&0xFF); unsigned b2=((_a>>16)&0xFF)-((_c>>16)&0xFF); unsigned b3=((_a>>24)&0xFF)-((_c>>24)&0xFF); stk[sp++].i=(long long)((unsigned)((b3<<24)|((b2&0xFF)<<16)|((b1&0xFF)<<8)|(b0&0xFF))); }
 end

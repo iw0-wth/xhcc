@@ -84,6 +84,19 @@ A copied package redirects only the FADD semantic record to the FSUB sequence;
 unchanged compiler/helper code then returns the different fixture bit pattern.
 Real libgcc/libm interoperability requires a separate RISC-V runtime gate.
 
+## Indexed wide and complex memory selection
+
+Seventeen additional records select complete aligned/packed 64-bit integer
+loads and stores, aligned complex-float/double indexed loads and stores, and
+complete scalar indexed store actions. The adapter normalizes width/type and
+expected stack effect rather than choosing the target sequence in C. Address
+formation and element scaling remain shared mechanisms. Existing high/low word
+and complex real/imaginary order is preserved. Packed integer64 accesses use
+byte sequences; packed complex accesses are explicitly rejected because their
+conversion and multiword access sequence is not yet safely unaligned.
+Tests cover indexed integer64, misaligned packed integer64, complex-double
+word order, and incompatible selected stack effects.
+
 ## Control, argument, call and return protocol selection
 
 A further 21 normalized records select local labels, unconditional/zero/nonzero

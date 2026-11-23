@@ -34,12 +34,24 @@ Supported syntax and behavior:
 - Recursive `=`, immediate `:=`, conditional `?=`, and append `+=` variables.
   `$(NAME)`, `${NAME}`, and single-character variables expand; `$$` yields a
   literal dollar. Command assignments have priority over file assignments.
+- Nested references and text functions `strip`, `addprefix`, `addsuffix`,
+  `notdir`, `basename`, and `subst`. Function arguments can contain nested
+  variable references/functions. Unknown functions and malformed references fail.
+- `ifeq (left,right)`, `ifneq (left,right)`, `ifdef NAME`, `ifndef NAME`, `else`,
+  and `endif`, up to eight nested blocks per file. Comparisons expand both sides;
+  `ifdef` tests whether the named variable has a nonempty raw value. Inactive
+  branches skip assignments, includes, rules, and recipes. Only parenthesized
+  comparisons are supported; quoted comparison syntax and `else ifeq` chains
+  are rejected. Each included file must balance its own conditions.
 - Backslash/newline continuations, blank lines, `#` comments outside recipes,
   `include`, `-include`, and `sinclude`. Includes are only read; missing optional
   includes are ignored. Include paths follow the current working directory.
 - One explicit target per rule, whitespace-separated prerequisites, `.PHONY`,
   one-percent pattern targets/prerequisites, `.c.o` suffix recipes, and a built-in
   `.c` to `.o` compilation recipe using `CC`, `CPPFLAGS`, and `CFLAGS`.
+  Prerequisites after `|` are order-only: they are built and failures propagate,
+  but their mtime/rebuilding does not trigger the target recipe. They are omitted
+  from `$^` and `$<`; `$|` is not implemented.
 - Tab-prefixed recipe lines; automatic `$@`, `$<`, `$^` (deduplicated), and `$*`.
   `$*` is the pattern/suffix stem and is empty for ordinary explicit rules.
 - Dependency traversal, missing-file errors, cycle detection, mtime-based
@@ -61,8 +73,9 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions, conditionals, target-specific
-variables, export/environment variable import, order-only prerequisites, grouped
+This does **not** implement full GNU make: functions beyond the six listed,
+conditionals beyond the listed forms, target-specific variables,
+export/environment variable import, grouped
 or multiple targets, double-colon/static pattern rules, inline recipes,
 secondary expansion, wildcard expansion, parallel jobs, recursive make, shell
 scripts, and linking are outside this subset. Unsupported statements fail.

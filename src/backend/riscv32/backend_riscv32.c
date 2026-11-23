@@ -1108,32 +1108,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * added shift leaves those cases untouched. */
                     if(es!=1)xh_rv_semantic(&buf,"address","scale",es*8,"v","index",0,0,0,0);
                     xh_rv_rule(&buf,"emit.fixed.0130");
-                    if (es == 8 && (I->aux & IR_AUX_COMPLEX)) {
-                        /* _Complex float element: t0 is the element address,
-                         * whose object image is re at +0 and im at +4.  Park the
-                         * address on the stack across the two widening calls
-                         * (t0-t6 are all caller-saved). */
-                        xh_rv_rule(&buf,"emit.fixed.0131");
-                        rv_fpush1(&buf, 1);
-                        xh_rv_rule(&buf,"emit.fixed.0132");
-                        rv_fpush1(&buf, 1);
-                    } else if (es == 16) {
-                        /* 16-byte element (_Complex double): the object image
-                         * is re_lo, re_hi, im_lo, im_hi and the IR stack wants
-                         * im_lo, im_hi, re_lo, re_hi with re_hi on top. */
-                        xh_rv_rule(&buf,"emit.fixed.0133");
-                    } else if (es == 8 && packed) {
-                        /* 8-byte __packed load: assemble both words from bytes.
-                         * Same push order as the aligned path below (low word
-                         * first, then high), so the consumer is unaffected. */
-                        xh_rv_rule(&buf,"emit.fixed.0136");
-                        xh_rv_rule(&buf,"emit.fixed.0137");
-                        xh_rv_rule(&buf,"emit.fixed.0138");
-                    } else if (es == 8) {
-                        xh_rv_rule(&buf,"emit.fixed.0139");
-                    } else {
-                        xh_rv_semantic(&buf,"memory","load",es*8,"s",packed?"index_packed":"index_aligned",0,1,0,0);
-                    }
+                    {int complex=(I->aux&IR_AUX_COMPLEX)!=0||es==16;if(complex&&packed){diag_tool(DIAG_SEV_ERROR,"riscv32","packed complex indexed load requires unsupported unaligned conversion",0,0,0,0,0,0);break;}const char*sign=complex?"complex":es==8?"v":"s";xh_rv_semantic(&buf,"memory","load",es*8,sign,packed?"index_packed":"index_aligned",0,complex?4:es==8?2:1,0,0);}
                     break;
                 }
 
@@ -1148,54 +1123,10 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * so the bytes have to be written one at a time. */
                     int es = (int)I->val;
                     int packed = (I->aux & 0x400) ? 1 : 0;
-                    if (es == 8 && packed) {
-                        /* 8-byte __packed store: byte by byte, then push the
-                         * value back (low word first) exactly like the aligned
-                         * path below. */
-                        xh_rv_rule(&buf,"emit.fixed.0140");
-                        xh_rv_rule(&buf,"emit.fixed.0141");
-                        xh_rv_rule(&buf,"emit.fixed.0142");
-                        xh_rv_rule(&buf,"emit.fixed.0143");
-                        break;
-                    }
-                    if (es == 8 && (I->aux & IR_AUX_COMPLEX)) {
-                        /* _Complex float element store: 0..12 = value
-                         * (re_hi, re_lo, im_hi, im_lo), 16 = address.  Read by
-                         * offset, never pop before the narrowing calls, then
-                         * push the value back by reloading what was just
-                         * written (a store still yields its value). */
-                        xh_rv_rule(&buf,"emit.fixed.0144");
-                        xh_rv_rule(&buf,"emit.fixed.0145");
-                        xh_rv_rule(&buf,"emit.fixed.0146");
-                        rv_fpush1(&buf, 1);
-                        xh_rv_rule(&buf,"emit.fixed.0087");
-                        rv_fpush1(&buf, 1);
-                        break;
-                    } else if (es == 16) {
-                        /* 0..12 = the value (re_hi, re_lo, im_hi, im_lo),
-                         * 16 = the address.  The object image is re_lo, re_hi,
-                         * im_lo, im_hi; the value is pushed back afterwards so
-                         * the store expression still has its result. */
-                        xh_rv_rule(&buf,"emit.fixed.0147");
-                        xh_rv_rule(&buf,"emit.fixed.0118");
-                        xh_rv_rule(&buf,"emit.fixed.0148");
-                        break;
-                    }
-                    if (es == 8) {
-                        xh_rv_rule(&buf,"emit.fixed.0140");
-                        xh_rv_rule(&buf,"emit.fixed.0120");
-                        xh_rv_rule(&buf,"emit.fixed.0143");
-                    } else if (es == 1 || es == 2 || es == 4) {
-                        xh_rv_rule(&buf,"emit.fixed.0119");
-                        xh_rv_semantic(&buf,"memory","store",es*8,"v",packed?"index_packed":"index_aligned",0,0,0,0);
-                        xh_rv_rule(&buf,"emit.fixed.0036");
-                    } else {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "%s-byte indexed stores are not implemented by "
-                                  "the riscv32 backend (function '%s')",
-                                  diag_num(b1, es), f->name, 0,0,0,0);
-                    }
+                    if(es!=1&&es!=2&&es!=4&&es!=8&&es!=16){diag_tool(DIAG_SEV_ERROR,"riscv32","unsupported indexed store width",0,0,0,0,0,0);break;}
+                    {int complex=(I->aux&IR_AUX_COMPLEX)!=0||es==16;
+                     if(complex&&packed){diag_tool(DIAG_SEV_ERROR,"riscv32","packed complex-float indexed store is unsupported",0,0,0,0,0,0);break;}
+                     xh_rv_semantic(&buf,"memory",es<8?"store_full":"store",es*8,complex?"complex":"v",packed?"index_packed":"index_aligned",complex?5:es==8?3:2,complex?4:es==8?2:1,0,0);}
                     break;
                 }
 

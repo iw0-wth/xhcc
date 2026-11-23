@@ -119,6 +119,14 @@ unsigned entry(void){union Z a,b,c;a.words[0]=1;a.words[1]=2;b.words[0]=3;b.word
    for old,new in [('argument word 32 v register argument.word.register 0 0','argument word 32 v register argument.word.register 1 0'),('return value 32 v scalar return.value.scalar 1 0','return value 32 v scalar return.value.scalar 0 0')]:
     rules.write_text(original.replace(old,new));path=OUT/'protocol_bad.c';path.write_text(source);p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'protocol_bad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_indexed_wide_complex_and_packed_sequences(self):
+  source='''struct __attribute__((packed)) P{char a;unsigned long long x;}; union Z{double _Complex z;unsigned long long w[2];}; unsigned entry(void){unsigned long long a[3]={1,0x1234567887654321ULL,3};a[2]=a[1]+5;return (unsigned)(a[2]>>32)^(unsigned)a[2];} unsigned packed64(void){struct P p;p.a=1;p.x=0x1234567887654321ULL;return (unsigned)(p.x>>32)^(unsigned)p.x;} unsigned complex_index(void){union Z a,b;a.w[0]=0x1122334455667788ULL;a.w[1]=0x99aabbccddeeff00ULL;b.z=*(double _Complex*)&a;return (unsigned)(b.w[0]>>32)^(unsigned)b.w[1];}'''
+  exe=self.compile(source,'indexedwide');self.assertEqual(self.execute(exe),0x12345678^0x87654326);self.assertEqual(self.execute(exe,'packed64'),0x12345678^0x87654321);self.assertEqual(self.execute(exe,'complex_index'),0x11223344^0xddeeff00)
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-indexed-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';text=rules.read_text()
+   bad=text.replace('memory store 64 v index_aligned semantic.index.store.wide.aligned 3 2','memory store 64 v index_aligned semantic.index.store.wide.aligned 2 2');rules.write_text(bad);path=OUT/'indexed_bad.c';path.write_text(source);p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'indexed_bad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:
