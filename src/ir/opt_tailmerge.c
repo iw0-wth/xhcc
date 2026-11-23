@@ -315,7 +315,7 @@ static int tm_apply(IrFunc *f, const TmCand *keep, const TmCand *drop, int ndrop
                 j.val = new_label;
                 j.name = 0;
                 j.aux = 0;
-                j.aux2 = 0;
+                j.aux2 = 0; j.abi_plan = 0;
                 j.line = f->code[i].line;
                 nc[w++] = j;
                 i = drop[k].start + drop[k].len - 1;
@@ -330,7 +330,7 @@ static int tm_apply(IrFunc *f, const TmCand *keep, const TmCand *drop, int ndrop
             lbl.val = new_label;
             lbl.name = 0;
             lbl.aux = 0;
-            lbl.aux2 = 0;
+            lbl.aux2 = 0; lbl.abi_plan = 0;
             lbl.line = f->code[i].line;
             nc[w++] = lbl;
         }
@@ -593,7 +593,7 @@ static void xb_apply(IrFunc *f, const XbCand *keep, const XbCand *drop, int ndro
                 j.val = new_label;
                 j.name = 0;
                 j.aux = 0;
-                j.aux2 = 0;
+                j.aux2 = 0; j.abi_plan = 0;
                 j.line = f->code[i].line;
                 nc[w++] = j;
                 i = drop[k].body + drop[k].len - 1;
@@ -608,7 +608,7 @@ static void xb_apply(IrFunc *f, const XbCand *keep, const XbCand *drop, int ndro
             lbl.val = new_label;
             lbl.name = 0;
             lbl.aux = 0;
-            lbl.aux2 = 0;
+            lbl.aux2 = 0; lbl.abi_plan = 0;
             lbl.line = f->code[i].line;
             nc[w++] = lbl;
         }

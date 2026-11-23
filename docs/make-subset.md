@@ -43,6 +43,22 @@ Supported syntax and behavior:
   `$(VAR:%.c=%.o)` and `$(VAR:.c=.o)` support pattern and word-suffix replacement.
   Text functions split words on whitespace; they do not interpret path quotes.
   Unknown functions and malformed references fail.
+- `wildcard` enumerates existing paths with `*` and `?` in the final path
+  component. Directory components must be literal; bracket classes, backslashes,
+  and whitespace in discovered paths are rejected. Unmatched patterns contribute
+  no words. Results from all patterns are byte-sorted and deduplicated, capped
+  at 128 paths and the text limit. Hidden names require a pattern starting with
+  `.`; `.` and `..` are omitted. This function reads directories through WASI/POSIX
+  `opendir`/`readdir`; recipe arguments and ordinary prerequisites are not globbed.
+- `origin NAME` returns `undefined`, `default`, `file`, `command line`, or
+  `automatic` for the supported automatic variables during a recipe. Built-in
+  `CC` and the TOOL default have origin `default`; file assignment changes it
+  to `file`, while ignored `?=` and overridden file assignments preserve origin.
+  Environment import and the `override` directive remain unsupported.
+- `error text` expands its message and stops with an error. `warning text`
+  emits an expanded diagnostic and returns empty text. These work in recursive
+  expansion, recipes, or as standalone `$(error ...)`/`$(warning ...)` lines;
+  an inactive conditional branch does not evaluate them.
 - `ifeq (left,right)`, `ifneq (left,right)`, `ifdef NAME`, `ifndef NAME`, `else`,
   and `endif`, up to eight nested blocks per file. Comparisons expand both sides;
   `ifdef` tests whether the named variable has a nonempty raw value. Inactive
@@ -82,11 +98,12 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions beyond the ten listed,
+This does **not** implement full GNU make: functions beyond the fourteen listed,
 conditionals beyond the listed forms, target-specific variables,
 export/environment variable import, grouped
 or multiple targets, double-colon/static pattern rules, inline recipes,
-secondary expansion, wildcard expansion, parallel jobs, recursive make, shell
+secondary expansion, implicit wildcard expansion outside the function,
+parallel jobs, recursive make, shell
 scripts, and linking are outside this subset. Unsupported statements fail.
 Duplicate explicit rules are not merged; the first matching rule wins. Pattern
 selection is first-match without GNU implicit-rule search/backtracking.

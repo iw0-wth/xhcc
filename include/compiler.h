@@ -98,6 +98,7 @@ typedef struct {
     int language_c11;
     int emulate_gcc;
     int syntax_only;
+    int record_sysv_abi; /* x86_64 IR plan metadata only; native ABI unchanged */
     int deps_only;
     int dep_phony;
     int dep_quote_target;

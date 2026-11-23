@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 #ifdef _WIN32
 #include <direct.h>
 #define chdir _chdir
@@ -22,7 +23,7 @@
 #define DEPTH 32
 
 typedef struct Mem { struct Mem *next; } Mem;
-typedef struct Var { struct Var *next; char *name,*value; int simple,command; } Var;
+typedef struct Var { struct Var *next; char *name,*value; int simple,command,is_default; } Var;
 typedef struct Recipe { struct Recipe *next; char *text; } Recipe;
 typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*last; } Rule;
 typedef struct Node { struct Node *next; char *name; int state,failed,changed; } Node;
@@ -108,6 +109,52 @@ static int transform(Make *m,int kind,char values[3][TEXT],char *out) {
         else if(put(m,out,&used,items[i]))return -1;
     }return 0;
 }
+static int globmatch(const char *pat,const char *name) {
+    const char *star=0,*retry=0;
+    while(*name){if(*pat=='?'||*pat==*name){pat++;name++;}
+        else if(*pat=='*'){star=pat++;retry=name;}
+        else if(star){pat=star+1;name=++retry;}else return 0;}
+    while(*pat=='*')pat++;return !*pat;
+}
+typedef struct Matches {char storage[TEXT];char *paths[WORDS];size_t used;int count;} Matches;
+static int addmatch(Make *m,Matches *matches,const char *path) {
+    int i;size_t n=strlen(path)+1;
+    for(i=0;i<matches->count;i++)if(!strcmp(matches->paths[i],path))return 0;
+    if(matches->count==WORDS)return fail(m,"too many wildcard paths",0);
+    if(matches->used+n>TEXT)return fail(m,"wildcard paths exceed text limit",0);
+    matches->paths[matches->count++]=matches->storage+matches->used;
+    memcpy(matches->storage+matches->used,path,n);matches->used+=n;return 0;
+}
+static int wildcard(Make *m,char *patterns,char *out) {
+    Matches *matches=(Matches *)alloc(m,sizeof(*matches));char *list[WORDS];int count,i,rc=-1;size_t used=0;
+    if(!matches)return -1;out[0]=0;count=wordlist(m,patterns,list);if(count<0)goto done;
+    for(i=0;i<count;i++) {
+        char *pat=list[i],*slash=strrchr(pat,'/'),*base=slash?slash+1:pat;
+        char dir[TEXT],path[TEXT];DIR *d;struct dirent *entry;struct stat st;
+        size_t prefix=slash?(size_t)(slash-pat+1):0;
+        if(strpbrk(pat,"[]\\")){fail(m,"unsupported wildcard pattern",pat);goto done;}
+        if(slash){memcpy(dir,pat,prefix);dir[prefix]=0;if(strpbrk(dir,"*?")){fail(m,"wildcards in directory components unsupported",pat);goto done;}}
+        else strcpy(dir,".");
+        if(!strpbrk(base,"*?")){if(!stat(pat,&st)&&addmatch(m,matches,pat))goto done;continue;}
+        d=opendir(dir);if(!d){if(errno==ENOENT||errno==ENOTDIR)continue;fail(m,"cannot enumerate wildcard directory",dir);goto done;}
+        for(;;) {
+            size_t len;errno=0;entry=readdir(d);
+            if(!entry){if(errno)fail(m,"error enumerating wildcard directory",dir);break;}
+            if(entry->d_name[0]=='.'&&base[0]!='.')continue;
+            if(!strcmp(entry->d_name,".")||!strcmp(entry->d_name,".."))continue;
+            if(!globmatch(base,entry->d_name))continue;len=strlen(entry->d_name);
+            if(prefix+len>=TEXT){fail(m,"wildcard path exceeds text limit",0);break;}
+            memcpy(path,pat,prefix);memcpy(path+prefix,entry->d_name,len+1);
+            if(strpbrk(path," \t\r\n")){fail(m,"wildcard path with whitespace unsupported",path);break;}
+            if(addmatch(m,matches,path))break;
+        }
+        closedir(d);if(m->error)goto done;
+    }
+    qsort(matches->paths,(size_t)matches->count,sizeof(char *),comparewords);
+    for(i=0;i<matches->count;i++){if(i&&put(m,out,&used," "))goto done;if(put(m,out,&used,matches->paths[i]))goto done;}
+    rc=0;
+done:release(m,matches,sizeof(*matches));return rc;
+}
 static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,char values[3][TEXT]) {
     char *rest=expr,*raw[3],*p;int argc=1,i,kind;size_t used=0;
     while(*rest&&!isspace((unsigned char)*rest))rest++;
@@ -117,6 +164,8 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     else if(!strcmp(expr,"basename"))kind=5;else if(!strcmp(expr,"subst"))kind=6;
     else if(!strcmp(expr,"filter"))kind=7;else if(!strcmp(expr,"filter-out"))kind=8;
     else if(!strcmp(expr,"sort"))kind=9;else if(!strcmp(expr,"patsubst"))kind=10;
+    else if(!strcmp(expr,"wildcard"))kind=11;else if(!strcmp(expr,"origin"))kind=12;
+    else if(!strcmp(expr,"error"))kind=13;else if(!strcmp(expr,"warning"))kind=14;
     else return fail(m,"unsupported make function",expr);
     raw[0]=rest;
     if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10) {
@@ -125,6 +174,12 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     }
     for(i=0;i<argc;i++)if(expand(m,raw[i],a,values[i],depth+1))return -1;
     out[0]=0;
+    if(kind==11)return wildcard(m,values[0],out)?-1:1;
+    if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->command?"command line":v->is_default?"default":"file";
+        if(a&&*name&&!name[1]&&strchr("@<^*",*name))origin="automatic";
+        return put(m,out,&used,origin)?-1:1;}
+    if(kind==13)return fail(m,"error",values[0]);
+    if(kind==14){fprintf(stderr,"xhccm make: warning: %s\n",values[0]);return 1;}
     if(kind>=7)return transform(m,kind,values,out)?-1:1;
     if(kind==6) {
         size_t from=strlen(values[0]);p=values[2];
@@ -221,7 +276,7 @@ static int setvar(Make *m,char *name,const char *value,int op,int command) {
         if(!v){v=(Var *)alloc(m,sizeof(*v));if(!v)return -1;v->name=copy(m,name);v->next=m->vars;m->vars=v;}
         v->value=copy(m,value);v->simple=op==':';
     }
-    v->command=command;return v->value&&v->name?0:-1;
+    v->command=command;v->is_default=0;return v->value&&v->name?0:-1;
 }
 /* Split shell-like quoting only. No expansion, shell syntax, or subprocess. */
 static int words(Make *m,char *s,char **v,int commands) {
@@ -314,6 +369,7 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         s=trim(line);if(!*s)continue;
         ar=condition(m,s,conditions,&ncond,&active);if(ar<0)break;if(ar)continue;
         if(!active)continue;
+        if(*s=='$'){char expanded[TEXT];if(expand(m,s,0,expanded,0))break;if(!*trim(expanded))continue;fail(m,"unsupported expanded makefile statement",expanded);break;}
         ar=assignment(m,s,0);if(ar<0)break;if(ar){m->current=0;continue;}
         if(!strncmp(s,"include ",8)||!strncmp(s,"-include ",9)||!strncmp(s,"sinclude ",9)) {
             int opt=*s!='i',n,i;char expanded[TEXT],*args[WORDS+1];s+=opt?9:8;
@@ -461,9 +517,10 @@ int xh_make_main(int argc,char **argv) {
     Make m;int i,rc=0,nt=0;char *targets[WORDS],*file="Makefile",cwd[TEXT];Mem *p;
     memset(&m,0,sizeof(m));if(!getcwd(cwd,sizeof(cwd)))return 1;
     setvar(&m,"CC","arm-none-eabi-gcc",'=',0);
+    if(variable(&m,"CC"))variable(&m,"CC")->is_default=1;
     if(argc&&argv[0][0]!='-'&&!strchr(argv[0],'=')&&
        xh_package_has_tool(getenv("XHCC_PACKAGE_ROOT")?getenv("XHCC_PACKAGE_ROOT"):"packages",argv[0])>0) {
-        setvar(&m,"CC",argv[0],'=',0);argv++;argc--;
+        setvar(&m,"CC",argv[0],'=',0);if(variable(&m,"CC"))variable(&m,"CC")->is_default=1;argv++;argc--;
     }
     for(i=0;i<argc;i++) {
         char *arg=argv[i];

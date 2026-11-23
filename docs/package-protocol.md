@@ -24,7 +24,7 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1` `target.descriptor.v1`, `semantic.selector.v1` and `abi.decision.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1` and the opt-in metadata capability `abi.plan-record.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
 
 `semantic.selector.v1` declares the bounded shared semantic selector contract:
 `XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
@@ -40,9 +40,15 @@ not authorize changing a frontend-coupled wire representation independently,
 and does not claim complete SysV aggregate interoperability. The production
 C/ARM/RISC-V/x86 packages declare the capabilities their active records consume;
 adding a requirement alone does not make an inactive library a production API.
-Standalone `typeclass` and `abiplan` experiments are not advertised as production
-manifest capabilities until an end-to-end production consumer is integrated and
-validated. In particular `typeclass.v1` is currently unsupported in `requires`.
+The optional `aggregate=aggregate.rules` path supplies aggregate planning rules
+for the production opt-in `-frecord-sysv-abi` consumer. Its
+`abi.plan-record.v1` capability denotes recording typed IR plan metadata only.
+The host validates the path without classifying aggregates. This recording mode
+does not switch the machine calling ABI or establish GCC/native aggregate
+interoperability; code generation still uses its existing calling convention.
+The compiler must validate actual support before accepting the requirement.
+Standalone type-classification experiments remain separate;
+`typeclass.v1` is currently unsupported in `requires`.
 
 Capability major versions are independent of the v3 manifest format and the
 compiler product version. New incompatible semantic/effect or ABI record
@@ -53,7 +59,7 @@ validate capability-name syntax only; the compiler owns support decisions.
 
 The format is one `key=value` per line, with no sections, interpolation or nested data. Blank lines and whole-line `#`/`;` comments are ignored. Duplicate and unknown fields fail validation. `id` must match the containing directory. `tools` contains comma-separated unique aliases; empty aliases, whitespace, path separators, `:`, aliases starting with `-`, and duplicates across packages are rejected.
 
-`include`, `options`, `encoding`, `selection`, `templates`, `object`, `relocations`, `cpus` and `target_description` are POSIX paths relative to the package, confined to its directory after symlink resolution. Absolute/drive paths, backslashes, empty path segments and `.`/`..` segments are rejected. The host reads manifests and validates paths; the shared compiler reads configuration contents and headers as needed.
+`include`, `options`, `encoding`, `selection`, `templates`, `object`, `relocations`, `cpus`, `target_description` and `aggregate` are POSIX paths relative to the package, confined to its directory after symlink resolution. Absolute/drive paths, backslashes, empty path segments and `.`/`..` segments are rejected. The host reads manifests and validates paths; the shared compiler reads configuration contents and headers as needed.
 
 Optional `cpus=cpus.rules` names an external CPU table (`cpu.descriptor.v1`), allowing package-defined CPU configurations and custom aliases within an already supported ISA. Optional `target_description=target.rules` names a target layout descriptor (`target.descriptor.v1`). The compiler strictly validates the target layout and its compatibility with the selected engine. These descriptors cannot introduce arbitrary ISAs or incompatible data models merely by changing a name. The host validates only the package-relative paths; descriptor syntax, CPU features, layout and engine compatibility belong to the compiler.
 

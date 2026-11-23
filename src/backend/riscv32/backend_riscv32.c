@@ -1632,79 +1632,19 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * while sp was already 4 bytes low, and `ret` jumped into RAM
                      * (measured as UC_ERR_EXCEPTION at 0x20080004).
                      */
-                    int nbytes = (int)I->val;
-                    if (nbytes < 0) nbytes = 0;
-                    xh_rv_rule(&buf,"emit.fixed.0258");
-                    asmbuf_int(&buf, nbytes & ~3);
-                    xh_rv_rule(&buf,"emit.fixed.0259");
-                    asmbuf_int(&buf, nbytes);
-                    xh_rv_rule(&buf,"emit.fixed.0260");
+                    int nbytes=(int)I->val;char words[2][32];const char*args[2];if(I->val<0||I->val>2147483647LL){diag_tool(DIAG_SEV_ERROR,"riscv32","invalid memcpy byte count",0,0,0,0,0,0);break;}snprintf(words[0],sizeof(words[0]),"%d",nbytes&~3);snprintf(words[1],sizeof(words[1]),"%d",nbytes);args[0]=words[0];args[1]=words[1];xh_rv_semantic(&buf,"memory","copy",32,"v","word_tail",2,0,args,2);
                     break;
                 }
                 case IR_LOAD_FLD: {
                     /* bitfield load: val = bit offset within the word, aux low
                      * byte = width, 0x100 = signed.  The field is assumed not to
                      * straddle a word boundary, which is how it was laid out. */
-                    int bo = (int)I->val;
-                    int bw = I->aux & 0xFF;
-                    int sgn = (I->aux & 0x100) != 0;
-                    int sh;
-                    if (bw <= 0 || bw > 32) {
-                        char b1[12];
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "bitfield width %s cannot be emitted by the "
-                                  "riscv32 backend (function '%s')",
-                                  diag_num(b1, bw), f->name, 0,0,0,0);
-                        break;
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0261");
-                    if (bo > 0) {
-                        xh_rv_rule(&buf,"emit.fixed.0262");
-                        asmbuf_int(&buf, bo);
-                        asmbuf_putc(&buf, '\n');
-                    }
-                    sh = 32 - bw;
-                    if (sh > 0) {
-                        xh_rv_rule(&buf,"emit.fixed.0263");
-                        asmbuf_int(&buf, sh);
-                        xh_rv_rule(&buf,"emit.fixed.0264");
-                        asmbuf_puts(&buf, (sgn ? "srai" : "srli"));
-                        xh_rv_rule(&buf,"emit.fixed.0265");
-                        asmbuf_int(&buf, sh);
-                        asmbuf_putc(&buf, '\n');
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0152");
-                    break;
+                    int bo=(int)I->val,bw=I->aux&255;char words[2][32];const char*args[2];if(bo<0||bo>31||bw<1||bw>32||bo>32-bw){diag_tool(DIAG_SEV_ERROR,"riscv32","invalid bitfield width or word layout",0,0,0,0,0,0);break;}snprintf(words[0],sizeof(words[0]),"%d",bo);snprintf(words[1],sizeof(words[1]),"%d",32-bw);args[0]=words[0];args[1]=words[1];xh_rv_semantic(&buf,"bitfield","load",32,(I->aux&0x100)?"s":"u","word",1,1,args,2);break;
                 }
                 case IR_STORE_FLD: {
                     /* 0(sp) = value, 4(sp) = address; val = bit offset within
                      * the word, aux = width. */
-                    int bo = (int)I->val;
-                    int bw = I->aux & 0xFF;
-                    unsigned mask_raw, mask_full;
-                    char b1[12];
-                    if (bw <= 0 || bw > 32) {
-                        diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                  "bitfield width %s cannot be emitted by the "
-                                  "riscv32 backend (function '%s')",
-                                  diag_num(b1, bw), f->name, 0,0,0,0);
-                        break;
-                    }
-                    mask_raw = (bw >= 32) ? 0xFFFFFFFFu : ((1u << bw) - 1u);
-                    mask_full = (unsigned)(mask_raw << bo);
-                    xh_rv_rule(&buf,"emit.fixed.0119");
-                    xh_rv_rule(&buf,"emit.fixed.0071");
-                    asmbuf_int(&buf, (int)mask_raw);
-                    xh_rv_rule(&buf,"emit.fixed.0266");
-                    if (bo > 0) {
-                        xh_rv_rule(&buf,"emit.fixed.0263");
-                        asmbuf_int(&buf, bo);
-                        asmbuf_putc(&buf, '\n');
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0267");
-                    asmbuf_int(&buf, (int)mask_full);
-                    xh_rv_rule(&buf,"emit.fixed.0268");
-                    break;
+                    int bo=(int)I->val,bw=I->aux&255;unsigned mask;char words[3][32];const char*args[3];int k;if(bo<0||bo>31||bw<1||bw>32||bo>32-bw){diag_tool(DIAG_SEV_ERROR,"riscv32","invalid bitfield width or word layout",0,0,0,0,0,0);break;}mask=bw==32?0xffffffffu:(1u<<bw)-1u;snprintf(words[0],sizeof(words[0]),"%u",mask);snprintf(words[1],sizeof(words[1]),"%d",bo);snprintf(words[2],sizeof(words[2]),"%u",mask<<bo);for(k=0;k<3;k++)args[k]=words[k];xh_rv_semantic(&buf,"bitfield","store",32,"v","word",2,0,args,3);break;
                 }
                 case IR_ALLOCA: {
                     /* VLA: irgen emits PUSH(count); PUSH_INT(elem_size);
@@ -1715,7 +1655,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * `andi` takes a 12-bit signed immediate, so -16 fits.
                      * The matching epilogue rebuilds sp from s0 whenever the
                      * function contains this op. */
-                    xh_rv_rule(&buf,"emit.fixed.0269");
+                    xh_rv_semantic(&buf,"stack","alloca",32,"v","dynamic",1,1,0,0);
                     break;
                 }
                 case IR_ASM:

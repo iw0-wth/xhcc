@@ -219,6 +219,46 @@ class MakeTests(unittest.TestCase):
         self.makefile('.DEFAULT_GOAL = first selected\nfirst:\nselected:\n')
         self.assertIn('.DEFAULT_GOAL', self.run_make(success=False).stderr)
 
+    def test_wildcard_sources_sorting_and_optional_includes(self):
+        (self.directory / '.hidden.c').write_text('invalid hidden source\n')
+        self.makefile('SOURCES := $(wildcard *.c one.c absent/*.c)\n'
+                      '-include $(wildcard missing*.mk)\n'
+                      'all: $(SOURCES:.c=.o)\n'
+                      '\t@echo sources=$(SOURCES)\n'
+                      '\t@echo question=$(wildcard t?o.c)\n'
+                      '%.o: %.c\n\t' + self.recipe('arm-none-eabi-gcc') + '\n')
+        result = self.run_make()
+        self.assertIn('sources=one.c two.c', result.stdout)
+        self.assertIn('question=two.c', result.stdout)
+        for name in ('one.o', 'two.o'):
+            self.assertEqual((self.directory / name).read_bytes()[:4], b'\x7fELF')
+        self.assertFalse((self.directory / '.hidden.o').exists())
+        self.assertNotIn(' -c ', self.run_make().stdout)
+
+    def test_origin_error_and_warning(self):
+        self.makefile('BEFORE := $(origin CC)\nCC ?= ignored\nAFTER := $(origin CC)\n'
+                      'FILE = value\nFILE += tail\nCLI = ignored\n'
+                      '$(warning notice $(FILE))\n'
+                      'all:\n\t@echo $(BEFORE) $(AFTER) $(origin FILE) "$(origin CLI)" $(origin MISSING) $(origin @)\n')
+        result = self.run_make('arm-none-eabi-gcc', 'CLI=external')
+        self.assertIn('default default file command line undefined automatic', result.stdout)
+        self.assertIn('warning: notice value tail', result.stderr)
+        self.makefile('CC = arm-none-eabi-gcc\nall:\n\t@echo $(origin CC)\n')
+        self.assertIn('file', self.run_make().stdout)
+        self.makefile('$(error stop $(strip  now ))\nall:\n')
+        self.assertIn('error: stop now', self.run_make(success=False).stderr)
+        self.makefile('all:\n\t-echo $(error recipe-stop)\n')
+        self.assertIn('recipe-stop', self.run_make(success=False).stderr)
+
+    def test_wildcard_limits_and_rejected_patterns(self):
+        for index in range(129):
+            (self.directory / f'f{index:03}.dat').write_text('')
+        self.makefile('FILES := $(wildcard *.dat)\nall:\n')
+        self.assertIn('too many wildcard paths', self.run_make(success=False).stderr)
+        for pattern in ['[ab].c', '*/one.c']:
+            self.makefile(f'FILES := $(wildcard {pattern})\nall:\n')
+            self.assertIn('unsupported', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

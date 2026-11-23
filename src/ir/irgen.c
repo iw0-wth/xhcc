@@ -26,6 +26,7 @@
  * and RV32I, whose regions are built from the caller's own argument words
  * (see include/ir.h and <stdarg.h>). */
 int g_ir_va_slot_region = 1;
+int g_irgen_record_sysv_abi = 0;
 int g_irgen_armcc_asm = 1;
 int g_irgen_native_asm = 1;
 int g_irgen_no_builtin = 0;
@@ -1938,6 +1939,23 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
             g.fn->local_size = (g.max_size + 7) & ~7;
             sym_leave_scope();
             ir_program_add(out, g.fn);
+        }
+    }
+    if (g_irgen_record_sysv_abi) {
+        int fi;
+        for(fi=0;fi<out->func_count;++fi){
+            IrFunc *f=out->funcs[fi];
+            IrAbiPlan *plan;
+            Type *ft;
+            int index;
+            if(f->parameter_plan)continue;
+            ft=type_func(f->ret_type,f->param_types,f->param_count,f->is_variadic);
+            plan=(IrAbiPlan*)mem_pool_alloc(sizeof(*plan));
+            if(xh_build_sysv_plan("x86_64.aggregate","abiplan",ft,0,(unsigned)f->param_count,plan) ||
+               (index=ir_program_add_abi_plan(out,plan))<0){
+                ark_log("[irgen] error: unsupported function signature for SysV ABI plan recording\n");g_irgen_errors++;continue;
+            }
+            f->parameter_plan=index;f->result_plan=index;
         }
     }
     return out;
@@ -6047,6 +6065,24 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                      * hundreds of places and all but this one leave it 0. */
                     if (wire_idx)
                         g->fn->code[g->fn->code_count - 1].aux2 = wire_idx;
+                    if(g_irgen_record_sysv_abi){
+                        Type *actual[64],*ft;
+                        IrAbiPlan *plan=(IrAbiPlan*)mem_pool_alloc(sizeof(*plan));
+                        int ai,index=-1,argc=node->u.call.arg_count;
+                        Type **params=(s&&s->kind==SYM_FUNC)?s->param_types:callee_params;
+                        int pc=(s&&s->kind==SYM_FUNC)?s->param_count:callee_param_count;
+                        int variadic=(s&&s->kind==SYM_FUNC)?s->is_variadic:callee_is_variadic;
+                        for(ai=0;ai<argc&&ai<64;++ai){
+                            Type *at=irgen_expr_type(node->u.call.args[ai]);
+                            actual[ai]=(params&&ai<pc)?params[ai]:at;
+                            if(ai>=pc&&actual[ai]&&actual[ai]->kind==TYPE_FLOAT)actual[ai]=type_double();
+                        }
+                        ft=type_func(node->type,params,pc,variadic);
+                        if(argc>64 || pc<0 || xh_build_sysv_plan("x86_64.aggregate","abiplan",ft,actual,(unsigned)argc,plan) ||
+                           (index=ir_program_add_abi_plan(g->prog,plan))<0){
+                            ark_log("[irgen] error: unsupported call for SysV ABI plan recording\n");g_irgen_errors++;
+                        }else g->fn->code[g->fn->code_count-1].abi_plan=index;
+                    }
                 }
             }
             break;

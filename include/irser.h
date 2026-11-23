@@ -16,6 +16,7 @@
  *   "ARKIR1\n" | u32 version | u32 body_len | body
  *
  * body:
+ *   v2: u32 nplans, {u32 byte_len, canonical XhSysvPlan codec bytes} each
  *   u32 ntypes,   type records      (indices are unit-local; -1 = NULL)
  *   u32 nstrings, string records
  *   u32 nfloats,  f64 each
@@ -27,6 +28,11 @@
  *
  * sstr = i32 present (0 = NULL) + u32 len + len bytes (no NUL; may contain
  * any byte except that a present string with len 0 is an empty string).
+ * v2 appends abi_plan to each instruction and parameter_plan/result_plan to
+ * each function record. Indices are 1-based; zero means no plan. Plans are
+ * inspection metadata, never a request to change default machine lowering.
+ * v1 readers have no such fields/table; this reader accepts v1 with all plan
+ * indices initialized to zero, and rejects versions outside [1,2].
  */
 #ifndef ARK_IRSER_H
 #define ARK_IRSER_H
@@ -37,7 +43,8 @@
 
 #define ARK_IR_MAGIC      "ARKIR1\n"
 #define ARK_IR_MAGIC_LEN  8
-#define ARK_IR_VERSION    1
+#define ARK_IR_VERSION    2
+#define ARK_IR_MIN_VERSION 1
 
 /* Serialise p into buf (capacity cap).  Returns the number of bytes written,
  * including the 16-byte header, or -1 when the payload does not fit or the IR

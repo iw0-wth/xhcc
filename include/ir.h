@@ -63,6 +63,10 @@
 #define IR_AUX_COMPLEX 0
 #endif
 
+#include "xh_sysv_plan.h"
+typedef XhSysvPlan IrAbiPlan;
+#define IR_ABI_MAX_PLANS 1024
+
 typedef struct IrInst {
     IrOp  op;
     long long val;   /* immediate / offset / label id */
@@ -79,6 +83,7 @@ typedef struct IrInst {
      * and backends that do not read it are unaffected (they refuse the case
      * before code generation, see g_ir_vararg_words). */
     int   aux2;
+    int   abi_plan; /* IR_CALL only: 1-based persistent plan index; 0 = absent. */
 } IrInst;
 
 /* irgen sets this to the current source line; ir_emit stamps it onto IrInst.line,
@@ -120,6 +125,8 @@ typedef struct IrFunc {
     char   **param_names;
     Type   **param_types;
     Type    *ret_type;
+    int parameter_plan; /* 1-based whole-signature plan; inspection only. */
+    int result_plan;    /* Same table, result classification; 0 = absent. */
 } IrFunc;
 
 typedef struct IrString {
@@ -242,6 +249,9 @@ typedef struct IrProgram {
     int *argbytes;
     int  argbytes_count;
     int  argbytes_cap;
+    IrAbiPlan **abi_plans;
+    int abi_plan_count;
+    int abi_plan_capacity;
 } IrProgram;
 
 IrFunc    *ir_func_new(const char *name);
@@ -275,6 +285,8 @@ extern int g_ir_va_slot_region;
  * backend then read garbage argument sizes ("passes 900035835 argument
  * words"). */
 int ir_program_add_argbytes(IrProgram *prog, const int *vals, int n);
+/* Validated deep copy; returns 1-based index or -1. Allocates only when used. */
+int ir_program_add_abi_plan(IrProgram *prog, const IrAbiPlan *plan);
 
 /* 1: this target can pass a composite larger than two words through `...`
  * (ARM Thumb-2 only, whose va region is the caller's own argument words).

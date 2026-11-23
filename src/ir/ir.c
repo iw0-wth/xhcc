@@ -47,6 +47,7 @@ IrFunc *ir_func_new(const char *name) {
     f->param_names_count = 0;
     f->param_types = 0;
     f->ret_type = 0;
+    f->parameter_plan = 0; f->result_plan = 0;
     return f;
 }
 
@@ -66,6 +67,7 @@ void ir_emit(IrFunc *f, IrOp op, long long val, const char *name, int aux) {
         I->aux = aux;
         I->line = g_ir_cur_line;
         I->aux2 = 0;   /* IR_CALL's side-table index; see include/ir.h */
+        I->abi_plan = 0;
     }
 }
 
@@ -90,6 +92,7 @@ IrProgram *ir_program_new(void) {
     p->argbytes = 0;
     p->argbytes_count = 0;
     p->argbytes_cap = 0;
+    p->abi_plans = 0; p->abi_plan_count = 0; p->abi_plan_capacity = 0;
     return p;
 }
 
@@ -113,6 +116,22 @@ int ir_program_add_argbytes(IrProgram *prog, const int *vals, int n) {
     for (i = 0; i < n; i++) prog->argbytes[start + i] = vals[i];
     prog->argbytes_count += n;
     return start;
+}
+
+int ir_program_add_abi_plan(IrProgram *prog, const IrAbiPlan *plan) {
+    IrAbiPlan *copy;
+    if (!prog || !plan || prog->abi_plan_count >= IR_ABI_MAX_PLANS ||
+        !xh_sysv_plan_wire_size(plan)) return -1;
+    if (prog->abi_plan_count == prog->abi_plan_capacity) {
+        int next = prog->abi_plan_capacity ? prog->abi_plan_capacity * 2 : 4;
+        prog->abi_plans = (IrAbiPlan **)mem_realloc(prog->abi_plans,
+            prog->abi_plan_capacity * (int)sizeof(IrAbiPlan *), next * (int)sizeof(IrAbiPlan *));
+        prog->abi_plan_capacity = next;
+    }
+    copy = (IrAbiPlan *)mem_pool_alloc(sizeof(IrAbiPlan));
+    *copy = *plan;
+    prog->abi_plans[prog->abi_plan_count++] = copy;
+    return prog->abi_plan_count;
 }
 
 int ir_program_add_float(IrProgram *prog, double v) {

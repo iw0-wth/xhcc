@@ -120,6 +120,21 @@ pointer/sret calls, and return paths. A same-SHA package variant redirects only
 the zero-branch record to the nonzero-branch sequence and reverses observable
 branch results. Incompatible argument or return stack-effect claims fail.
 
+## Bitfield, copy and dynamic allocation selection
+
+Five further records own signed/unsigned word bitfield extraction, bitfield
+read-modify-write, dynamic alloca and word-plus-byte-tail memcpy sequences.
+The adapter validates bit offset 0..31, width 1..32 and offset+width<=32 before
+computing masks, including a separate all-ones width32 case to avoid undefined
+C shifts. Negative or unrepresentable memcpy counts fail rather than silently
+becoming a zero copy. Record stack effects are checked for load 1->1, store
+2->0, alloca 1->1 and copy 2->0. Native code supplies normalized offsets/masks
+and byte counts; the package selects and emits the full target action.
+Tests exercise signed and unsigned fields, exact preserved memory bits, width32,
+VLA allocation/epilogue and an 11-byte aggregate copy with a byte tail. Redirecting
+the signed field record to the unsigned sequence changes -1 to 127 while compiler
+SHA remains unchanged.
+
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for
 their native engine family. The shared template VM enforces syntax, bounds,

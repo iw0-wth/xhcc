@@ -651,6 +651,7 @@ int xh_legacy_main(int argc, char **argv) {
         else if (strcmp(a, "-o") == 0 && i + 1 < argc) {
             opts.output_path = argv[++i];
         }
+        else if (strcmp(a, "-frecord-sysv-abi") == 0) { opts.record_sysv_abi = 1; }
         else if (strcmp(a, "-target") == 0 && i + 1 < argc) {
             opts.target = argv[++i];
         }
@@ -1041,6 +1042,10 @@ int xh_legacy_main(int argc, char **argv) {
                     "after -link\n");
             return 1;
         }
+    }
+    if (opts.record_sysv_abi && (!opts.target || strcmp(opts.target,"x86_64"))) {
+        fprintf(stderr,"Fatal error: -frecord-sysv-abi requires -target x86_64\n");
+        return 1;
     }
     if (opts.ipo_mode && npos > opts.ipo_input_count) {
         /* The list was truncated above.  Compiling a prefix of the sources

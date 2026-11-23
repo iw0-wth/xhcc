@@ -1750,6 +1750,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
 #ifdef XHCC
     preproc_set_compiler_mode(opts->emulate_gcc,opts->language_c11,opts->hosted_mode,opts->undef_predefines);
     g_irgen_no_builtin=opts->no_builtin;
+    g_irgen_record_sysv_abi=opts->record_sysv_abi;
 #endif
     preproc_set_main_file(opts->input_path);
     /* g_ir_cur_line is set by irgen from each AST node and read by ir_emit.

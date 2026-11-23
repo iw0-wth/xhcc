@@ -75,6 +75,35 @@ class DriverTests(unittest.TestCase):
         self.run_xhcc(self.path('one.c'), success=False)
         self.run_xhcc('-c', self.path('one.c'), '-MF', self.path('bad.d'), success=False)
 
+    def test_modern_private_object_ir_option(self):
+        output = self.path('with-ir.ark_obj')
+        self.run_xhcc('x86_64-linux-gnu-gcc', '-c', '--private-object', '--obj-ir',
+                      '-frecord-sysv-abi', '-o', output, self.path('one.c'))
+        data = (self.dir / 'with-ir.ark_obj').read_bytes()
+        self.assertNotEqual(data[:4], b'\x7fELF')
+        self.assertIn(b'ARKIR', data)
+        for options in (('-c',), ('-E', '--private-object'), ('-S', '--private-object'),
+                        ('-fsyntax-only',), ('--private-object', '-c', '-E'),
+                        ('-c', '--private-object', '-MM'), ('-c', '-dumpmachine')):
+            with self.subTest(options=options):
+                result = self.run_xhcc('--obj-ir', *options, self.path('one.c'), success=False)
+                self.assertIn('--obj-ir requires', result.stderr)
+
+    def test_record_sysv_abi_metadata_option(self):
+        self.assertIn('record IR plan metadata only', self.run_xhcc('--help').stdout)
+        self.run_xhcc('x86_64-linux-gnu-gcc', '-c', '-frecord-sysv-abi',
+                      '-o', self.path('sysv-plan.o'), self.path('one.c'))
+        self.assertEqual((self.dir / 'sysv-plan.o').read_bytes()[:4], b'\x7fELF')
+        self.assertEqual(self.run_xhcc('x86_64-linux-gnu-gcc', '-frecord-sysv-abi',
+                                     '-dumpmachine').stdout.strip(), 'x86_64-linux-gnu')
+        for tool in ('arm-none-eabi-gcc', 'i686-linux-gnu-gcc', 'riscv32-unknown-elf-gcc', 'xh-c-gcc'):
+            with self.subTest(tool=tool):
+                self.run_xhcc(tool, '-S', '-frecord-sysv-abi', self.path('one.c'), success=False)
+                self.run_xhcc(tool, '-frecord-sysv-abi', '-dumpmachine', success=False)
+        # Last flag wins; disabling is harmless on targets without SysV plans.
+        self.run_xhcc('arm-none-eabi-gcc', '-fsyntax-only', '-frecord-sysv-abi',
+                      '-fno-record-sysv-abi', self.path('one.c'))
+
     def test_target_aliases_and_architecture(self):
         cases = [('arm-none-eabi-gcc', 'arm-none-eabi', 'armv7-m', 'aapcs', 40),
                  ('armcc', 'arm-none-eabi', 'armv7-m', 'aapcs', 40),

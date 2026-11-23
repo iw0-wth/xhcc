@@ -400,6 +400,8 @@ static void usage(void) {
        "  -config FILE  -f[no-]FEATURE  --diag_style=gnu|arm|ide|modern\n"
        "  -E -dM: final macro definitions; -E -P: omit line markers\n"
        "  -fsyntax-only  -ffreestanding|-fhosted -f[no-]builtin -undef\n"
+       "  -f[no-]record-sysv-abi (x86_64): record IR plan metadata only;\n"
+       "    does not enable native GCC aggregate ABI execution\n"
        "  -fhosted selects hosted macros; it does not provide a complete libc\n"
        "  -Wall -Wextra (available checks only) -Werror -w\n"
        "  -W[no-]unused[-function|-result], switch-enum, unreachable-code,\n"
@@ -409,7 +411,7 @@ static void usage(void) {
        "  (armcc: --cpu Cortex-M3 --thumb --fpu "
        "SoftVFP)\n"
        "  -M|-MM|-MD|-MMD -MP -MF FILE -MT TARGET|-MQ QUOTED_TARGET\n"
-       "  --private-object  --memory-report\n"
+       "  --private-object  --obj-ir (requires -c --private-object) --memory-report\n"
        "  --package-root DIR (default XHCC_PACKAGE_ROOT or packages)\n"
        "  XHCC_PROTOCOL_MAJOR must be 1 when set; --list-tools -v\n"
        "  @FILE: quoted arguments, cwd-relative nested paths; no expansion\n"
@@ -592,6 +594,14 @@ int xh_driver_main(int argc, char **argv) {
       o->private_object = 1;
       continue;
     }
+    if (!literal && !strcmp(a, "--obj-ir")) {
+#if ARKCC_FEATURE_OBJ_IR
+      o->obj_ir = 1;
+      continue;
+#else
+      result = fail("--obj-ir is unavailable in this build", 0); goto done;
+#endif
+    }
     if (!literal && !strcmp(a, "-v")) {
       o->verbose = 1;
       continue;
@@ -678,6 +688,10 @@ int xh_driver_main(int argc, char **argv) {
     }
     if (!literal && warning_flag(a)) continue;
     if (!literal && !strcmp(a, "-fsyntax-only")) { o->syntax_only = 1; continue; }
+    if (!literal && (!strcmp(a, "-frecord-sysv-abi") || !strcmp(a, "-fno-record-sysv-abi"))) {
+      o->record_sysv_abi = !strcmp(a, "-frecord-sysv-abi");
+      continue;
+    }
     if (!literal && (!strcmp(a, "--diag_style") || !strncmp(a, "--diag_style=", 13))) {
       v = value(&i, a[12] == '=' ? a + 13 : 0);
       if (!v || diag_set_style_name(v)) {
@@ -840,8 +854,18 @@ int xh_driver_main(int argc, char **argv) {
     goto done;
   }
   o->emulate_gcc = !strcmp(package_dialect, "gcc");
+  /* Validate requested output semantics before any query or preprocessing exit.
+   * obj_ir records serialized IR inside Ark's private object container only. */
+  if (o->obj_ir && (!seen_c || !o->private_object || seen_e || seen_s ||
+                    o->deps_only || o->syntax_only)) {
+    result = fail("--obj-ir requires -c --private-object without -E/-S/-M/-MM/-fsyntax-only", 0);
+    goto done;
+  }
   if (query) {
     if (xh_package_apply(root, tool, o)) { result = 1; goto done; }
+    if (o->record_sysv_abi && strcmp(o->target, "x86_64")) {
+      result = fail("-frecord-sysv-abi requires x86_64 (IR metadata only)", 0); goto done;
+    }
     if (query == 1) puts(!strcmp(o->target, "arm") ? "arm-none-eabi" :
       !strcmp(o->target, "x86_64") ? "x86_64-linux-gnu" :
       !strcmp(o->target, "x86") ? "i686-linux-gnu" :
@@ -906,6 +930,9 @@ int xh_driver_main(int argc, char **argv) {
   if (xh_package_apply(root, tool, o)) {
     result = 1;
     goto done;
+  }
+  if (o->record_sysv_abi && strcmp(o->target, "x86_64")) {
+    result = fail("-frecord-sysv-abi requires x86_64 (IR metadata only)", 0); goto done;
   }
   if (width && strcmp(o->target, width == 32 ? "x86" : "x86_64")) {
     result = fail("-m32/-m64 conflicts with selected target", 0); goto done;

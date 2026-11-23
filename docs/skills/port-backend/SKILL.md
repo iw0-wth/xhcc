@@ -52,7 +52,7 @@ $Py = 'C:\Users\wth09\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\
 
 - `version=3`；`id` 必须等于目录名；`tools` 必须全局唯一，不与来源包重复。
 - `target`、`cpu`、`abi`、可选 `engine` 选择实际受支持合同；未知或矛盾布局应拒绝。
-- 所需资源采用包内相对路径：`include`、`options`、`encoding`、`selection`、`templates`、`object`、`relocations`、`cpus`、`target_description`。以当前协议与 parser 允许字段为准，不添加猜测字段。
+- 所需资源采用包内相对路径：`include`、`options`、`encoding`、`selection`、`templates`、`object`、`relocations`、`cpus`、`target_description`、`aggregate`。以当前协议与 parser 允许字段为准，不添加猜测字段。
 - `requires` 只声明生产消费者实际使用且支持的能力，如 `encoding.fields.v1`、`selection.scalar32.v2`、`codegen.templates.v1`、`semantic.selector.v1`、`abi.decision.v1`、`cpu.descriptor.v1`、`target.descriptor.v1`、`object.descriptor.v1`、`relocation.vm.v1`、`object.elf32`/`object.elf64`。不要声明尚未接入的实验能力。
 - 能力名 CSV 非空、无重复、符合包协议语法。宿主只检查语法，编译器决定支持情况。缺省 legacy 接受不是新规则兼容保证。破坏记录意义时升级对应能力/schema，不能沿用旧名称静默解释。
 
@@ -68,7 +68,7 @@ $Py = 'C:\Users\wth09\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\
 | 模板 | 通过共享模板 VM 提供文本/参数替换。模板存在不代表 IR 调度、寄存器分配、控制流和调用算法都已外置。 |
 | 语义选择 | 将规范化 family/operation/width/sign/form 映射模板与 pop/push；校验实际栈效果。未匹配的操作必须明确失败或列出有测试的兼容 fallback。 |
 | 编码 | 使用有界字段编码、符号范围和对齐验证。Thumb 半字顺序、x86 变长字段等要按实际目标接口处理，不把一个 32 位 scatter VM 宣称为任意编码器。 |
-| ABI | 核对参数/返回、变参、聚合、间接传递、栈对齐、callee-saved、运行库和跨 TU。关系表不能自行改变前端耦合 wire 表示；有限 schema 不等于通用平台 ABI。 |
+| ABI | 核对参数/返回、变参、聚合、间接传递、栈对齐、callee-saved、运行库和跨 TU。关系表不能自行改变前端耦合 wire 表示；有限 schema 不等于通用平台 ABI。`aggregate=aggregate.rules` 的可选 `-frecord-sysv-abi` 生产消费者以 `abi.plan-record.v1` 记录 typed IR 计划元数据，尚非机器 codegen ABI 消费者；不能据此声称已切换调用约定或完成 GCC 原生聚合互操作。 |
 | 对象 | 生成真实标准 ELF32/ELF64，交叉检查 class/machine/endian/flags/attributes、section、symbol、relocation。不得输出自定义 ARK 容器却称标准 ELF；C 输出包应明确输出 C 源码而非伪目标文件。 |
 | 重定位 | 共享有限 VM 验证跨度、范围、对齐、指令形状、配对上下文并原子提交。枚举支持公式；外部标准 ELF relocation 留给 GNU/LLVM linker，不能称已经实现全部公式。 |
 

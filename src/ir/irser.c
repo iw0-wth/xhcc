@@ -211,6 +211,16 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
     w_u32(&w, ARK_IR_VERSION);
     w_u32(&w, 0);                 /* body_len, patched below */
     body_start = w.n;
+    if (p->abi_plan_count < 0 || p->abi_plan_count > IR_ABI_MAX_PLANS) return ir_ser_fail(who,"invalid ABI plan count",0);
+    w_u32(&w, (unsigned)p->abi_plan_count);
+    for (i=0;i<p->abi_plan_count;++i) {
+        unsigned bytes=xh_sysv_plan_wire_size(p->abi_plans[i]);
+        if (!bytes) return ir_ser_fail(who,"invalid ABI plan",0);
+        w_u32(&w,bytes);
+        if (w.err || bytes>(unsigned)(w.cap-w.n) || xh_sysv_plan_encode(p->abi_plans[i],w.b+w.n,bytes)!=(int)bytes)
+            return ir_ser_fail(who,"ABI plan exceeds payload buffer",0);
+        w.n+=(int)bytes;
+    }
 
     /* --- types --- */
     tt.v = 0; tt.n = 0; tt.cap = 0;
@@ -346,6 +356,8 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
             w_i32(&w, I->aux);
             w_i32(&w, I->line);
             w_i32(&w, I->aux2);
+            if (I->abi_plan<0 || I->abi_plan>p->abi_plan_count || (I->abi_plan && I->op!=IR_CALL)) return ir_ser_fail(who,"invalid call ABI plan index",0);
+            w_i32(&w, I->abi_plan);
         }
         w_i32(&w, f->local_size);
         w_i32(&w, f->label_count);
@@ -380,6 +392,8 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
             for (k = 0; k < np; k++) w_i32(&w, ttab_idx(&tt, f->param_types[k]));
         }
         w_i32(&w, ttab_idx(&tt, f->ret_type));
+        if (f->parameter_plan<0 || f->parameter_plan>p->abi_plan_count || f->result_plan<0 || f->result_plan>p->abi_plan_count) return ir_ser_fail(who,"invalid function ABI plan index",0);
+        w_i32(&w,f->parameter_plan);w_i32(&w,f->result_plan);
     }
 
     if (w.err) return ir_ser_fail(who, "the IR payload does not fit the object buffer", 0);
@@ -520,6 +534,7 @@ static IrFunc *deser_func_new(const char *name, int ncode)
     f->param_names_count = 0;
     f->param_types = 0;
     f->ret_type = 0;
+    f->parameter_plan=0;f->result_plan=0;
     return f;
 }
 
@@ -562,6 +577,7 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
     Type **types = 0;
     int ntypes = 0, i, k, j;
     int body_len;
+    unsigned version = 0;
 
     if (!buf || len < 16) {
         diag_tool(DIAG_SEV_ERROR, who,
@@ -584,10 +600,11 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
 
     {
         unsigned ver = r_u32(&r);
+        version = ver;
         char b1[12], b2[12], b3[12];
         body_len = (int)r_u32(&r);
         if (r.err) { r.why = "the payload header is truncated"; goto bad; }
-        if (ver != ARK_IR_VERSION) {
+        if (ver < ARK_IR_MIN_VERSION || ver > ARK_IR_VERSION) {
             diag_tool(DIAG_SEV_ERROR, who,
                       "the IR payload is version %s but this arkcc reads "
                       "version %s (rebuild the object with this arkcc)",
@@ -606,6 +623,19 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
 
     p = ir_program_new();
 
+    if (version >= 2) {
+        int count = (int)r_u32(&r);
+        if (count < 0 || count > IR_ABI_MAX_PLANS) { r.why = "invalid ABI plan count"; goto bad; }
+        for (i = 0; i < count; ++i) {
+            unsigned bytes = r_u32(&r);
+            IrAbiPlan *plan;
+            if (r.err || bytes > (unsigned)(r.n-r.pos)) { r.why="truncated ABI plan"; goto bad; }
+            plan = (IrAbiPlan *)mem_pool_alloc(sizeof(*plan));
+            if (xh_sysv_plan_decode(r.b+r.pos, bytes, plan)) { r.why="invalid ABI plan codec"; goto bad; }
+            r.pos += (int)bytes;
+            if (ir_program_add_abi_plan(p, plan) < 0) { r.why="cannot retain ABI plan"; goto bad; }
+        }
+    }
     /* --- types: allocate first, fill second (forward refs are legal) --- */
     ntypes = (int)r_u32(&r);
     if (r.err) goto bad;
@@ -870,6 +900,8 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
                 I->aux = r_i32(&r);
                 I->line = r_i32(&r);
                 I->aux2 = r_i32(&r);
+                I->abi_plan = version>=2 ? r_i32(&r) : 0;
+                if (I->abi_plan<0 || I->abi_plan>p->abi_plan_count || (I->abi_plan && I->op!=IR_CALL)) { r.why="invalid call ABI plan index"; goto bad; }
                 if (r.err) goto bad;
                 r.why = ir_wire_inst_error(I);
                 if (r.why) goto bad;
@@ -956,6 +988,10 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
                 if (ti < -1 || ti >= ntypes) { r.why = "a return type index is out of range"; goto bad; }
                 f->ret_type = (ti >= 0) ? types[ti] : 0;
             }
+            if(version>=2){
+                f->parameter_plan=r_i32(&r);f->result_plan=r_i32(&r);
+                if(r.err || f->parameter_plan<0 || f->parameter_plan>p->abi_plan_count || f->result_plan<0 || f->result_plan>p->abi_plan_count){r.why="invalid function ABI plan index";goto bad;}
+            }
             ir_program_add(p, f);
         }
     }
@@ -990,8 +1026,12 @@ void ir_program_append_unit(IrProgram *dst, IrProgram *unit, int unit_index,
     int float_base = dst->float_count;
     int cx_base = dst->complex_count;
     int ab_base = dst->argbytes_count;
+    int plan_base = dst->abi_plan_count;
     int i, k;
 
+    for (i=0;i<unit->abi_plan_count;++i) if(ir_program_add_abi_plan(dst,unit->abi_plans[i])<0) {
+        diag_tool(DIAG_SEV_ERROR,who,"ABI plan merge capacity exceeded",0,0,0,0,0,0);return;
+    }
     for (i = 0; i < unit->string_count; i++) {
         IrString *s = unit->strings[i];
         int idx = ir_program_add_string(dst, s->data, s->len);
@@ -1012,8 +1052,11 @@ void ir_program_append_unit(IrProgram *dst, IrProgram *unit, int unit_index,
 
     for (i = 0; i < unit->func_count; i++) {
         IrFunc *f = unit->funcs[i];
+        if(f->parameter_plan)f->parameter_plan+=plan_base;
+        if(f->result_plan)f->result_plan+=plan_base;
         for (k = 0; k < f->code_count; k++) {
             IrInst *I = &f->code[k];
+            if(I->abi_plan)I->abi_plan+=plan_base;
             switch (I->op) {
             case IR_PUSH_STR:
                 I->val += str_base;
@@ -1173,7 +1216,7 @@ int ir_obj_find_payload(const unsigned char *obj, int obj_len, int want_payload,
     {
         unsigned ver = obj_u32(obj + pos + 8);
         int blen = (int)obj_u32(obj + pos + 12);
-        if (ver != ARK_IR_VERSION) {
+        if (ver < ARK_IR_MIN_VERSION || ver > ARK_IR_VERSION) {
             char b1[12], b2[12];
             diag_tool(DIAG_SEV_ERROR, who,
                       "the object's IR payload is version %s but this arkcc reads "

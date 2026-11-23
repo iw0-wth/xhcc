@@ -48,6 +48,8 @@ make采用有界子集，不启动shell。变量赋值、include、条件语句�
 
 机器目标 `-c` 生成标准 ELF ET_REL，不是私有 ARKOBJ 改后缀。ARM M3/M4/M7/M33已执行验证；M0/M0+/M1/M23需要Thumb-1指令选择，当前不假装支持。soft/softfp有CPU/FPU检查，hard-float调用ABI未实现。RV32为ILP32，i386为ILP32，AMD64为LP64。C后端输出C文本，不生成原生对象。
 
+`-frecord-sysv-abi` 可在 AMD64 前端记录版本化参数/返回计划，`-c --private-object --obj-ir` 可持久化检查；它不会启用原生 GCC 聚合 ABI 执行。IR v2 保留计划表和独立索引，读取 v1 时默认无计划。
+
 完整对照和限制见 `docs/feature-parity.md`、`object/README.md`。目标名称、ARM架构支持范围和C输出与wasm32目标的区别见 `docs/targets.md`。ARM包名为 `arm`，Cortex-M3仅是默认CPU。
 
 ## GCC/armcc 参数
