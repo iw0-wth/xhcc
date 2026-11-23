@@ -221,6 +221,25 @@ int complex_frontend(double _Complex input, int n, float f, double d) {
         if TARGET == 'c':
             self.assertIn('conj(', asm)
 
+    @unittest.skipUnless(TARGET in ('arm', 'riscv32', 'c'), 'complex-enabled targets')
+    def test_complex_float_real_intrinsics_narrow_before_arithmetic(self):
+        asm, _ = self.compile('''
+extern float crealf(float _Complex);
+extern float cimagf(float _Complex);
+extern float cabsf(float _Complex);
+extern float cargf(float _Complex);
+float narrow_complex_math(float _Complex value) {
+    float a = crealf(value) * 10.0f + cimagf(value);
+    float b = cabsf(value) + cargf(value);
+    return a + b;
+}
+''', '-std=c99', '-O0')
+        self.assertIn('narrow_complex_math', asm)
+        if TARGET == 'arm':
+            self.assertGreaterEqual(asm.count('BL __aeabi_d2f'), 4)
+        if TARGET == 'riscv32':
+            self.assertGreaterEqual(asm.count('__truncdfsf2'), 4)
+
     @unittest.skipUnless(TARGET == 'c', 'C ordinal single-slot representation')
     def test_c_discarded_values_keep_loop_stack_balanced(self):
         asm, _ = self.compile('''

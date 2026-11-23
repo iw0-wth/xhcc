@@ -4811,33 +4811,9 @@ int g_arm_fpu_dp = 0;
  * the same instruction sequence (and the same hardware-FPU condition) as
  * IR_F2F, so a build with a single-precision FPU still gets the software
  * __aeabi_* helper instead of a VCVT the core would fault on. */
-static void arm_cvt_f2d(AsmBuffer *buf) {
-    /* in: r0 = float bits;  out: r0 = low word, r1 = high word */
-#if ARKCC_FEATURE_FPU_HW
-    if (g_config.enable_fpu_hw && g_arm_fpu_dp) {
-        xh_arm_rule(buf, "text.0032");
-        xh_arm_rule(buf, "text.0080");
-        xh_arm_rule(buf, "text.0035");
-        xh_arm_rule(buf, "text.0041");
-        return;
-    }
-#endif
-    xh_arm_rule(buf, "text.0081");
-}
-
-static void arm_cvt_d2f(AsmBuffer *buf) {
-    /* in: r0 = low word, r1 = high word;  out: r0 = float bits */
-#if ARKCC_FEATURE_FPU_HW
-    if (g_config.enable_fpu_hw && g_arm_fpu_dp) {
-        xh_arm_rule(buf, "text.0032");
-        xh_arm_rule(buf, "text.0033");
-        xh_arm_rule(buf, "text.0082");
-        xh_arm_rule(buf, "text.0035");
-        return;
-    }
-#endif
-    xh_arm_rule(buf, "text.0083");
-}
+static const char *arm_fp_semantic_mode(int is_dbl);
+static void arm_cvt_f2d(AsmBuffer *buf){xh_arm_semantic(buf,"complexmem","widen_half",32,"v",arm_fp_semantic_mode(1),0,0);}
+static void arm_cvt_d2f(AsmBuffer *buf){xh_arm_semantic(buf,"complexmem","narrow_half",64,"v",arm_fp_semantic_mode(1),0,0);}
 
 
 /* Cortex-M vector table: 256 entries, 1 KB.  Declared here (not next to
@@ -6740,20 +6716,10 @@ static char *codegen_arm(IrProgram *prog) {
                     if (is_volatile)
                         xh_arm_rule(&buf, "text.0154");  /* volatile: order prior memory ops */
                     if (width == 8 && (I->aux & IR_AUX_COMPLEX)) {
-                        /* _Complex float: widen each float half into a double
-                         * pair, imaginary first so the real high word ends on top. */
-                        xh_arm_rule(&buf, "text.0087");
-                        asmbuf_int(&buf, I->val + 4);
-                        xh_arm_rule(&buf, "text.0088");
-                        arm_cvt_f2d(&buf);
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
-                        xh_arm_rule(&buf, "text.0087");
-                        asmbuf_int(&buf, I->val);
-                        xh_arm_rule(&buf, "text.0088");
-                        arm_cvt_f2d(&buf);
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0024");
+                        char realoff[24],imagoff[24];const char *args[2];
+                        snprintf(realoff,sizeof realoff,"%lld",(long long)I->val);snprintf(imagoff,sizeof imagoff,"%lld",(long long)I->val+4);
+                        args[0]=realoff;args[1]=imagoff;
+                        xh_arm_semantic_args(&buf,"complexmem","load_local",64,"v",arm_fp_semantic_mode(1),0,4,args,2);
                     } else if (width == 1) {
                         xh_arm_rule(&buf,is_unsigned
                             ? "extra.014"
@@ -7562,38 +7528,7 @@ static char *codegen_arm(IrProgram *prog) {
                 case IR_FADD: {
                     int is_dbl = (I->aux & 0x200) != 0;
                     if ((I->aux & 0xF00) == 0x900) {
-                        /* cexp: aux = TOK_PLUS | 0x900 (complex bit plus the
-                         * 0x100 sub-op selector). exp(x)*(cos y + i sin y);
-                         * the three libm calls are linked in, not inlined. */
-                        xh_arm_rule(&buf, "text.0250");   /* operands at sp+24 */
-                        arm_ldr_sp(&buf, 0, 28);              /* z.re low  */
-                        arm_ldr_sp(&buf, 1, 24);              /* z.re high */
-                        arm_call1(&buf, "exp");
-                        arm_str_sp(&buf, 0, 0);
-                        arm_str_sp(&buf, 1, 4);
-                        arm_ldr_sp(&buf, 0, 36);              /* z.im low  */
-                        arm_ldr_sp(&buf, 1, 32);              /* z.im high */
-                        arm_call1(&buf, "cos");
-                        arm_str_sp(&buf, 0, 8);
-                        arm_str_sp(&buf, 1, 12);
-                        arm_dcall(&buf, "__aeabi_dmul", 0, 4, 8, 12);
-                        arm_str_sp(&buf, 0, 16);
-                        arm_str_sp(&buf, 1, 20);
-                        arm_ldr_sp(&buf, 0, 36);
-                        arm_ldr_sp(&buf, 1, 32);
-                        arm_call1(&buf, "sin");
-                        xh_arm_rule(&buf, "text.0027");
-                        xh_arm_rule(&buf, "text.0028");
-                        arm_ldr_sp(&buf, 0, 0);
-                        arm_ldr_sp(&buf, 1, 4);
-                        arm_call1(&buf, "__aeabi_dmul");
-                        xh_arm_rule(&buf, "text.0027");
-                        xh_arm_rule(&buf, "text.0028");
-                        arm_ldr_sp(&buf, 0, 16);
-                        arm_ldr_sp(&buf, 1, 20);
-                        emit_add_sp(&buf, 24);
-                        emit_add_sp(&buf, 16);
-                        arm_cplx_push4(&buf);
+                        xh_arm_semantic(&buf,"complex","exp",128,"v","stack",4,4);
                         break;
                     }
                     if (I->aux & IR_AUX_COMPLEX) {
@@ -7639,32 +7574,7 @@ static char *codegen_arm(IrProgram *prog) {
                          * as calls so an arm target without libm fails to link
                          * instead of quietly producing a different number. */
                         int k = I->aux & 0x300;
-                        if (k == 0x200) {
-                            arm_dcall(&buf, "__aeabi_dmul", 4, 0, 4, 0);
-                            xh_arm_rule(&buf, "text.0025");
-                            arm_str_sp(&buf, 0, 0);
-                            arm_str_sp(&buf, 1, 4);
-                            arm_dcall(&buf, "__aeabi_dmul", 20, 16, 20, 16);
-                            xh_arm_rule(&buf, "text.0027");
-                            xh_arm_rule(&buf, "text.0028");
-                            arm_ldr_sp(&buf, 0, 0);
-                            arm_ldr_sp(&buf, 1, 4);
-                            arm_call1(&buf, "__aeabi_dadd");
-                            emit_add_sp(&buf, 8);
-                            emit_add_sp(&buf, 16);
-                            arm_call1(&buf, "sqrt");
-                            arm_push_reg(&buf, 0);
-                            arm_push_reg(&buf, 1);
-                        } else if (k == 0x300) {
-                            arm_ldr_sp(&buf, 0, 12);   /* imag low  */
-                            arm_ldr_sp(&buf, 1, 8);    /* imag high */
-                            arm_ldr_sp(&buf, 2, 4);    /* real low  */
-                            arm_ldr_sp(&buf, 3, 0);    /* real high */
-                            emit_add_sp(&buf, 16);
-                            arm_call1(&buf, "atan2");
-                            arm_push_reg(&buf, 0);
-                            arm_push_reg(&buf, 1);
-                        }else xh_arm_semantic(&buf,"complex",k==0x100?"imag":"real",128,"v","stack",4,2);
+                        xh_arm_semantic(&buf,"complex",k==0x200?"abs":k==0x300?"arg":k==0x100?"imag":"real",128,"v","stack",4,2);
 
                         break;
                     }
@@ -8252,13 +8162,7 @@ static char *codegen_arm(IrProgram *prog) {
                              * to sp can only walk past the *lowest* words, so
                              * the parked word stayed in the value and the real
                              * half came out as 0 (measured, cplx_ret_f). */
-                            xh_arm_rule(&buf,"extra.030");  /* im32 */
-                            xh_arm_rule(&buf, "text.0312");
-                            xh_arm_rule(&buf, "text.0081");   /* r0=re_lo */
-                            xh_arm_rule(&buf, "text.0313");
-                            xh_arm_rule(&buf, "text.0314");
-                            xh_arm_rule(&buf, "text.0081");   /* r0=im_lo */
-                            xh_arm_rule(&buf, "text.0315");
+                            xh_arm_semantic(&buf,"complexabi","call_result",64,"v","base",0,4);
                         } else if (!is_indirect) {
                             int fi2;
                             int found = 0;
@@ -8295,10 +8199,7 @@ static char *codegen_arm(IrProgram *prog) {
                              * involved, so a declaration, an indirect call and
                              * a call into another translation unit all behave
                              * the same way. */
-                            arm_push_reg(&buf, 2);
-                            arm_push_reg(&buf, 3);
-                            arm_push_reg(&buf, 0);
-                            arm_push_reg(&buf, 1);
+                            xh_arm_semantic(&buf,"complexabi","call_result",128,"v","base",0,4);
                         } else if (is_sret_call) {
                             emit_push_r0(&buf);   /* struct: the address */
                         } else if (cplx_ret == 1) {
@@ -8457,12 +8358,7 @@ static char *codegen_arm(IrProgram *prog) {
                          * is parked on the stack across the real conversion
                          * because BL clobbers r0-r3. */
                         if (rtop_ret) { emit_push_r0(&buf); rtop_ret = 0; }
-                        xh_arm_rule(&buf, "text.0358");
-                        xh_arm_rule(&buf, "text.0083");   /* r0 = im32 */
-                        emit_push_r0(&buf);
-                        xh_arm_rule(&buf, "text.0359");
-                        xh_arm_rule(&buf, "text.0083");   /* r0 = re32 */
-                        xh_arm_rule(&buf, "text.0008");      /* r1 = im32 */
+                        xh_arm_semantic(&buf,"complexabi","return_value",64,"v","base",4,0);
                         emit_epilogue_return(&buf, local_size, f->is_irq,
                                              f->is_naked, 1);
                         break;
@@ -8478,7 +8374,7 @@ static char *codegen_arm(IrProgram *prog) {
                          * The epilogue only restores r5-r7/pc, so r0-r3
                          * survive it. */
                         if (rtop_ret) { emit_push_r0(&buf); rtop_ret = 0; }
-                        xh_arm_rule(&buf, "text.0360");
+                        xh_arm_semantic(&buf,"complexabi","return_value",128,"v","base",4,0);
                         emit_epilogue_return(&buf, local_size, f->is_irq,
                                              f->is_naked, 1);
                         break;

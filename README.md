@@ -1,6 +1,6 @@
 # xhcc
 
-面向 MCU / NuttX 等 RTOS 的多目标 C 交叉编译器。当前采用一个共享 Wasm 主程序，加外部配置、编码规则和运行库资源包；不使用后端子 Wasm。编译任务 RAM 目标约 4 MiB，允许适度超出但尽量控制；文件/Flash 体积独立统计。xhmake 后续开发。
+面向 MCU / NuttX 等 RTOS 的多目标 C 交叉编译器。当前采用一个共享 Wasm 主程序，加外部配置、编码规则和运行库资源包；不使用后端子 Wasm。编译任务 RAM 目标约 4 MiB，允许适度超出但尽量控制；文件/Flash 体积独立统计。配套 `xhccm` 为含内置make子集的独立应用；`xhcc` 不含make代码，二者并列并共用包目录。
 
 ## 构建与使用
 
@@ -22,6 +22,23 @@ D:\miniconda3\python.exe tools/xhcc.py x86_64-linux-gnu-gcc -c examples/add.c -o
 ```
 
 工具位置可通过 `--sdk` / `WASI_SDK_PATH`、`--wasm-opt` / `WASM_OPT`、`--wasm-validate` / `WASM_VALIDATE` 设置。Windows 默认使用本机 D 盘安装；其他机器须配置。
+
+## 内置 make 与模拟 SD
+
+整体 `Makefile` 默认构建 `xhcc.wasm`、`xhccm.wasm` 两个应用；也可 `make xhcc` / `make xhccm` 单独构建。桌面可用 `make PYTHON=D:/miniconda3/python.exe`，或直接运行构建脚本。
+
+```powershell
+& 'C:\Program Files\Wasmtime\bin\wasmtime.exe' run --dir=. --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C examples/make-demo all
+# 若Makefile用外部CC，注入默认工具或CC变量：
+# xhccm make riscv32-unknown-elf-gcc CFLAGS=-O0 all
+# xhccm make CC=riscv32-unknown-elf-gcc CFLAGS=-O0 all
+D:\miniconda3\python.exe tools/deploy_sd.py
+D:\miniconda3\python.exe tests/test_sd.py
+```
+
+以上第一条命令从部署目录运行。部署目录默认 `../sd/xhcc/`，里面并列放两份应用和唯一 `packages/` 资源目录。测试以SD根作为WASI预开放目录，验证直接编译、make两源、mtime增量以及CC注入切换RV32。明文写在配方中的编译器名直接选择对应包，不受默认CC覆盖。
+
+make采用有界子集，不启动shell。变量赋值、include、显式/模式/后缀规则、自动变量、增量/强制构建和有限文件命令已支持；复杂GNU make函数、shell脚本和通用链接尚未实现。完整范围见 `docs/make-subset.md`。
 
 ## 语言和输出
 

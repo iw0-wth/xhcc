@@ -35,4 +35,4 @@
 2. 继续后端规则数据化，避免大量写死目标逻辑和常驻表。
 3. Thumb-1/M0系列、完整VFP hard ABI、TLS/debug/unwind及更多标准对象能力。
 4. 完整GNU约束分配和更广GCC参数语义。
-5. 独立xhmake读取标准Makefile，以工具别名复用xhcc。
+5. xhccm内置make子集已接入同进程工具派发，继续补GNU make语法与通用链接；xhcc不含make，两个应用共用外部资源目录。

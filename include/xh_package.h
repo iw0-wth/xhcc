@@ -5,5 +5,7 @@
 int xh_package_adapter_config(const char *root,const char *tool,char *options_path,size_t cap,char *dialect,size_t dialect_cap);
 int xh_package_apply(const char *root, const char *tool, ArkOptions *opts);
 int xh_package_list(const char *root);
+/* Silent on a missing tool; malformed/unreadable roots still report errors. */
+int xh_package_has_tool(const char *root,const char *tool);
 int xh_write_dependencies(const ArkOptions *opts);
 #endif

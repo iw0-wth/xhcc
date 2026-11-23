@@ -1,0 +1,172 @@
+"""Real xhccm integration tests; build separately, then run this file.
+XHCCM_COMMAND is a JSON argv array. Default: Wasmtime build/wasm/xhccm.wasm.
+The implementation never launches processes; this host-side test harness does.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def command():
+    if os.environ.get('XHCCM_COMMAND'):
+        return json.loads(os.environ['XHCCM_COMMAND'])
+    runtime = shutil.which('wasmtime')
+    if not runtime:
+        candidate = Path(r'C:\Program Files\Wasmtime\bin\wasmtime.exe')
+        if candidate.exists():
+            runtime = str(candidate)
+    if not runtime:
+        raise RuntimeError('wasmtime unavailable; set XHCCM_COMMAND')
+    return [runtime, 'run', '--dir=.', str(ROOT / 'build/wasm/xhccm.wasm')]
+
+
+class MakeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.command = command()
+
+    def setUp(self):
+        self.workspace = tempfile.TemporaryDirectory(prefix='make-', dir=ROOT)
+        self.directory = Path(self.workspace.name)
+        self.relative = self.directory.relative_to(ROOT).as_posix()
+        for name, value in [('one', 1), ('two', 2)]:
+            (self.directory / (name + '.c')).write_text(
+                f'int {name}(void) {{ return {value}; }}\n')
+
+    def tearDown(self):
+        self.workspace.cleanup()
+
+    def makefile(self, text):
+        (self.directory / 'Makefile').write_text(text)
+
+    def run_make(self, *args, success=True):
+        # Environment relative package paths are relative to make's -C directory.
+        result = subprocess.run(
+            [*self.command, 'make', *args, '-C', self.relative], cwd=ROOT,
+            capture_output=True, text=True, timeout=90)
+        if success:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        else:
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result
+
+    @staticmethod
+    def recipe(tool='$(CC)'):
+        return f'{tool} --package-root ../packages $(CFLAGS) -c "$<" -o "$@"'
+
+    def test_two_sources_incremental_and_force(self):
+        self.makefile('all: one.o two.o\n%.o: %.c\n\t' + self.recipe() + '\n')
+        result = self.run_make('arm-none-eabi-gcc')
+        self.assertEqual(result.stdout.count(' -c '), 2)
+        old = {}
+        for name in ('one.o', 'two.o'):
+            path = self.directory / name
+            self.assertEqual(path.read_bytes()[:4], b'\x7fELF')
+            old[name] = path.stat().st_mtime_ns
+        self.assertNotIn(' -c ', self.run_make('arm-none-eabi-gcc').stdout)
+        self.assertEqual(old, {n: (self.directory / n).stat().st_mtime_ns for n in old})
+        self.assertEqual(self.run_make('arm-none-eabi-gcc', '-B').stdout.count(' -c '), 2)
+        # Deterministically set the source later than both objects, without sleeps.
+        future = max(old.values()) + 2_000_000_000
+        os.utime(self.directory / 'two.c', ns=(future, future))
+        result = self.run_make('arm-none-eabi-gcc')
+        self.assertIn('"two.c"', result.stdout)
+        self.assertNotIn('"one.c"', result.stdout)
+
+    def test_variable_precedence_and_explicit_compiler(self):
+        (self.directory / 'two.c').write_text(
+            '#if VALUE != 7\n#error bad variable injection\n#endif\nint two(void){return VALUE;}\n')
+        self.makefile('CC = missing-tool\nCFLAGS = -DVALUE=0\n'
+                      'two.o: two.c\n\t' + self.recipe() + '\n')
+        self.run_make('arm-none-eabi-gcc', 'CC=x86_64-linux-gnu-gcc', 'CFLAGS=-DVALUE=7')
+        data = (self.directory / 'two.o').read_bytes()
+        self.assertEqual(int.from_bytes(data[18:20], 'little'), 62)
+        self.makefile('two.o: two.c\n\t' + self.recipe('arm-none-eabi-gcc') + '\n')
+        self.run_make('x86_64-linux-gnu-gcc', '-B', 'CFLAGS=-DVALUE=7')
+        self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 40)
+
+    def test_variables_include_continuation_automatic_and_builtins(self):
+        (self.directory / 'vars.mk').write_text('A = late\nB := $(A)\nA = now\nQ ?= first\nQ ?= second\nQ += tail\n')
+        self.makefile('include vars.mk\n-include absent.mk\n.PHONY: all\n'
+                      'all: one.c \\\n two.c one.c # comment\n'
+                      '\t@echo $(A) ${B} $(Q) $@ $< $^ $$literal\n'
+                      '\tmkdir -p "space dir"\n\tcp one.c "space dir/copy.c"\n'
+                      '\trm -f "space dir/copy.c"\n')
+        result = self.run_make()
+        self.assertIn('now late first tail all one.c one.c two.c $literal', result.stdout)
+        self.assertTrue((self.directory / 'space dir').is_dir())
+        self.assertFalse((self.directory / 'space dir/copy.c').exists())
+
+    def test_quoted_paths_pattern_and_dry_run(self):
+        (self.directory / 'space name.c').write_text('int quoted(void){return 3;}\n')
+        self.makefile('all: "space name.o"\n%.o: "%.c"\n\t' + self.recipe() + '\n')
+        self.run_make('arm-none-eabi-gcc', '-n')
+        self.assertFalse((self.directory / 'space name.o').exists())
+        self.run_make('arm-none-eabi-gcc')
+        self.assertEqual((self.directory / 'space name.o').read_bytes()[:4], b'\x7fELF')
+
+    def test_multiple_explicit_compilers_same_process(self):
+        self.makefile('all: one.o two.o\none.o: one.c\n\t' +
+                      self.recipe('arm-none-eabi-gcc') + '\ntwo.o: two.c\n\t' +
+                      self.recipe('x86_64-linux-gnu-gcc') + '\n')
+        self.run_make('arm-none-eabi-gcc')
+        self.assertEqual(int.from_bytes((self.directory / 'one.o').read_bytes()[18:20], 'little'), 40)
+        self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 62)
+
+    def test_suffix_and_builtin_rule(self):
+        self.makefile('all: two.o\n.c.o:\n\t' + self.recipe() + '\n')
+        self.run_make('arm-none-eabi-gcc')
+        self.assertEqual((self.directory / 'two.o').read_bytes()[:4], b'\x7fELF')
+        (self.directory / 'two.o').unlink()
+        self.makefile('all: two.o\n')
+        self.run_make('CC=arm-none-eabi-gcc --package-root ../packages')
+        self.assertEqual((self.directory / 'two.o').read_bytes()[:4], b'\x7fELF')
+
+    def test_existing_object_without_source_is_leaf(self):
+        self.makefile('all: prebuilt.o\n')
+        prebuilt = self.directory / 'prebuilt.o'
+        prebuilt.write_bytes(b'prebuilt-object')
+        old = prebuilt.stat().st_mtime_ns
+        self.assertNotIn(' -c ', self.run_make('arm-none-eabi-gcc').stdout)
+        self.assertEqual(prebuilt.read_bytes(), b'prebuilt-object')
+        self.assertEqual(prebuilt.stat().st_mtime_ns, old)
+        prebuilt.unlink()
+        self.assertIn('no rule', self.run_make('arm-none-eabi-gcc', success=False).stderr)
+        # An existing implicit input must still trigger compilation when newer.
+        self.makefile('all: two.o\n')
+        self.run_make('CC=arm-none-eabi-gcc --package-root ../packages')
+        source = self.directory / 'two.c'
+        future = (self.directory / 'two.o').stat().st_mtime_ns + 2_000_000_000
+        os.utime(source, ns=(future, future))
+        self.assertIn(' -c ', self.run_make('CC=arm-none-eabi-gcc --package-root ../packages').stdout)
+
+    def test_errors_cycles_and_shell_rejection(self):
+        for content, expected in [
+            ('all: missing\n', 'no rule'),
+            ('all: next\nnext: all\n', 'cycle'),
+            ('X = $(X)\nall:\n\techo $(X)\n', 'recursive variable'),
+            ('all:\n\techo ok && echo bad\n', 'unsupported shell'),
+            ('all:\n\tunknown-command argument\n', ''),
+            ('all:\n\tarm-none-eabi-gcc --package-root ../packages -unsupported\n', ''),
+        ]:
+            with self.subTest(content=content):
+                self.makefile(content)
+                result = self.run_make(success=False)
+                self.assertIn(expected, result.stdout + result.stderr)
+
+    def test_keep_going_and_ignore_failure(self):
+        self.makefile('all: bad good\nbad:\n\tunknown-tool\ngood:\n\techo survived\n')
+        result = self.run_make('-k', success=False)
+        self.assertIn('survived', result.stdout)
+        self.makefile('all:\n\t-unknown-tool\n\techo survived\n')
+        self.assertIn('survived', self.run_make().stdout)
+
+
+if __name__ == '__main__':
+    unittest.main()

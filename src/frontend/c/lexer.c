@@ -544,224 +544,135 @@ static Token lexer_read_token(Lexer *lex) {
         }
     }
 
-    /* Numeric literal scan. */
+    /* Scan spelling first: floating prefixes must not overflow an integer
+     * accumulator, and a leading zero does not make 01.5 an octal integer. */
     if (is_digit(c) || (c == '.' && is_digit(lex->p[1]))) {
-        int is_float = 0;
-        int is_dec = 0;
-        long long val = 0;
-        double fval = 0.0;
-
-        if (c == '0' && (lex->p[1] == 'x' || lex->p[1] == 'X')) {
-            /* Hex literal: may be integer or hex float (C99 6.4.4.2). */
-            const char *q;
-            int is_hfloat = 0;
-            long long ipart = 0;
-            double fpart = 0.0, fscale = 1.0;
-            int exp_neg = 0, exp_v = 0, has_exp = 0;
-            double fval;
-            lex->p += 2;
-            while (is_hex(*lex->p)) {
-                ipart = ipart * 16 + hex_val(*lex->p);
-                lex->p++;
-            }
-            if (*lex->p == '.') {
-                is_hfloat = 1;
-                lex->p++;
-                while (is_hex(*lex->p)) {
-                    fpart = fpart * 16.0 + (double)hex_val(*lex->p);
-                    fscale *= 16.0;
-                    lex->p++;
-                }
-            }
-            if (*lex->p == 'p' || *lex->p == 'P') {
-                is_hfloat = 1;
-                lex->p++;
-                if (*lex->p == '+') lex->p++;
-                else if (*lex->p == '-') { exp_neg = 1; lex->p++; }
-                while (is_digit(*lex->p)) {
-                    exp_v = exp_v * 10 + (*lex->p - '0');
-                    lex->p++;
-                }
-                has_exp = 1;
-            }
-            if (is_hfloat) {
-                double e = 1.0;
-                int i;
-                fval = (double)ipart + fpart / fscale;
-                for (i = 0; i < exp_v; i++) e *= 2.0;
-                if (has_exp) {
-                    if (exp_neg) fval /= e; else fval *= e;
-                }
-                {
-                    int is_float_suffix = 0;
-                    while (*lex->p == 'f' || *lex->p == 'F' ||
-                           *lex->p == 'l' || *lex->p == 'L') {
-                        if (*lex->p == 'f' || *lex->p == 'F') is_float_suffix = 1;
-                        lex->p++;
-                    }
-                    if (*lex->p == 'i' || *lex->p == 'I' ||
-                        *lex->p == 'j' || *lex->p == 'J') {
-                        lex->p++;
-                        {
-                            Token t = make_token(TOK_FCONST, line);
-                            t.fvalue = fval;
-                            t.value = (int)fval;
-                            t.is_imag = 1;
-                            t.is_float = is_float_suffix;
-                            return t;
-                        }
-                    }
-                    {
-                        Token t = make_token(TOK_FCONST, line);
-                        t.fvalue = fval;
-                        t.value = (int)fval;
-                        t.is_float = is_float_suffix;
-                        return t;
-                    }
-                }
-            }
-            val = ipart;
-            /* Consume integer suffix u/U/l/L/ll (recorded on the token). */
-            {
-                int u = 0, l = 0, ll = 0;
-                Token t;
-                scan_int_suffix(lex, &u, &l, &ll);
-                t = make_number(val, line);
-                t.lit_unsigned = u; t.lit_long = l; t.lit_llong = ll;
-                return t;
-            }
-        }
-
-        if (c == '0' && is_oct(lex->p[1])) {
-            /* Octal literal. */
-            lex->p++;
-            while (is_oct(*lex->p)) {
-                val = val * 8 + (*lex->p - '0');
-                lex->p++;
-            }
-            {
-                int u = 0, l = 0, ll = 0;
-                Token t;
-                scan_int_suffix(lex, &u, &l, &ll);
-                t = make_number(val, line);
-                t.lit_unsigned = u; t.lit_long = l; t.lit_llong = ll;
-                return t;
-            }
-        }
-
-        /* Decimal integer literal. */
-        is_dec = 1;
-        while (is_digit(*lex->p)) {
-            val = val * 10 + (*lex->p - '0');
-            lex->p++;
+        const char *digits = start, *core_end, *p;
+        int hex = c == '0' && (lex->p[1] == 'x' || lex->p[1] == 'X');
+        int floating = 0, has_digits = 0, bad = 0;
+        if (hex) {
+            lex->p += 2; digits = lex->p;
+            while (is_hex(*lex->p)) { has_digits = 1; lex->p++; }
+        } else {
+            while (is_digit(*lex->p)) { has_digits = 1; lex->p++; }
         }
         if (*lex->p == '.') {
-            is_float = 1;
-            lex->p++;
-            while (is_digit(*lex->p)) lex->p++;
+            floating = 1; lex->p++;
+            while (hex ? is_hex(*lex->p) : is_digit(*lex->p)) {
+                has_digits = 1; lex->p++;
+            }
         }
-        if (*lex->p == 'e' || *lex->p == 'E') {
-            is_float = 1;
-            lex->p++;
+        if (hex ? (*lex->p == 'p' || *lex->p == 'P')
+                : (*lex->p == 'e' || *lex->p == 'E')) {
+            floating = 1; lex->p++;
             if (*lex->p == '+' || *lex->p == '-') lex->p++;
+            if (!is_digit(*lex->p)) bad = 1;
             while (is_digit(*lex->p)) lex->p++;
+        } else if (hex && floating) {
+            /* A hexadecimal floating constant requires a binary exponent. */
+            bad = 1;
         }
-        if (is_float) {
-            /* Parse decimal float by re-scanning from start. */
-            const char *q = start;
-            double sign = 1.0;
-            double intp = 0.0, fracp = 0.0, frac_scale = 1.0;
-            int has_exp = 0, exp_neg = 0, exp_v = 0;
-            int i;
-            if (*q == '-') { sign = -1.0; q++; }
-            while (is_digit(*q)) { intp = intp * 10.0 + (*q - '0'); q++; }
-            if (*q == '.') {
-                q++;
-                while (is_digit(*q)) {
-                    fracp = fracp * 10.0 + (*q - '0');
-                    frac_scale *= 10.0;
-                    q++;
-                }
+        core_end = lex->p;
+        if (!has_digits) bad = 1;
+        if (floating) {
+            Token t = make_token(TOK_FCONST, line);
+            int float_suffix = 0;
+            double value;
+            if (*lex->p == 'f' || *lex->p == 'F') {
+                float_suffix = 1; lex->p++;
+            } else if (*lex->p == 'l' || *lex->p == 'L') {
+                /* Existing subset represents long double as double. */
+                lex->p++;
             }
-            if (*q == 'e' || *q == 'E') {
-                has_exp = 1;
-                q++;
-                if (*q == '-') { exp_neg = 1; q++; }
-                else if (*q == '+') q++;
-                while (is_digit(*q)) { exp_v = exp_v * 10 + (*q - '0'); q++; }
-            }
-            fval = sign * (intp + fracp / frac_scale);
-            if (has_exp) {
-                /* C99 requires correct rounding for subnormal range values
-                 * (e.g. 1e-320). Direct integer pow of 10^exp is unreliable
-                 * at extreme magnitudes:
-                 *   10^320 overflows to +inf, so fval/inf = 0;
-                 *   pow(10,-320) may return a subnormal value.
-                 * Use host pow() to inherit its subnormal handling.
-                 *
-                 * 宿主环境使用 strtod 进行正确舍入的浮点解析。
-                 * 手动计算 mantissa * pow(10, exp) 在 DBL_MAX
-                 * (1.7976931348623157e308) 等极端值时会因中间舍入溢出为 inf。
-                 * strtod 由宿主 libc 提供正确舍入，能精确解析所有 double 字面量。 */
 #if !defined(ARKCC_STM32)
-                {
-                    char lit[64];
-                    int lit_len = (int)(lex->p - start);
-                    extern double strtod(const char *, char **);
-                    if (lit_len >= (int)sizeof(lit)) lit_len = (int)sizeof(lit) - 1;
-                    { int ii; for (ii = 0; ii < lit_len; ii++) lit[ii] = start[ii]; }
-                    lit[lit_len] = 0;
-                    fval = strtod(lit, 0);
-                }
-#else
-                /* STM32 freestanding 环境：手动计算（对极端大数可能不够精确） */
-                {
-                    double e;
-                    extern double pow(double, double);
-                    e = pow(10.0, (double)(exp_neg ? -exp_v : exp_v));
-                    fval *= e;
-                }
-#endif
-            }
             {
-                int is_float_suffix = 0;
-                while (*lex->p == 'f' || *lex->p == 'F' ||
-                       *lex->p == 'l' || *lex->p == 'L') {
-                    if (*lex->p == 'f' || *lex->p == 'F') is_float_suffix = 1;
-                    lex->p++;
+                char *converted_end;
+                extern double strtod(const char *, char **);
+                extern float strtof(const char *, char **);
+                /* Source is NUL-terminated. libc stops at the suffix/token
+                 * boundary; checking the exact endpoint avoids truncation and
+                 * does not need scratch allocation, even for long mantissas. */
+                value = float_suffix ? (double)strtof(start, &converted_end)
+                                     : strtod(start, &converted_end);
+                if (converted_end != core_end) bad = 1;
+            }
+#else
+            /* Freestanding STM32 fallback retains manual arithmetic; it is
+             * bounded and overflow-safe but is NOT a correctly-rounded parser.
+             * The production WASI path above always uses libc conversion. */
+            {
+                double mantissa = 0.0, scale = 1.0;
+                int fraction = 0, exp_negative = 0, exponent = 0;
+                int radix = hex ? 16 : 10;
+                p = digits;
+                while (p < core_end && (hex ? is_hex(*p) : is_digit(*p)) ||
+                       (p < core_end && *p == '.')) {
+                    if (*p == '.') fraction = 1;
+                    else {
+                        mantissa = mantissa * radix + (hex ? hex_val(*p) : *p - '0');
+                        if (fraction) scale *= radix;
+                    }
+                    p++;
                 }
-                /* C99 imaginary suffix: the i/I/j/J suffix sets is_imag=1.
-                 * For example, 1.0i becomes the pure imaginary 0+1i literal,
-                 * which the parser converts into a TYPE_COMPLEX AST_NUM node. */
-                if (*lex->p == 'i' || *lex->p == 'I' ||
-                    *lex->p == 'j' || *lex->p == 'J') {
-                    lex->p++;
-                    {
-                        Token t = make_token(TOK_FCONST, line);
-                        t.fvalue = fval;
-                        t.value = (int)fval;
-                        t.is_imag = 1;
-                        t.is_float = is_float_suffix;
-                        return t;
+                if (p < core_end) {
+                    p++;
+                    if (*p == '+' || *p == '-') { exp_negative = *p == '-'; p++; }
+                    for (; p < core_end; ++p) {
+                        if (exponent < 100000) exponent = exponent * 10 + (*p - '0');
                     }
                 }
-                {
-                    Token t = make_token(TOK_FCONST, line);
-                    t.fvalue = fval;
-                    t.value = (int)fval;
-                    t.is_float = is_float_suffix;
-                    return t;
+                value = mantissa / scale;
+                if (exponent) {
+                    extern double pow(double, double);
+                    value *= pow(hex ? 2.0 : 10.0,
+                                 exp_negative ? -(double)exponent : (double)exponent);
                 }
+                if (float_suffix) value = (double)(float)value;
             }
-        }
-        /* Consume integer suffix u/U/l/L/ll (recorded on the token). */
-        {
-            int u = 0, l = 0, ll = 0;
+#endif
+            if (*lex->p == 'i' || *lex->p == 'I' ||
+                *lex->p == 'j' || *lex->p == 'J') {
+                t.is_imag = 1; lex->p++;
+            }
+            if (is_ident_char(*lex->p)) {
+                bad = 1; while (is_ident_char(*lex->p)) lex->p++;
+            }
+            if (bad) {
+                DiagLoc loc; loc.file = 0; loc.line = line; loc.col = lex_col(lex, start);
+                diag_report_msg(DIAG_SEV_ERROR, &loc, "invalid floating literal", 0, 0, 0);
+            }
+            t.fvalue = value;
+            /* FCONST's integer member has no semantic value; converting an
+             * out-of-int-range double here was undefined behaviour. */
+            t.value = 0;
+            t.is_float = float_suffix;
+            return t;
+        } else {
+            unsigned long long value = 0, limit = ~(unsigned long long)0;
+            int radix = hex ? 16 : (c == '0' ? 8 : 10);
+            int overflow = 0, u = 0, l = 0, ll = 0;
             Token t;
+            for (p = digits; p < core_end; ++p) {
+                unsigned digit = hex ? (unsigned)hex_val(*p) : (unsigned)(*p - '0');
+                if (digit >= (unsigned)radix) { bad = 1; continue; }
+                if (value > (limit - digit) / (unsigned)radix) overflow = 1;
+                /* Unsigned arithmetic preserves the full 64-bit token pattern
+                 * without signed-overflow UB; overflow is diagnosed below. */
+                value = value * (unsigned)radix + digit;
+            }
             scan_int_suffix(lex, &u, &l, &ll);
-            t = make_number(val, line);
+            if (is_ident_char(*lex->p)) {
+                bad = 1; while (is_ident_char(*lex->p)) lex->p++;
+            }
+            if (bad || overflow) {
+                DiagLoc loc; loc.file = 0; loc.line = line; loc.col = lex_col(lex, start);
+                diag_report_msg(DIAG_SEV_ERROR, &loc,
+                                overflow ? "integer literal exceeds 64-bit range" : "invalid integer literal",
+                                0, 0, 0);
+            }
+            t = make_number((long long)value, line);
             t.lit_unsigned = u; t.lit_long = l; t.lit_llong = ll;
-                t.lit_dec = is_dec;
+            t.lit_dec = !hex && radix == 10;
             return t;
         }
     }

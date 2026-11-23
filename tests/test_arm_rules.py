@@ -279,6 +279,26 @@ class ArmRules(unittest.TestCase):
                 if i==0:self.assertEqual(self.execute(exe,'operations'),1);self.assertEqual(self.execute(exe,'conversions'),40)
             self.assertEqual(values,[46,22]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
 
+    def test_complex_math_and_memory_abi_semantic_routes(self):
+        compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-complex-routes-') as tmp:
+            work=Path(tmp);packages=work/'packages';pkg=packages/'variant';shutil.copytree(ROOT/'packages/arm',pkg)
+            manifest=(pkg/'package.ini').read_text().replace('id=arm','id=variant').replace('tools=arm-none-eabi-gcc,armcc','tools=variant-gcc');(pkg/'package.ini').write_text(manifest)
+            source=work/'routes.c';source.write_text('#include <complex.h>\n_Complex float bounce(_Complex float z){return z;}\n_Complex double bounced(_Complex double z){return z;}\nint entry(void){_Complex double z=3.0+4.0*I;return (int)cabs(z);}\nint math_routes(void){_Complex double z=0.0+0.0*I,e=cexp(z);double a=carg(0.0+1.0*I);return ((int)creal(e)==1)&&((int)cimag(e)==0)&&(a>1.57)&&(a<1.58);}\nint memory_routes(void){_Complex float a=3.0f+4.0f*I,b;_Complex float v[2];v[0]=a;v[1]=5.0f+6.0f*I;b=bounce(v[0]);a=b;return (int)(crealf(a)*10+cimagf(a))+(int)(crealf(v[1])*10+cimagf(v[1]));}\nint double_return(void){_Complex double a=bounced(3.0+4.0*I);return (int)(creal(a)*10+cimag(a));}\n')
+            source.write_text(source.read_text()+'int local_only(void){_Complex float a=3.0f+4.0f*I;return (int)(crealf(a)*10+cimagf(a));}\nint call_only(void){_Complex float a=bounce(3.0f+4.0f*I);return (int)(crealf(a)*10+cimagf(a));}\nint array_only(void){_Complex float v[2];v[0]=3.0f+4.0f*I;v[1]=5.0f+6.0f*I;return (int)(crealf(v[0])*10+cimagf(v[0]));}\n')
+            def libpath(name):return subprocess.run([str(GNU/'arm-none-eabi-gcc.exe'),'-mcpu=cortex-m3','-mthumb','-mfloat-abi=soft','-print-file-name='+name],capture_output=True,text=True,check=True).stdout.strip()
+            libgcc=libpath('libgcc.a');libm=libpath('libm.a');libc=libpath('libc.a');libnosys=libpath('libnosys.a');path=pkg/'arm.rules';base=path.read_text();values=[]
+            original='complex abs 128 v stack sem.complex.abs.128.stack 4 2';variant='complex abs 128 v stack sem.complex.real 4 2'
+            for i,text in enumerate([base,base.replace(original,variant,1)]):
+                path.write_text(text);obj=work/(str(i)+'.o');exe=work/(str(i)+'.elf')
+                self.command(sys.executable,'tools/xhcc.py','--package-root',packages,'variant-gcc','-O0','-c',source.relative_to(ROOT),'-o',obj.relative_to(ROOT))
+                self.command(GNU/'arm-none-eabi-ld.exe','-Ttext=0x10000','-e','entry','-o',exe,obj,'--start-group',libm,libc,libgcc,libnosys,'--end-group');values.append(self.execute(exe))
+                if i==0:
+                    self.assertEqual(self.execute(exe,'math_routes'),1)
+                    results={name:self.execute(exe,name) for name in ['local_only','call_only','array_only','memory_routes','double_return']}
+                    self.assertEqual(results,dict(local_only=34,call_only=34,array_only=34,memory_routes=90,double_return=34))
+            self.assertEqual(values,[5,3]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

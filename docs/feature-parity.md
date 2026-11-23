@@ -230,33 +230,30 @@ assembly, and corrupts the serialized output metadata to confirm explicit
 rejection. They run the same unified main artifact; the explicit legacy driver
 retains original private-object/link options in addition to the modern interface.
 
-## Outstanding: decimal floating-literal rounding
+## Repaired: full-lexeme floating-literal rounding in WASI/full profile
 
-This is a confirmed lexer correctness defect and a priority for the next repair
-round. In `src/frontend/c/lexer.c`, decimal floats without `e/E` use repeated
-binary-double multiplication/addition for their decimal integer/fraction parts.
-The non-STM32 `strtod` path currently runs only when an exponent is present.
-Intermediate rounding therefore changes the final literal before any target
-floating-to-integer conversion occurs. Reproducing the exact accumulation gives:
+The previous lexer parsed exponent-free decimal floats with repeated binary
+multiplication/addition, producing the incorrect historical results below.
+The WASI/full-profile scanner now converts the complete decimal or hexadecimal
+lexeme with `strtod`, or `strtof` for a float suffix, and validates its end pointer.
+It does not allocate a truncated 64-byte copy. The old accumulation reproduced:
 
 | Literal | Current accumulation: binary64 hex | Correct binary64 hex | Error |
 | --- | --- | --- | ---: |
 | `9223372036854775808.0` | `43e0000000000001` | `43e0000000000000` | +2048 |
 | `9223372036854774784.0` | `43dffffffffffffe` | `43dfffffffffffff` | -1024 |
 
-Adding `e0` selects a different conversion path in a non-STM32 build. Tests that
-construct exact IEEE bits are valid for isolating backend conversions, but do
-not establish correct decimal-literal parsing or resolve this defect.
+`tests/test_float_literals.py` now links and executes ARM and AMD64 results for
+21 IEEE cases, including these values, exponent/no-exponent consistency,
+long mantissas, hexadecimal floats, subnormals and direct float-suffix rounding.
+Integer scanning uses checked unsigned accumulation; invalid syntax and values
+above ULLONG_MAX are rejected. Floating tokens do not first overflow an integer
+prefix or convert their value to an out-of-range integer token field.
 
-The repair must convert the full lexeme consistently, including no-exponent
-forms, rather than only adjusting backend conversion rules. Related audited
-risks are the existing 64-byte `strtod` scratch silently truncating longer
-lexemes; signed `long long` integer-prefix accumulation overflowing even for an
-eventual floating token; and separate hexadecimal-float integer/fraction
-accumulation. Float-suffix parsing should avoid double rounding, and the STM32
-manual/pow path needs its own bounded rounding-correct implementation. These
-items were inspected only in this round; no lexer fix or passing regression is
-claimed here.
+The separate STM32_MIN manual conversion path is not covered by this WASI
+rounding guarantee and still needs a bounded rounding-correct implementation.
+These tests establish the stated cases, not complete ISO decimal conversion
+conformance under every locale or environment.
 
 Pending final integration results must distinguish output inspection from
 execution on the destination ISA. No claim here establishes full C99/C11,

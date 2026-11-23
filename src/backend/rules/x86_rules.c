@@ -3,6 +3,7 @@
 #include "xh_x86_rules.h"
 #include "xh_template.h"
 #include "xh_semantic.h"
+#include "xh_abi.h"
 #include "diag.h"
 #include <stdlib.h>
 #include <string.h>
@@ -122,20 +123,14 @@ int xh_x86_aggregate_wire(int bytes) {
     failed=1;return wide_mode?8:4;
 }
 
-/* Finite first-match decision records. No expressions, jumps or executable
- * templates. Every lookup is bounded by 32 records and 16 numeric fields. */
+/* Target adapter normalizes inputs and validates its supported private wire.
+ * Parsing, bounded relation matching and caching are shared across targets. */
 int xh_x86_classify(int result,int kind,int size,int alignment,int variadic,int index,XhX86AbiClass *out){
-    int count=xh_x86_number("abi.decision.count"),i,j,matched=0;char key[64];
-    if(!out || count<1 || count>32 || kind<0 || kind>4 || size<0 || size>65535 || alignment<1 || alignment>4096 || index<0 || index>120)goto bad;
-    for(i=0;i<count;i++){
-        int v[16];const char *text;char *end;
-        snprintf(key,sizeof(key),"abi.decision.%d",i);text=xh_x86_rule(key);
-        for(j=0;j<16;j++){long n;while(*text==' ')text++;n=strtol(text,&end,10);if(end==text || n<0 || n>65535)goto bad;v[j]=(int)n;text=end;}
-        while(*text==' ')text++;if(*text || v[0]>1 || v[1]>4 || v[2]>v[3] || v[4]>v[5] || v[6]>v[7] || v[8]>v[9] || v[10]>2 || v[11]>2 || v[12]>8 || v[13]>16 || v[14]>1 || v[15])goto bad;
-        if(v[0]!=result || v[1]!=kind || size<v[2] || size>v[3] || alignment<v[4] || alignment>v[5] || variadic<v[6] || variadic>v[7] || index<v[8] || index>v[9])continue;
-        if(!matched){out->bank=v[10];out->words=v[11];out->width=v[12];out->alignment=v[13];out->indirect=v[14];matched=1;}
-    }
-    if(!matched)goto bad;
+    XhAbiInput input;XhAbiResult selected;
+    if(!out || index<0 || index>120)goto bad;
+    input.role=result;input.kind=kind;input.size=size;input.alignment=alignment;input.variadic=variadic;input.index=index;
+    if(xh_abi_select(target,"abi.decision",&input,&selected)!=1)goto bad;
+    out->bank=selected.bank;out->words=selected.words;out->width=selected.width;out->alignment=selected.alignment;out->indirect=selected.indirect;
     /* Validate the supported IR/private-wire contract independently of the
      * external selector; incompatible class changes must not produce objects. */
     {

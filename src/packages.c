@@ -252,6 +252,11 @@ int xh_package_adapter_config(const char *root,const char *tool,char *path,size_
   }
   fprintf(stderr,"xhcc: no package provides tool: %s\n",tool);return 1;
 }
+int xh_package_has_tool(const char *root,const char *tool) {
+  int n=scan(root),i;if(n<0)return -1;
+  for(i=0;i<n;i++)if(has_tool(packages[i].tools,tool))return 1;
+  return 0;
+}
 int xh_package_list(const char *root) {
   int n = scan(root), i;
   if (n < 0)

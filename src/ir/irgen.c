@@ -5424,11 +5424,13 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                 if (ark_streq(fn, "creal") || ark_streq(fn, "crealf") || ark_streq(fn, "creall")) {
                     irgen_expr(g, node->u.call.args[0]);
                     ir_emit(g->fn, IR_F2I, 0, 0, IR_AUX_COMPLEX);  /* creal */
+                    if (ark_streq(fn, "crealf")) ir_emit(g->fn, IR_F2F, 0, 0, 0x200);
                     break;
                 }
                 if (ark_streq(fn, "cimag") || ark_streq(fn, "cimagf") || ark_streq(fn, "cimagl")) {
                     irgen_expr(g, node->u.call.args[0]);
                     ir_emit(g->fn, IR_F2I, 0, 0, IR_AUX_COMPLEX | 0x100);  /* cimag */
+                    if (ark_streq(fn, "cimagf")) ir_emit(g->fn, IR_F2F, 0, 0, 0x200);
                     break;
                 }
                 if (ark_streq(fn, "conj") || ark_streq(fn, "conjf") || ark_streq(fn, "conjl")) {
@@ -5439,11 +5441,13 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                 if (ark_streq(fn, "cabs") || ark_streq(fn, "cabsf") || ark_streq(fn, "cabsl")) {
                     irgen_expr(g, node->u.call.args[0]);
                     ir_emit(g->fn, IR_F2I, 0, 0, IR_AUX_COMPLEX | 0x200);  /* cabs */
+                    if (ark_streq(fn, "cabsf")) ir_emit(g->fn, IR_F2F, 0, 0, 0x200);
                     break;
                 }
                 if (ark_streq(fn, "carg") || ark_streq(fn, "cargf") || ark_streq(fn, "cargl")) {
                     irgen_expr(g, node->u.call.args[0]);
                     ir_emit(g->fn, IR_F2I, 0, 0, IR_AUX_COMPLEX | 0x300);  /* carg */
+                    if (ark_streq(fn, "cargf")) ir_emit(g->fn, IR_F2F, 0, 0, 0x200);
                     break;
                 }
                 if (ark_streq(fn, "cexp") || ark_streq(fn, "cexpf") || ark_streq(fn, "cexpl")) {

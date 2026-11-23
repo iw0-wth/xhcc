@@ -84,6 +84,22 @@ A copied package redirects only the FADD semantic record to the FSUB sequence;
 unchanged compiler/helper code then returns the different fixture bit pattern.
 Real libgcc/libm interoperability requires a separate RISC-V runtime gate.
 
+## Control, argument, call and return protocol selection
+
+A further 21 normalized records select local labels, unconditional/zero/nonzero
+branches, register/stack argument sources, indirect payload pointer sources,
+caller argument register loads, direct/indirect invocation, scalar/wide/complex
+call results, corresponding return values, and fixed/dynamic frame epilogues.
+The selected templates own the complete protocol action, including stack
+movement and register loads/stores. Native code retains label construction,
+argument iteration, validated frame offsets and aggregate copy loops; it does
+not infer a new ABI from arbitrary template text.
+
+Runtime tests exercise branches/loops, existing long-argument/variadic/function
+pointer/sret calls, and return paths. A same-SHA package variant redirects only
+the zero-branch record to the nonzero-branch sequence and reverses observable
+branch results. Incompatible argument or return stack-effect claims fail.
+
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for
 their native engine family. The shared template VM enforces syntax, bounds,

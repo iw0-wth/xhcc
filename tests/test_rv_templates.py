@@ -109,6 +109,16 @@ unsigned entry(void){union Z a,b,c;a.words[0]=1;a.words[1]=2;b.words[0]=3;b.word
   with tempfile.TemporaryDirectory(prefix='xh-rv-complex-') as tmp:
    root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';text=rules.read_text();rules.write_text(text.replace('complex.bin add 128 complex stack complex.add 8 4','complex.bin add 128 complex stack complex.sub 8 4'));changed=self.compile(source,'complexvariant',root);self.assertEqual(self.execute(changed),0x3ff00000)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_control_call_return_semantic_records(self):
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  source='int one(int x){return x+7;} int entry(int x){if(x)return one(4);return one(8);} int loops(void){int i,total=0;for(i=0;i<5;i++){if(i==2)continue;total+=i;}return total;}'
+  exe=self.compile(source,'protocol');self.assertEqual(self.execute(exe,a=0),15);self.assertEqual(self.execute(exe,a=1),11);self.assertEqual(self.execute(exe,'loops'),8)
+  with tempfile.TemporaryDirectory(prefix='xh-rv-protocol-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text()
+   rules.write_text(original.replace('control zero 32 v local control.zero 1 0','control zero 32 v local control.nonzero 1 0'));changed=self.compile(source,'protocol_changed',root);self.assertEqual(self.execute(changed,a=0),11);self.assertEqual(self.execute(changed,a=1),15)
+   for old,new in [('argument word 32 v register argument.word.register 0 0','argument word 32 v register argument.word.register 1 0'),('return value 32 v scalar return.value.scalar 1 0','return value 32 v scalar return.value.scalar 0 0')]:
+    rules.write_text(original.replace(old,new));path=OUT/'protocol_bad.c';path.write_text(source);p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'protocol_bad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

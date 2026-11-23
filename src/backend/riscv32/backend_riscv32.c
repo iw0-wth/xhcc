@@ -86,23 +86,8 @@ static void rv_sp_adj(AsmBuffer *b, int delta, int upward) {
 /* Restore ra/s0 and pop the frame.  Both the saved-register offsets and the
  * frame size are past the 12-bit immediate range for a big frame, so the
  * addresses are formed in t0 first. */
-static void rv_pilogue(AsmBuffer *b, int sp_size, int dynamic) {
-    /* A VLA lowers to IR_ALLOCA, which moves sp at run time; the saved
-     * registers are then no longer at a fixed offset from the current sp.
-     * s0 is the frame base, so rebuild sp from it before touching the frame. */
-    if (dynamic) {
-        xh_rv_rule(b,"emit.fixed.0000");
-        asmbuf_int(b, sp_size);
-        xh_rv_rule(b,"emit.fixed.0001");
-    }
-    xh_rv_rule(b,"emit.fixed.0000");
-    asmbuf_int(b, sp_size - RV_SAVE_S0_OFF);
-    xh_rv_rule(b,"emit.fixed.0002");
-    asmbuf_int(b, sp_size - RV_SAVE_RA_OFF);
-    xh_rv_rule(b,"emit.fixed.0003");
-    rv_sp_adj(b, sp_size, 1);
-    xh_rv_rule(b,"emit.fixed.0004");
-}
+static void rv_pilogue(AsmBuffer*b,int sp_size,int dynamic){char words[3][32];const char*args[3];int values[3]={sp_size-RV_SAVE_S0_OFF,sp_size-RV_SAVE_RA_OFF,sp_size},i;for(i=0;i<3;i++){snprintf(words[i],sizeof(words[i]),"%d",values[i]);args[i]=words[i];}xh_rv_semantic(b,"return","epilogue",32,"v",dynamic?"dynamic":"fixed",0,0,args,3);}
+
 
 /* 1 while the function being emitted is variadic, cleared for every function. */
 static int g_rv_va_active;
@@ -816,15 +801,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                         /* the payload travels by address: copy it into the
                          * local slot so the callee owns its own copy */
                         int o = 0;
-                        if (slot < RV_VA_WORDS) {
-                            xh_rv_rule(&buf,"emit.fixed.0075");
-                            asmbuf_puts(&buf, arg_reg_r(slot));
-                            asmbuf_putc(&buf, '\n');
-                        } else {
-                            xh_rv_rule(&buf,"emit.fixed.0076");
-                            asmbuf_int(&buf, 4 * (slot - RV_VA_WORDS));
-                            xh_rv_rule(&buf,"emit.fixed.0077");
-                        }
+                        {char offset[32];const char*args[1];snprintf(offset,sizeof(offset),"%d",4*(slot-RV_VA_WORDS));args[0]=slot<RV_VA_WORDS?arg_reg_r(slot):offset;xh_rv_semantic(&buf,"argument","indirect",32,"v",slot<RV_VA_WORDS?"register":"stack",0,0,args,1);}
                         rv_s0_slot(&buf, dst - fsize);
                         while (o < st_sz) {
                             xh_rv_rule(&buf,"emit.fixed.0078");
@@ -845,18 +822,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     rv_s0_slot(&buf, dst - fsize);
                     for (k = 0; k < ((st_sz > 4) ? 2 : 1); k++) {
                         int w = slot + k;
-                        xh_rv_rule(&buf,"emit.fixed.0080");
-                        if (w < RV_VA_WORDS) {
-                            xh_rv_rule(&buf,"emit.fixed.0081");
-                            asmbuf_puts(&buf, arg_reg_r(w));
-                        } else {
-                            xh_rv_rule(&buf,"emit.fixed.0082");
-                            asmbuf_int(&buf, 4 * (w - RV_VA_WORDS));
-                            xh_rv_rule(&buf,"emit.fixed.0083");
-                        }
-                        xh_rv_rule(&buf,"emit.fixed.0005");
-                        asmbuf_int(&buf, 4 * k);
-                        xh_rv_rule(&buf,"emit.fixed.0074");
+                        {char source_offset[32],destination_offset[32];const char*args[2];snprintf(source_offset,sizeof(source_offset),"%d",4*(w-RV_VA_WORDS));snprintf(destination_offset,sizeof(destination_offset),"%d",4*k);args[0]=w<RV_VA_WORDS?arg_reg_r(w):source_offset;args[1]=destination_offset;xh_rv_semantic(&buf,"argument","word",32,"v",w<RV_VA_WORDS?"register":"stack",0,0,args,2);}
                     }
                     break;
                 }
@@ -1469,47 +1435,15 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     xh_rv_semantic(&buf,"compare64",operation,64,(I->aux&0x100)?"u":"s","stack",4,1,0,0);break;
                 }
                 case IR_LABEL:
-                    xh_rv_rule(&buf,"emit.fixed.0226");
-                    asmbuf_puts(&buf, f->name);
-                    asmbuf_putc(&buf, '_');
-                    asmbuf_int(&buf, I->val);
-                    xh_rv_rule(&buf,"emit.fixed.0060");
-                    break;
                 case IR_LABEL_NAMED:
-                    xh_rv_rule(&buf,"emit.fixed.0227");
-                    asmbuf_puts(&buf, f->name);
-                    asmbuf_putc(&buf, '_');
-                    asmbuf_puts(&buf, I->name);
-                    xh_rv_rule(&buf,"emit.fixed.0060");
-                    break;
                 case IR_JMP:
-                    xh_rv_rule(&buf,"emit.fixed.0228");
-                    asmbuf_puts(&buf, f->name);
-                    asmbuf_putc(&buf, '_');
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_putc(&buf, '\n');
-                    break;
                 case IR_JMP_NAMED:
-                    xh_rv_rule(&buf,"emit.fixed.0229");
-                    asmbuf_puts(&buf, f->name);
-                    asmbuf_putc(&buf, '_');
-                    asmbuf_puts(&buf, I->name);
-                    asmbuf_putc(&buf, '\n');
-                    break;
                 case IR_JZ:
-                    xh_rv_rule(&buf,"emit.fixed.0230");
-                    asmbuf_puts(&buf, f->name);
-                    asmbuf_putc(&buf, '_');
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_putc(&buf, '\n');
-                    break;
-                case IR_JNZ:
-                    xh_rv_rule(&buf,"emit.fixed.0231");
-                    asmbuf_puts(&buf, f->name);
-                    asmbuf_putc(&buf, '_');
-                    asmbuf_int(&buf, I->val);
-                    asmbuf_putc(&buf, '\n');
-                    break;
+                case IR_JNZ: {
+                    char label[256];const char*args[1];const char*operation=(I->op==IR_LABEL||I->op==IR_LABEL_NAMED)?"label":(I->op==IR_JMP||I->op==IR_JMP_NAMED)?"jump":I->op==IR_JZ?"zero":"nonzero";
+                    if(I->op==IR_LABEL_NAMED||I->op==IR_JMP_NAMED)snprintf(label,sizeof(label),".L_%s_%s",f->name,I->name);else snprintf(label,sizeof(label),".L_%s_%d",f->name,(int)I->val);args[0]=label;
+                    xh_rv_semantic(&buf,"control",operation,32,"v","local",I->op==IR_JZ||I->op==IR_JNZ?1:0,0,args,1);break;
+                }
                 case IR_CMP_JMP_EQ:
                     xh_rv_rule(&buf,"emit.fixed.0232");
                     asmbuf_int(&buf, I->val);
@@ -1659,23 +1593,14 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     inreg = RV_VA_WORDS-(sret_call?1:0);
                     if (total < inreg) inreg = total;
                     for (kk = 0; kk < inreg; kk++) {
-                        xh_rv_rule(&buf,"emit.fixed.0241");
-                        asmbuf_puts(&buf, arg_reg_r(sret_call ? kk + 1 : kk));
-                        xh_rv_rule(&buf,"emit.fixed.0005");
-                        asmbuf_int(&buf, 4 * kk);
-                        xh_rv_rule(&buf,"emit.fixed.0239");
+                        char offset[32];const char*args[2];snprintf(offset,sizeof(offset),"%d",4*kk);args[0]=arg_reg_r(sret_call?kk+1:kk);args[1]=offset;xh_rv_semantic(&buf,"call","load",32,"v","register",0,0,args,2);
                     }
                     if (inreg > 0) {
                         xh_rv_rule(&buf,"emit.fixed.0242");
                         asmbuf_int(&buf, 4 * inreg);
                         xh_rv_rule(&buf,"emit.fixed.0243");
                     }
-                    if (is_indirect) xh_rv_rule(&buf,"emit.fixed.0244");
-                    else {
-                        xh_rv_rule(&buf,"emit.fixed.0022");
-                        asmbuf_puts(&buf, I->name);
-                        asmbuf_putc(&buf, '\n');
-                    }
+                    {const char*args[1]={I->name};xh_rv_semantic(&buf,"call","invoke",32,"v",is_indirect?"indirect":"direct",0,0,args,is_indirect?0:1);}
                     /* drop the stack arguments the callee read */
                     if (total > inreg) rv_sp_adj(&buf, 4 * (total - inreg), 1);
                     if (cplx_ret == 1) {
@@ -1690,15 +1615,10 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                          * Parking a separate scratch block above the pushed
                          * words and then ADDing sp past them loses 16 bytes of
                          * stack per call as well as reading stale slots. */
-                        xh_rv_rule(&buf,"emit.fixed.0245");
-                        xh_rv_rule(&buf,"emit.fixed.0246");
-                        xh_rv_rule(&buf,"emit.fixed.0247");
-                    } else if (cplx_ret == 2) {
-                        xh_rv_rule(&buf,"emit.fixed.0019");
-                    } else if (is_ret64)
-                        xh_rv_rule(&buf,"emit.fixed.0017");
-                    else if (!is_void_ret)
-                        xh_rv_rule(&buf,"emit.fixed.0018");
+                        xh_rv_semantic(&buf,"call","result",32,"v","complex32",0,4,0,0);
+                    } else if(cplx_ret==2)xh_rv_semantic(&buf,"call","result",32,"v","complex64",0,4,0,0);
+                    else if(is_ret64)xh_rv_semantic(&buf,"call","result",32,"v","wide",0,2,0,0);
+                    else if(!is_void_ret)xh_rv_semantic(&buf,"call","result",32,"v","scalar",0,1,0,0);
                     break;
                 }
                 case IR_RETURN:
@@ -1719,19 +1639,13 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * word-by-word moves. */
                     if (f->ret_type && ARK_IS_CX(f->ret_type) &&
                         type_size(f->ret_type) == 8) {
-                        xh_rv_rule(&buf,"emit.fixed.0021");
-                        /* value now at 8..23: [8]=re_hi [12]=re_lo [16]=im_hi [20]=im_lo */
-                        xh_rv_rule(&buf,"emit.fixed.0248");
-                        xh_rv_rule(&buf,"emit.fixed.0249");
-                        xh_rv_rule(&buf,"emit.fixed.0250");
-                        xh_rv_rule(&buf,"emit.fixed.0251");
-                        xh_rv_rule(&buf,"emit.fixed.0252");
+                        xh_rv_semantic(&buf,"return","value",32,"v","complex32",4,0,0,0);
                         rv_pilogue(&buf, sp_size, has_alloca);
                         break;
                     }
                     if (f->ret_type && ARK_IS_CX(f->ret_type) &&
                         type_size(f->ret_type) > 8) {
-                        xh_rv_rule(&buf,"emit.fixed.0253");
+                        xh_rv_semantic(&buf,"return","value",32,"v","complex64",4,0,0,0);
                         rv_pilogue(&buf, sp_size, has_alloca);
                         break;
                     }
@@ -1765,10 +1679,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                         rv_pilogue(&buf, sp_size, has_alloca);
                         break;
                     }
-                    if (rv_ret_is_two_words(f->ret_type))
-                        xh_rv_rule(&buf,"emit.fixed.0257");
-                    else
-                        xh_rv_rule(&buf,"emit.fixed.0178");
+                    xh_rv_semantic(&buf,"return","value",32,"v",rv_ret_is_two_words(f->ret_type)?"wide":"scalar",rv_ret_is_two_words(f->ret_type)?2:1,0,0,0);
                     rv_pilogue(&buf, sp_size, has_alloca);
                     break;
                 case IR_PUSH_GLOBAL_ADDR:
