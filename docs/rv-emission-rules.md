@@ -170,8 +170,15 @@ loading. The table may add a new spelling for an existing supported encoding;
 it does not invent an ABI or change the native parser's operand grammar.
 Tests check all 18 emitted words against independent ISA field calculations and
 add `plus R_ADD rr_r` to a copied package; unchanged compiler execution returns
-42 using the new mnemonic. I/shift/load/store/branch descriptor tables remain
-native pending later bounded migrations.
+42 using the new mnemonic. Six immediate and three shift-immediate instructions additionally use external
+`rr_i` / `rr_shamt` descriptors and dedicated three-argument encodings. Their
+fixed opcode/function fields and signed12 or unsigned5 immediate constraints
+are in `encoding.rules`; C only parses rd/rs1/immediate and checks that the
+normalized input fits the encoder's integer API. Tests compare all nine words
+against independent ISA fields, execute a new `newplusimm` spelling as 42 with
+unchanged compiler SHA, and reject immediate boundary violations. Pseudo
+lowering still uses the generic encoding helpers. Load/store/branch descriptor
+tables remain native pending later bounded migrations.
 
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for

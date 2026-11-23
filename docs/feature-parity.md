@@ -114,7 +114,8 @@ accepts v1 payloads with no plans. Canonical plan codec v2 certifies scalar-only
 plans with flags=1, supported small-integer-structure plans with flags=2, and
 single-SSE floating-structure signatures with flags=4, and certified two-long
 integer-pair signatures with flags=8, and exact LD/DL/DD pair signatures with
-flags=16. Only 0/1/2/4/8/16 are accepted, mutually exclusive values; OR combinations
+flags=16, plus certified IF/FI single-INTEGER signatures with flags=32.
+Only 0/1/2/4/8/16/32 are accepted, mutually exclusive values; OR combinations
 such as 3/5/6/7/9/17/31 and unknown values are rejected. Old canonical v1 plans decode
 with flags=0 and cannot drive native use. `-frecord-sysv-abi` records supported
 classifications without changing machine ABI. `-fuse-sysv-abi-plan` is a separate
@@ -141,7 +142,12 @@ no ABI hidden RDI pointer: RAX/RDX hold the result and are copied into that buff
 fields at offsets 0 and 8. INTEGER/SSE argument and result banks are allocated
 independently; insufficient capacity in either bank rolls the entire object to
 the stack without partially consuming either bank. DD returns in XMM0/XMM1;
-LD/DL use independent RAX/XMM0 locations. Unions, arrays, other 16-byte/larger
+LD/DL use independent RAX/XMM0 locations. `abi.plan-small-mixed.v1` adds only
+natural 8-byte {TYPE_INT,TYPE_FLOAT}/{TYPE_FLOAT,TYPE_INT} at offsets 0/4,
+4-byte fields and alignment 4, with source proof and a single INTEGER
+classification. Their float field travels as raw GPR/RAX bits, preserving
+negative zero and NaN payloads. Short/float and arbitrary mixed types are not
+implied. Unions, arrays, other 16-byte/larger
 forms, arbitrary mixed layouts and MEMORY/sret remain unsupported in use mode,
 though some can still be recorded.
 The `abi.plan-small-int-struct.v2` capability covers exact partial-byte access:
@@ -149,8 +155,8 @@ The `abi.plan-small-int-struct.v2` capability covers exact partial-byte access:
 retaining the one/two-word IR shape; stores and parameter copies preserve exact
 extents. Older 4/8-only consumers must not claim this capability.
 
-Ten codegen tests passed on root 911959, including integer struct1–8,
-F4/F8/D8, two-long struct16 and exact LD/DL/DD args/returns, independent GPR/SSE
+Eleven codegen tests passed on root 911911, including integer struct1–8,
+F4/F8/D8, two-long struct16, exact LD/DL/DD and IF/FI args/returns, independent GPR/SSE
 budget exhaustion and whole-object rollback/spills, pointer fields, multiple
 live/nested return buffers and unchanged adjacent canaries, with xhcc/xhcc and
 both Clang mixing directions. The legal function name `dl` remains in the fixture;

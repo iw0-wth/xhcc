@@ -4,7 +4,8 @@ The IR carries persistent SysV AMD64 classification/placement plans. Recording
 and native consumption are separate opt-ins: `-frecord-sysv-abi` records metadata;
 `-fuse-sysv-abi-plan` records and consumes verified scalar, certified **1–8-byte
 integer-structure**, **single-SSE 4/8-byte floating-structure**, or certified
-**16-byte two-long integer-pair** or certified **LD/DL/DD 16-byte pair** plans
+**16-byte two-long integer-pair**, **LD/DL/DD 16-byte pair**, or certified
+**IF/FI 8-byte single-slot mixed** plans
 for caller/callee placement. Default compilation retains its original lowering.
 Other aggregate plans remain record-only and are explicitly rejected by use mode.
 Scalar interoperability is tested below; complete aggregate SysV interoperability
@@ -159,6 +160,14 @@ use RAX plus XMM0 in their respective fragment order, while DD uses XMM0/XMM1.
 Raw fragment bits are moved, not numerically converted. Default codegen and
 aggregate variadic rejection remain unchanged.
 
+`abi.plan-small-mixed.v1` adds exactly the natural 8-byte IF/FI layouts:
+{TYPE_INT, TYPE_FLOAT} or {TYPE_FLOAT, TYPE_INT}, each field 4 bytes at offsets
+0 and 4, alignment 4. Source certification and the classifier must prove that
+the combined eightbyte is a single INTEGER fragment. This is a raw-bit GPR/RAX
+transport, not a conversion of the float field; negative zero and NaN payloads
+are preserved. It does not authorize short/float, arbitrary mixed fields,
+packing, unions, arrays, bitfields or aggregate variadic access.
+
 ## Canonical plan codec, versions 1 and 2
 
 All fields below are `u32` little-endian, written individually. No raw C struct,
@@ -187,14 +196,15 @@ Version 2 verification values are:
 | 4 (`SMALL_SSE_AGGREGATE_VERIFIED`) | The signature/call includes a certified pure-floating single-SSE struct4/8; its other components may be supported scalars or certified integer structures. |
 | 8 (`INTEGER_PAIR_AGGREGATE_VERIFIED`) | The complete signature/call includes a certified 16-byte two-long structure; other components must also belong to a supported subset. |
 | 16 (`MIXED_PAIR_AGGREGATE_VERIFIED`) | The signature/call includes a certified natural LD/DL/DD 16-byte pair; every component still requires its own supported source-type proof. |
+| 32 (`SINGLE_SLOT_MIXED_AGGREGATE_VERIFIED`) | The signature/call contains a certified natural IF/FI eightbyte merged to one INTEGER class; all other components must be supported. |
 
-Values 0, 1, 2, 4, 8 and 16 are the only accepted certification values. They are
+Values 0, 1, 2, 4, 8, 16 and 32 are the only accepted certification values. They are
 alternatives, not bit masks to combine: 3, 5, 6, 7 and other combinations are
 rejected. Combining source proofs produces the highest required supported
-level (16, then 8, then 4, then 2, then 1), or 0 if any component is unsupported.
+level (32, then 16, then 8, then 4, then 2, then 1), or 0 if any component is unsupported.
 These values are not OR masks: for example 3, 7, 9, 17 and 31 are invalid. This
 is a capability level for the complete signature, not permission for arbitrary
-mixed fields beyond the exact certified LD/DL/DD layouts. Every nested structure must independently satisfy the exact
+mixed fields beyond the exact certified LD/DL/DD and IF/FI layouts. Every nested structure must independently satisfy the exact
 1–8-byte, field-bounds and natural-alignment checks; a placement resembling a
 single integer fragment is insufficient proof. Variadic aggregate actuals clear
 native eligibility. Version 1 decodes with flags=0 and remains record-compatible,
@@ -250,7 +260,7 @@ this two-test result.
 
 ## Native execution evidence
 
-`tests/test_abi_plan_codegen.py` passed **10/10** against root artifact 911959,
+`tests/test_abi_plan_codegen.py` passed **11/11** against root artifact 911911,
 with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
 
 1. Two separately compiled xhcc translation units execute integer registers and
@@ -285,6 +295,11 @@ with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
     SSE registers occupied, DD rolls back wholly and the final double uses the
     remaining register. Checks return 0 in all routes.
 
+11. Natural IF/FI parameters and returns execute in all three routes. Identity
+    transport preserves negative-zero bits `0x80000000` and qNaN payload
+    `0x7fc12345` exactly, without floating arithmetic. Five/six occupied GPR
+    boundaries, stack spills, canaries and multiple result copies all pass.
+
 The mixed-pair test initially exposed an assembler symbol/register ambiguity:
 legal C function `dl` was encoded as an indirect CALL RDX rather than a symbol
 call. Restricting indirect-register operands to native register width corrected
@@ -304,7 +319,7 @@ The preceding IR persistence and builder/codec suites remain separate evidence.
 ## Next phase and package guidance
 
 Remaining aggregate integration includes other 16-byte and larger/multi-fragment
-structures and mixed layouts beyond the exact LD/DL/DD pairs, MEMORY/sret,
+structures and mixed layouts beyond the exact LD/DL/DD and IF/FI subsets, MEMORY/sret,
 unions/arrays, packed/bitfield
 layouts and aggregate variadic access. Those need their own source certification,
 caller/callee lowering and mixed-toolchain execution tests. Recording their

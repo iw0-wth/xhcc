@@ -125,9 +125,13 @@ Supported syntax and behavior:
   Repeated explicit declarations merge and deduplicate prerequisites, with a
   normal prerequisite taking precedence over an order-only occurrence. At most
   one declaration may supply recipes; a second nonempty recipe block fails.
-  Multiple explicit targets on a dependency-only line (for example
-  `one.o one.d: one.c header.h`) receive the same prerequisites; recipes on
-  multiple-target lines are rejected. Included `.d` prerequisites combine with
+  Multiple explicit targets on a line (for example `one.o two.o: shared.c`)
+  receive the same prerequisites and recipe text. Each target independently
+  checks timestamps and executes the recipe using its own automatic variables
+  and target-specific bindings. These are independent targets, not grouped
+  outputs: deleting one target rebuilds only that target. Repeated names in a
+  declaration are deduplicated. Multiple pattern targets and multi-target
+  variable declarations are rejected. Included `.d` prerequisites combine with
   a matching pattern recipe. Empty explicit dummy rules support `-MP` output.
   Includes accept multiple filenames, with missing files ignored for optional
   includes. Includes are read only; make does not regenerate or reread them.
@@ -162,8 +166,8 @@ is unsupported. An ignored command failure is reported, not silently swallowed.
 
 This does **not** implement full GNU make: functions beyond the twenty-four listed,
 conditionals beyond the listed forms, multiple-target variable declarations,
-export/environment variable import, grouped targets and recipes shared by
-multiple targets, double-colon/static pattern rules, inline recipes,
+export/environment variable import, grouped targets (`&:`), multiple pattern
+targets, double-colon/static pattern rules, inline recipes,
 secondary expansion, implicit wildcard expansion outside the function,
 parallel jobs, recursive make, shell
 scripts, and linking are outside this subset. Unsupported statements fail.

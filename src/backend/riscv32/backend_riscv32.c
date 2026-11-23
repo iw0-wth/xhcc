@@ -2234,13 +2234,6 @@ static int rv_sym_addr(RvAsm *a, const char *name, int dir) {
 
 /* ---- one instruction -------------------------------------------------- */
 static void rv_insn(RvAsm *a, const char **pp) {
-    static const struct { const char *n; int f3; } itab[] = {
-        {"addi",0x0},{"slti",0x2},{"sltiu",0x3},{"xori",0x4},
-        {"ori",0x6},{"andi",0x7}
-    };
-    static const struct { const char *n; int f3; int sh; } stab[] = {
-        {"slli",0x1,0x00},{"srli",0x5,0x00},{"srai",0x5,0x20}
-    };
     static const struct { const char *n; int f3; } ltab[] = {
         {"lb",0x0},{"lh",0x1},{"lw",0x2},{"lbu",0x4},{"lhu",0x5}
     };
@@ -2512,52 +2505,11 @@ static void rv_insn(RvAsm *a, const char **pp) {
             return;
         }
     }
-    for (i = 0; i < (int)(sizeof(itab) / sizeof(itab[0])); i++) {
-        if (rv_streq_(itab[i].n, mn)) {
-            int rd = rv_read_reg(&p), rs1;
-            rv_skip_ws(&p);
-            if (*p++ != ',') { rv_error(a, "line %s: the operand list needs a comma", "", ""); return; }
-            rs1 = rv_read_reg(&p);
-            rv_skip_ws(&p);
-            if (*p++ != ',') { rv_error(a, "line %s: this instruction needs an immediate", "", ""); return; }
-            if (rd < 0 || rs1 < 0 || !rv_read_ll(&p, &imm)) {
-                rv_error(a, "line %s: this instruction needs two registers and an "
-                            "immediate", "", "");
-                return;
-            }
-            if (imm < -2048 || imm > 2047) {
-                rv_error(a, "line %s: the immediate is outside the 12-bit signed "
-                            "range of this instruction", "", "");
-                return;
-            }
-            rv_ins(a, rv_enc_i((int)imm, rs1, itab[i].f3, rd, RV_OP_IMM));
-            *pp = p;
-            return;
-        }
-    }
-    for (i = 0; i < (int)(sizeof(stab) / sizeof(stab[0])); i++) {
-        if (rv_streq_(stab[i].n, mn)) {
-            int rd = rv_read_reg(&p), rs1;
-            rv_skip_ws(&p);
-            if (*p++ != ',') { rv_error(a, "line %s: the operand list needs a comma", "", ""); return; }
-            rs1 = rv_read_reg(&p);
-            rv_skip_ws(&p);
-            if (*p++ != ',') { rv_error(a, "line %s: this instruction needs a shift amount", "", ""); return; }
-            if (rd < 0 || rs1 < 0 || !rv_read_ll(&p, &imm)) {
-                rv_error(a, "line %s: this instruction needs two registers and a "
-                            "shift amount", "", "");
-                return;
-            }
-            if (imm < 0 || imm > 31) {
-                rv_error(a, "line %s: the shift amount must be 0..31", "", "");
-                return;
-            }
-            rv_ins(a, rv_enc_i((stab[i].sh << 5) | (int)(imm & 0x1F), rs1,
-                               stab[i].f3, rd, RV_OP_IMM));
-            *pp = p;
-            return;
-        }
-    }
+    {int shift_amount=0;const char*encoding=xh_rv_i_encoding(mn,&shift_amount);if(encoding){
+        int rd=rv_read_reg(&p),rs1;rv_skip_ws(&p);if(*p++!=','){rv_error(a,"line %s: operand list needs a comma","","");return;}rs1=rv_read_reg(&p);rv_skip_ws(&p);if(*p++!=','||rd<0||rs1<0||!rv_read_ll(&p,&imm)){rv_error(a,"line %s: instruction needs two registers and immediate","","");return;}
+        if(imm<(-2147483647LL-1)||imm>2147483647LL){rv_error(a,"line %s: immediate does not fit encoder input","","");return;}
+        {int args[3]={rd,rs1,(int)imm};rv_ins(a,rv_rule(encoding,args,3));}*pp=p;return;
+    }}
     for (i = 0; i < (int)(sizeof(ltab) / sizeof(ltab[0])); i++) {
         if (rv_streq_(ltab[i].n, mn)) {
             int rd = rv_read_reg(&p), rb = -1, off = 0;

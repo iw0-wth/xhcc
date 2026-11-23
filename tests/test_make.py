@@ -289,8 +289,10 @@ class MakeTests(unittest.TestCase):
         self.run_make()
         self.makefile('all:\n\techo first\nall:\n\techo second\n')
         self.assertIn('conflicting recipes', self.run_make(success=False).stderr)
-        self.makefile('all other:\n\techo unsupported\n')
-        self.assertIn('multiple-target', self.run_make(success=False).stderr)
+        self.makefile('all other:\n\techo shared-$@\n')
+        result = self.run_make('all', 'other')
+        self.assertIn('shared-all', result.stdout)
+        self.assertIn('shared-other', result.stdout)
 
     def test_path_functions_automatic_parts_and_long_options(self):
         (self.directory / 'src').mkdir()
@@ -467,6 +469,33 @@ class MakeTests(unittest.TestCase):
         self.run_make('CC=arm-none-eabi-gcc')
         for name in ('one.o', 'two.o'):
             self.assertEqual(int.from_bytes((self.directory / name).read_bytes()[18:20], 'little'), 40)
+
+    def test_shared_multiple_target_recipes_independent_rebuilds(self):
+        (self.directory / 'shared.c').write_text('int shared(void){return 7;}\n')
+        self.makefile('all: one.o two.o\n'
+                      'one.o: CC = arm-none-eabi-gcc\n'
+                      'two.o: CC = riscv32-unknown-elf-gcc\n'
+                      'one.o two.o one.o: shared.c\n\t' + self.recipe() + '\n'
+                      '\t@echo built=$@\n')
+        first = self.run_make()
+        self.assertEqual(first.stdout.count(' -c '), 2)
+        self.assertEqual(first.stdout.count('built=one.o'), 1)
+        self.assertEqual(first.stdout.count('built=two.o'), 1)
+        self.assertEqual(int.from_bytes((self.directory / 'one.o').read_bytes()[18:20], 'little'), 40)
+        self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 243)
+        self.assertNotIn(' -c ', self.run_make().stdout)
+        (self.directory / 'one.o').unlink()
+        self.assertEqual(self.run_make().stdout.count(' -c '), 1)
+        future = max((self.directory / n).stat().st_mtime_ns for n in ('one.o', 'two.o')) + 2_000_000_000
+        os.utime(self.directory / 'shared.c', ns=(future, future))
+        self.assertEqual(self.run_make().stdout.count(' -c '), 2)
+
+    def test_shared_recipe_conflicts_and_rejected_variable_groups(self):
+        for content in ['all: one two\none:\n\techo original\none two:\n\techo conflict\n',
+                        'one two: CC = arm-none-eabi-gcc\nall:\n',
+                        '%.o %.d: %.c\n\techo unsupported\n']:
+            self.makefile(content)
+            self.run_make(success=False)
 
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [

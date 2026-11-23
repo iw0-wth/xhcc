@@ -200,6 +200,19 @@ unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff00000123
    for row in ['mv R_ADD rr_r','plus MISSING rr_r','plus R_ADD bad','add R_ADD rr_r','plus R rr_r']:
     rules.write_text(original.replace('add R_ADD rr_r\\n','add R_ADD rr_r\\n'+row+'\\n'));path=OUT/'rbad.c';path.write_text('int entry(void){return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'rbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_immediate_descriptors_and_ranges(self):
+  import struct
+  table=[('addi',0,0,-2048),('slti',2,0,2047),('sltiu',3,0,-1),('xori',4,0,73),('ori',6,0,511),('andi',7,0,1023),('slli',1,0,31),('srli',5,0,0),('srai',5,0x400,17)]
+  instructions='\\n'.join(f'{name} t0, t1, {imm}' for name,_,_,imm in table);exe=self.compile('int entry(void){asm("'+instructions+'");return 1;}','i_oracle')
+  with exe.open('rb') as f:data=ELFFile(f).get_section_by_name('.text').data()
+  expected=b''.join(struct.pack('<I',(((imm|extra)&4095)<<20)|(6<<15)|(f3<<12)|(5<<7)|0x13) for _,f3,extra,imm in table);self.assertIn(expected,data)
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-immediate-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();rules.write_text(original.replace('addi R_ADDI rr_i\\n','addi R_ADDI rr_i\\nnewplusimm R_ADDI rr_i\\n'))
+   source='int entry(void){int result;asm volatile("li a1, 17\\n newplusimm %0, a1, 25" : "=r"(result));return result;}';changed=self.compile(source,'newplusimm42',root);self.assertEqual(self.execute(changed),42)
+   for instruction in ['addi t0,t1,-2049','addi t0,t1,2048','slli t0,t1,-1','srai t0,t1,32']:
+    path=OUT/'ibad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'ibad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('range',p.stderr)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

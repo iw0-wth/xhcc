@@ -1576,5 +1576,5 @@ rule abi.arg_register.7
 text a7
 end
 rule isa.mnemonics.r
-text add R_ADD rr_r\nsub R_SUB rr_r\nsll R_SLL rr_r\nslt R_SLT rr_r\nsltu R_SLTU rr_r\nxor R_XOR rr_r\nsrl R_SRL rr_r\nsra R_SRA rr_r\nor R_OR rr_r\nand R_AND rr_r\nmul R_MUL rr_r\ndiv R_DIV rr_r\ndivu R_DIVU rr_r\nrem R_REM rr_r\nremu R_REMU rr_r\nmulh R_MULH rr_r\nmulhsu R_MULHSU rr_r\nmulhu R_MULHU rr_r\n
+text add R_ADD rr_r\nsub R_SUB rr_r\nsll R_SLL rr_r\nslt R_SLT rr_r\nsltu R_SLTU rr_r\nxor R_XOR rr_r\nsrl R_SRL rr_r\nsra R_SRA rr_r\nor R_OR rr_r\nand R_AND rr_r\nmul R_MUL rr_r\ndiv R_DIV rr_r\ndivu R_DIVU rr_r\nrem R_REM rr_r\nremu R_REMU rr_r\nmulh R_MULH rr_r\nmulhsu R_MULHSU rr_r\nmulhu R_MULHU rr_r\naddi R_ADDI rr_i\nslti R_SLTI rr_i\nsltiu R_SLTIU rr_i\nxori R_XORI rr_i\nori R_ORI rr_i\nandi R_ANDI rr_i\nslli R_SLLI rr_shamt\nsrli R_SRLI rr_shamt\nsrai R_SRAI rr_shamt\n
 end

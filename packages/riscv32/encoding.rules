@@ -223,3 +223,75 @@ bits 0 0 5 7
 bits 1 0 5 15
 bits 2 0 5 20
 end
+rule R_ADDI 3 0x00000013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_SLTI 3 0x00002013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_SLTIU 3 0x00003013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_XORI 3 0x00004013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_ORI 3 0x00006013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_ANDI 3 0x00007013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 12 1 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 12 20
+end
+rule R_SLLI 3 0x00001013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SRLI 3 0x00005013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end
+rule R_SRAI 3 0x40005013
+arg 0 5 0 1
+arg 1 5 0 1
+arg 2 5 0 1
+bits 0 0 5 7
+bits 1 0 5 15
+bits 2 0 5 20
+end

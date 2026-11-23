@@ -467,7 +467,7 @@ static int target_assignment(Make *m,char *target,char *text) {
     m->current=0;m->multi_rule=0;m->recipe_conflict=0;return 1;
 }
 static int parse(Make *m,const char *path,int optional,int depth) {
-    FILE *f;char line[TEXT];int line_no=0,ncond=0,active=1;Condition conditions[8];
+    FILE *f;char line[TEXT];int line_no=0,ncond=0,active=1,group_count=0;Condition conditions[8];Rule *group[WORDS];
     if(depth>8)return fail(m,"include nesting/cycle limit",path);
     f=fopen(path,"r");if(!f){if(optional&&errno==ENOENT)return 0;return fail(m,"cannot read makefile",path);}
     while(readline(line,sizeof(line),f)) {
@@ -479,13 +479,14 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         }
         if(m->error)break;
         if(recipe) {
-            Recipe *r;if(!active)continue;
-            if(m->multi_rule){fail(m,"recipes on multiple-target declarations unsupported",path);break;}
+            Recipe *r;int j;if(!active)continue;
             if(m->recipe_conflict){fail(m,"conflicting recipes for target",m->current?m->current->target:path);break;}
             if(!m->current){fail(m,"recipe without a target",path);break;}
             s=line+1;len=strlen(s);while(len&&(s[len-1]=='\n'||s[len-1]=='\r'))s[--len]=0;
             r=(Recipe *)alloc(m,sizeof(*r));if(!r)break;r->text=copy(m,s);if(!r->text)break;
-            if(m->current->last)m->current->last->next=r;else m->current->recipes=r;m->current->last=r;continue;
+            if(m->current->last)m->current->last->next=r;
+            for(j=0;j<group_count;j++){if(!group[j]->recipes)group[j]->recipes=r;group[j]->last=r;}
+            continue;
         }
         { char *p=line;int escaped=0;while(*p){if(*p=='#'&&!escaped){*p=0;break;}escaped=*p=='\\'&&!escaped;p++;} }
         s=trim(line);if(!*s)continue;
@@ -514,15 +515,19 @@ static int parse(Make *m,const char *path,int optional,int depth) {
             if(expand(m,trim(colon),0,deps,0))break;
             if(strchr(deps,';')||strchr(deps,':')){fail(m,"unsupported rule syntax",deps);break;}
             if(!strcmp(target,".PHONY")) {char merged[TEXT];size_t z=0;merged[0]=0;if(m->phony&&(put(m,merged,&z,m->phony)||put(m,merged,&z," ")))break;if(put(m,merged,&z,deps))break;m->phony=copy(m,merged);m->current=0;continue;}
+            if(strchr(target,'&')){fail(m,"grouped targets unsupported",0);break;}
             n=words(m,target,ts,0);if(n<=0){fail(m,"rule needs a target",0);break;}
-            m->multi_rule=n>1;m->recipe_conflict=0;m->current=0;
+            m->multi_rule=n>1;m->recipe_conflict=0;m->current=0;group_count=0;
             for(i=0;i<n;i++) {
                 if(n>1&&strchr(ts[i],'%')){fail(m,"multiple pattern targets unsupported",0);break;}
                 r=0;if(!strchr(ts[i],'%'))for(r=m->rules;r;r=r->next)if(!strcmp(r->target,ts[i]))break;
                 if(!r){r=(Rule *)alloc(m,sizeof(*r));if(!r)break;r->target=copy(m,ts[i]);if(!r->target)break;
                     if(m->last)m->last->next=r;else m->rules=r;m->last=r;}
                 if(merge_dependencies(m,r,deps))break;
-                if(n==1){m->current=r;m->recipe_conflict=r->recipes!=0;}
+                {int j;for(j=0;j<group_count;j++)if(group[j]==r)break;
+                 if(j==group_count)group[group_count++]=r;}
+                if(!m->current)m->current=r;
+                if(r->recipes)m->recipe_conflict=1;
                 if(!m->first&&r->target[0]!='.'&&!strchr(r->target,'%'))m->first=r->target;
             }
             if(m->error)break;

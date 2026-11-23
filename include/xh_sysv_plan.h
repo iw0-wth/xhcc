@@ -8,6 +8,8 @@
 #define XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED 4u
 #define XH_SYSV_PLAN_INTEGER_PAIR_AGGREGATE_VERIFIED 8u
 #define XH_SYSV_PLAN_MIXED_PAIR_AGGREGATE_VERIFIED 16u
+#define XH_SYSV_PLAN_SINGLE_SLOT_MIXED_AGGREGATE_VERIFIED 32u
+int xh_sysv_single_slot_mixed_struct(Type *type);
 int xh_sysv_mixed_pair_struct(Type *type);
 int xh_sysv_integer_pair_struct(Type *type);
 int xh_sysv_small_sse_struct(Type *type);

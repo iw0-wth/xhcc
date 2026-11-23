@@ -24,7 +24,7 @@ description: 为 xhcc 移植或扩展后端配置包、共享规则契约及必�
 
 先写一份可检查的范围说明，列出 ISA、端序、pointer/long/int 宽度、浮点、ABI、对象格式、汇编方言、运行库和支持的 IR 家族。
 
-**已有引擎的配置包变体**：仅当现有引擎、IR wire、布局验证、寄存器/操作数和 ABI 合同能表示需求时，才允许只增加包。CPU 自定义别名、预定义宏、编码字段、有限语义选择、模板和已有 operand shape 的指令名称映射可以复用已有机制。当前 [RV 发射规则](../../rv-emission-rules.md) 的 `isa.mnemonics.r` 将 18 个 R-format mnemonic 映射到外部 encoding key/`rr_r`；复制包新增 `plus R_ADD rr_r` 已在不变主程序下实际返回 42。这是已有引擎可扩展映射的真实能力，不应写成“不能增加 mnemonic”；它仍受既有三寄存器 grammar、目标 ISA 与 ABI 合同约束，不是任意新 ISA。
+**已有引擎的配置包变体**：仅当现有引擎、IR wire、布局验证、寄存器/操作数和 ABI 合同能表示需求时，才允许只增加包。CPU 自定义别名、预定义宏、编码字段、有限语义选择、模板和已有 operand shape 的指令名称映射可以复用已有机制。当前 [RV 发射规则](../../rv-emission-rules.md) 的 `isa.mnemonics.r` 将 18 个 R-format mnemonic 映射到外部 encoding key/`rr_r`；复制包新增 `plus R_ADD rr_r` 已在不变主程序下实际返回 42。这是已有引擎可扩展映射的真实能力，不应写成“不能增加 mnemonic”；另有六条 immediate 和三条 shift-immediate 使用外部 `rr_i`/`rr_shamt` 映射、signed12/unsigned5 字段约束；不变主程序下新增 `newplusimm` alias 已实际返回 42。它们仍受已有 operand grammar、目标 ISA 与 ABI 合同约束，不是任意新 ISA；不为这次映射迁移虚构新的 manifest capability。
 
 **新 ISA 或超出现有合同的 ABI**：当前注册、汇编 grammar、lowering、wire 和布局约束并非任意 ISA 插件系统。需要扩展共享描述/VM 合同或增加引擎实现时，明确列出主程序改动与重建要求。不要声称仅放一个目录即可支持任意 ISA，也不要为了这个说法把公共 C 前端复制到包中。
 
@@ -105,11 +105,13 @@ if ($LASTEXITCODE) { throw 'build failed' }
 
 新增 ABI 子集时先按接口阶段记录候选能力，再由实际互操作测试决定是否宣称支持。已接入的 `abi.plan-small-int-struct.v1` 保留 4/8 字节自然对齐整数/指针结构的兼容合同，`abi.plan-small-int-struct.v2` 扩展为 1..8 字节同类结构；依赖精确不规则尺寸传输的新包要求 v2，不因新二进制同时支持 v1 就把旧能力合同扩大。两者排除 packed、浮点字段、bitfield、union、array、变参聚合及超范围尺寸。计划 `SMALL_INTEGER_AGGREGATE_VERIFIED=2` 必须来自 builder 对原始类型图的认证，不得从单个 INTEGER fragment 猜测。后续扩展仍须验证 capability 注册、caller/callee 消费、非法/伪造计划拒绝、实际 Clang 双向混链；通过前保留 pending，不扩展既有测试证据，不默认启用选项。
 
-已验证的 `abi.plan-small-sse-struct.v1` 仅覆盖自然对齐 F4 单 float、FPair8 双 float 和 D8 单 double；builder 必须同时验证原始类型与 single-SSE 分类。签名认证 flag 仅允许互斥 0/1/2/4/8/16，3 等组合或未知值拒绝。签名可同时含既有整数结构与 SSE 结构，并采用最高 flag 4；这不是允许单个结构混合 integer/float 字段，也不是全部 SSE word 组合。packed、bitfield、union、array、变参聚合仍排除。实际 906911 字节根产物在启用 Clang 且无跳过的八项 codegen 测试中全部通过，F4/FPair8/D8 参数/返回三条工具链路线、SSE 八寄存器后溢栈（结果 51）、GP 混合签名（15）和 canary 均通过，返回值包括 2.5、4.5/6.5、8.5。标量与已认证整数结构可同签名共存；这不是单结构混合字段或全部 SSE 组合支持，默认不启用。
+已验证的 `abi.plan-small-sse-struct.v1` 仅覆盖自然对齐 F4 单 float、FPair8 双 float 和 D8 单 double；builder 必须同时验证原始类型与 single-SSE 分类。签名认证 flag 仅允许互斥 0/1/2/4/8/16/32，3 等组合或未知值拒绝。签名可同时含既有整数结构与 SSE 结构，并采用最高 flag 4；这不是允许单个结构混合 integer/float 字段，也不是全部 SSE word 组合。packed、bitfield、union、array、变参聚合仍排除。实际 906911 字节根产物在启用 Clang 且无跳过的八项 codegen 测试中全部通过，F4/FPair8/D8 参数/返回三条工具链路线、SSE 八寄存器后溢栈（结果 51）、GP 混合签名（15）和 canary 均通过，返回值包括 2.5、4.5/6.5、8.5。标量与已认证整数结构可同签名共存；这不是单结构混合字段或全部 SSE 组合支持，默认不启用。
 
 `abi.plan-int-pair.v1` 另行认证且仅认证自然对齐 16 字节、offset 0/8 两个 64 位 `TYPE_LONG` 字段的结构，源类型及双 INTEGER 分类认证产生最高 eligible 签名 flag 8。不是全部 16B、long long 字段变体或 mixed-bank 结构。参数 `BYVALUE_ADDRESS=0x80000` 搭配低 16 位 size=16、无 FP-slot 标志，仅限 x86_64 use；它是内部源地址，不是 ABI 指针参数。两 GP 不足则整个 16B 入栈并回滚 GP 分配，后续标量可复用剩余寄存器；结果 RAX/RDX。caller bit36 仅申请内部返回缓冲，计划 `sret=0`，不新增隐藏 RDI 参数。评审时必须把这些内部表示与真实 ABI 显式区分，验证序列化和跨引擎/模式 guard，不能因为得到 buffer 地址就把指针传给外部函数。实际 910138 字节根产物 Clang 九项 codegen 测试全部通过，Pair16 三路线覆盖多 live buffer、嵌套调用、rollback 与 canary；不扩大为完整 SysV。
 
 `abi.plan-mixed-pair.v1` 单独认证自然对齐 16B、offset 0/8 的三类 64 位字段组合：LONG/DOUBLE、DOUBLE/LONG、DOUBLE/DOUBLE，最高 eligible 签名 flag16。保留 flag8 twoLONG 合同，不扩大为其它 mixed fields。返回值按 bank 独立编号：INTEGER 用 RAX/RDX，SSE 用 XMM0/XMM1；DL 的第二个对象 fragment 仍是该 bank 的第一个，因此用 RAX 而非 RDX。参数无法完整入寄存器时两 bank 都回滚；BYVALUE_ADDRESS16、内部 buffer 与 plan.sret0 协议不变。实际 911959 字节生产根产物在 Clang 无跳过的十项 codegen 测试中全通过（6.966 秒），包括 LD/DL/DD 三路线、both-bank rollback、多 buffer 与 canary。默认 off，不等于任意 16B 或完整 SysV。
+
+`abi.plan-small-mixed.v1` 仅认证自然对齐 8B、offset 0/4 的 INT32/FLOAT32 或 FLOAT32/INT32 原始字段组合，并要求 classifier 合并为 single INTEGER。最高签名证明级别 flag32 不是 OR，也不能因另一类型具有相同 placement shape 就放宽。浮点字段以原始位随 GPR/栈复制，不做数值转换。实际 911911 字节根产物 Clang 十一项 codegen 全通过无跳过，三路线 IF/FI identity 保持负零 0x80000000 和 qNaN 0x7fc12345，GPR fits/spill、canary、多 copies fixture 全返回 0。默认 off，非任意小混合结构或完整 SysV；后续扩展须有独立源类型证明与阴性边界。
 
 ABI 计划改动还需依据 [计划 codegen 测试](../../../tests/test_abi_plan_codegen.py) 验证双 TU、Clang 双向混链、超范围 aggregate use 拒绝与过期指纹拒绝。实际 906421 字节根产物已在启用 Clang 的七项测试中全部通过：保留标量、4/8 字节参数/返回、GPR 溢栈、指针字段及三条工具链路线，并覆盖 1/2/3/5/6/7 字节不规则结构的 guard page、canary 与 GPR spill。`IR_AUX_AGGREGATE_EXACT` 的序列化、1..8 合法范围和仅 x86_64 use 消费约束须保留；不要以对齐后的 8 字节访问替代精确长度。该七项结果属于整数结构阶段：其中 float 聚合当时仍拒绝；后续八项结果仅另行认证上段三种纯 SSE 结构。packed、bitfield、union、array、超范围及变参聚合继续拒绝。不能将该结果扩展为 <=16 字节混合聚合、完整 SysV、刷新后的 SD 或实机支持结论；记录模式、标量 use、窄结构 use 和其余聚合未支持须分开验收。
 

@@ -37,6 +37,12 @@ class Capabilities(unittest.TestCase):
  def test_unknown_mixed_pair_plan_capability_version_is_rejected(self):
   p=self.invoke(self.base+'requires=abi.plan-mixed-pair.v999\n',False)
   self.assertIn('capability',(p.stdout+p.stderr).lower())
+ def test_small_mixed_plan_capability_is_known(self):
+  # A shared-engine capability requirement does not claim ARM ABI execution.
+  self.invoke(self.base+'requires=abi.plan-small-mixed.v1\n',True)
+ def test_unknown_small_mixed_plan_capability_version_is_rejected(self):
+  p=self.invoke(self.base+'requires=abi.plan-small-mixed.v999\n',False)
+  self.assertIn('capability',(p.stdout+p.stderr).lower())
  def test_new_semantic_or_abi_capability_versions_are_rejected(self):
   for requirement in ['semantic.selector.v999','abi.decision.v999','typeclass.v1']:
    with self.subTest(requirement=requirement):

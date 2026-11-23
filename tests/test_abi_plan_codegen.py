@@ -62,7 +62,7 @@ class AbiPlanCodegen(unittest.TestCase):
     obj=src.with_suffix('.o');self.invoke(src,obj);objects.append(obj)
    self.assertEqual(self.execute(objects,work/'combined.o'),1)
  def test_unsupported_aggregate_is_explicitly_rejected(self):
-  cases=['struct S { float x; int y; }; struct S f(struct S x) { return x; }',
+  cases=['struct S { float x; short y; }; struct S f(struct S x) { return x; }',
          'struct S { long a,b,c; }; extern int f(struct S); int entry(void) { struct S x={1,2,3}; return f(x); }',
          'struct __attribute__((packed)) S { int x; }; struct S f(struct S x) { return x; }',
          'struct S { unsigned x:4; }; struct S f(struct S x) { return x; }',
@@ -241,6 +241,54 @@ int entry(void) {
 }
 '''
   with tempfile.TemporaryDirectory(prefix='abi-mixed-pair-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(library_text);caller.write_text(caller_text)
+   for route in ['xhcc','clang-library','clang-caller']:
+    objects=[]
+    for src in [library,caller]:
+     reference=(route=='clang-library' and src==library) or (route=='clang-caller' and src==caller)
+     obj=work/(src.stem+'_'+route+'.o')
+     if reference:
+      p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-O0','-ffreestanding','-fno-stack-protector','-fno-pic','-c',str(src),'-o',str(obj)],cwd=ROOT,capture_output=True,text=True)
+      self.assertEqual(p.returncode,0,p.stderr)
+     else:self.invoke(src,obj)
+     objects.append(obj)
+    self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
+ def test_single_slot_int_float_struct_clang_routes_raw_bits_and_spill(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'reference Clang required')
+  header='struct IF { int i; float f; }; struct FI { float f; int i; };\n'
+  library_text=header+'''
+struct IF identity_if(struct IF x) { return x; }
+struct FI identity_fi(struct FI x) { return x; }
+long fit_last(long a,long b,long c,long d,long e,struct IF x,long tail) { return a+b+c+d+e+x.i+tail; }
+long spill_slot(long a,long b,long c,long d,long e,long f,struct FI x,long tail) { return a+b+c+d+e+f+x.i+tail; }
+'''
+  caller_text=header+'''
+struct IF identity_if(struct IF); struct FI identity_fi(struct FI);
+long fit_last(long,long,long,long,long,struct IF,long);
+long spill_slot(long,long,long,long,long,long,struct FI,long);
+union Bits { float f; unsigned int u; };
+int entry(void) {
+ struct GuardIF { int before;struct IF p;int after; } a;
+ struct GuardFI { int before;struct FI p;int after; } b;
+ struct IF input_if,second_if;struct FI input_fi,second_fi;union Bits bits,readback;
+ bits.u=0x80000000U;input_if.i=-17;input_if.f=bits.f;
+ bits.u=0x7fc12345U;input_fi.i=23;input_fi.f=bits.f;
+ a.before=91;a.after=93;b.before=95;b.after=97;
+ a.p=identity_if(input_if);b.p=identity_fi(input_fi);
+ second_if=identity_if(input_if);second_fi=identity_fi(input_fi);
+ if(a.before!=91||a.after!=93||b.before!=95||b.after!=97)return 1;
+ if(a.p.i!=-17||b.p.i!=23||second_if.i!=-17||second_fi.i!=23)return 2;
+ readback.f=a.p.f;if(readback.u!=0x80000000U)return 3;
+ readback.f=b.p.f;if(readback.u!=0x7fc12345U)return 4;
+ readback.f=second_if.f;if(readback.u!=0x80000000U)return 5;
+ readback.f=second_fi.f;if(readback.u!=0x7fc12345U)return 6;
+ if(fit_last(1,2,3,4,5,input_if,31)!=29)return 7;
+ if(spill_slot(1,2,3,4,5,6,input_fi,29)!=73)return 8;
+ return 0;
+}
+'''
+  with tempfile.TemporaryDirectory(prefix='abi-single-mixed-',dir=ROOT/'build') as tmp:
    work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(library_text);caller.write_text(caller_text)
    for route in ['xhcc','clang-library','clang-caller']:
     objects=[]
