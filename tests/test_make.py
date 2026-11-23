@@ -399,6 +399,42 @@ class MakeTests(unittest.TestCase):
             self.makefile(content + 'all:\n')
             self.run_make(success=False)
 
+    def test_target_variables_compilers_and_inheritance(self):
+        self.makefile('all: one.o parent\n'
+                      'one.o: CC = arm-none-eabi-gcc\n'
+                      'parent: CC = riscv32-unknown-elf-gcc\n'
+                      'parent: CFLAGS = -DLOCAL_VALUE=7\n'
+                      'parent: two.o\n'
+                      '%.o: %.c\n\t' + self.recipe() + '\n')
+        (self.directory / 'two.c').write_text(
+            '#if LOCAL_VALUE != 7\n#error inherited flag missing\n#endif\nint two(void){return LOCAL_VALUE;}\n')
+        self.run_make()
+        self.assertEqual(int.from_bytes((self.directory / 'one.o').read_bytes()[18:20], 'little'), 40)
+        self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 243)
+        self.assertNotIn(' -c ', self.run_make().stdout)
+
+    def test_target_variable_precedence_flavors_and_restore(self):
+        self.makefile('GLOBAL = outside\n'
+                      'not-default: UNUSED = yes\n'
+                      'all: one.o two.o after\n'
+                      'one.o: CC = missing\n'
+                      'one.o: CFLAGS ?= -DFLAG=1\n'
+                      'two.o: override CC = riscv32-unknown-elf-gcc\n'
+                      'two.o: FLAGS := immediate\n'
+                      'two.o: FLAGS += tail\n'
+                      'two.o: GLOBAL ?= ignored\n'
+                      'two.o: two.c\n\t' + self.recipe() + '\n'
+                      '\t@echo local=$(FLAGS):$(flavor FLAGS):$(GLOBAL):$(origin CC)\n'
+                      'one.o: one.c\n\t' + self.recipe() + '\n'
+                      'after:\n\t@echo restored=$(origin FLAGS):$(CC):$(GLOBAL)\n')
+        result = self.run_make('CC=arm-none-eabi-gcc')
+        self.assertIn('local=immediate tail:simple:outside:override', result.stdout)
+        self.assertIn('restored=undefined:arm-none-eabi-gcc:outside', result.stdout)
+        self.assertEqual(int.from_bytes((self.directory / 'one.o').read_bytes()[18:20], 'little'), 40)
+        self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 243)
+        self.makefile('%.o: CC = arm-none-eabi-gcc\nall:\n')
+        self.assertIn('one explicit target', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

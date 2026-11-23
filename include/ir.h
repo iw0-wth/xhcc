@@ -53,6 +53,9 @@
 /* LOAD_IDX only: exact 1..8 aggregate bytes -> ceil(bytes/4) IR words.
  * Opt-in AMD64 plan consumer only; other engines/modes must reject it. */
 #define IR_AUX_AGGREGATE_EXACT 0x40000
+/* IR_CALL argbytes entry: one address IR word denotes a by-value object.
+ * Low 16 bits are object bytes, not pointer width; native plan must certify. */
+#define IR_ARG_BYVALUE_ADDRESS 0x80000
 
 #if ARKCC_FEATURE_COMPLEX
 #define IR_AUX_COMPLEX 0x800

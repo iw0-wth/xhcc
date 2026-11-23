@@ -27,6 +27,8 @@ n=ir_serialize(p,wire,sizeof(wire),"roundtrip");if(n<0||wire[8]!=2)return 2;
 copy=ir_deserialize(wire,n,"roundtrip");if(!copy||copy->abi_plan_count!=1||copy->funcs[0]->code[0].abi_plan!=1||copy->funcs[0]->parameter_plan!=1||copy->funcs[0]->result_plan!=1||copy->abi_plans[0]->rule_fingerprint!=123)return 3;
 dst=ir_program_new();if(ir_program_add_abi_plan(dst,&plan)!=1)return 4;ir_program_append_unit(dst,copy,0,"merge");if(dst->abi_plan_count!=2||dst->funcs[0]->code[0].abi_plan!=2||dst->funcs[0]->parameter_plan!=2||dst->funcs[0]->result_plan!=2)return 5;
 if(ir_serialize(dst,wire,sizeof(wire),"merge")<0)return 6;
+/* A valid one-entry argument run must reject a payload edited to claim two. */
+p=ir_program_new();f=ir_func_new("run_bounds");{int bytes=4,pos;ir_program_add_argbytes(p,&bytes,1);ir_emit(f,IR_CALL,1,"wirecall",0);f->code[0].aux2=1;ir_program_add(p,f);n=ir_serialize(p,wire,sizeof(wire),"run");if(n<0)return 20;for(pos=20;pos+8<n;pos++)if(!memcmp(wire+pos,"wirecall",8))break;if(pos+8>=n)return 21;wire[pos-16]=2;if(ir_deserialize(wire,n,"malicious-run"))return 22;f->code[0].val=2;if(ir_serialize(p,wire,sizeof(wire),"bad-writer-run")>=0)return 23;}
 /* Empty v2 has only one added count field: remove it for an actual v1 fixture. */
 p=ir_program_new();n=ir_serialize(p,wire,sizeof(wire),"empty");memcpy(oldwire,wire,16);memcpy(oldwire+16,wire+20,n-20);oldwire[8]=1;n-=4;{unsigned body=n-16;int k;for(k=0;k<4;k++)oldwire[12+k]=(unsigned char)(body>>(8*k));}
 copy=ir_deserialize(oldwire,n,"legacy-v1");if(!copy||copy->abi_plan_count)return 7;

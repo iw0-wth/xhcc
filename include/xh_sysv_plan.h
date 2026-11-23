@@ -6,6 +6,8 @@
 #define XH_SYSV_PLAN_SCALAR_VERIFIED 1u
 #define XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED 2u
 #define XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED 4u
+#define XH_SYSV_PLAN_INTEGER_PAIR_AGGREGATE_VERIFIED 8u
+int xh_sysv_integer_pair_struct(Type *type);
 int xh_sysv_small_sse_struct(Type *type);
 /* Source-type certification; rejects unions, packed/bitfield/FP structs. */
 int xh_sysv_small_integer_struct(Type *type);

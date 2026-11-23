@@ -3,7 +3,8 @@
 The IR carries persistent SysV AMD64 classification/placement plans. Recording
 and native consumption are separate opt-ins: `-frecord-sysv-abi` records metadata;
 `-fuse-sysv-abi-plan` records and consumes verified scalar, certified **1–8-byte
-integer-structure**, or certified **single-SSE 4/8-byte floating-structure** plans
+integer-structure**, **single-SSE 4/8-byte floating-structure**, or certified
+**16-byte two-long integer-pair** plans
 for caller/callee placement. Default compilation retains its original lowering.
 Other aggregate plans remain record-only and are explicitly rejected by use mode.
 Scalar interoperability is tested below; complete aggregate SysV interoperability
@@ -25,9 +26,11 @@ of 1 through 8 bytes, containing only integer/pointer fields or recursively
 eligible nested structures with proper natural alignment and in-bounds fields.
 A second subset permits natural pure-floating structures of size 4 or 8:
 one float (F4), two floats (F8), or one double (D8), with classification verified
-to be exactly one SSE fragment. Packed/unaligned/bitfield, mixed integer/float
-fields, union, array-field, larger and other multi-fragment aggregates remain
-rejected. Aggregate values through
+to be exactly one SSE fragment. The 16-byte subset is deliberately narrower:
+exactly two `TYPE_LONG` fields at offsets 0 and 8, each 8 bytes, in a naturally
+aligned 16-byte structure. It is certified as two INTEGER fragments. Other
+16-byte forms, mixed SSE/INTEGER fields, packed/unaligned/bitfield, union,
+array-field, larger and other multi-fragment aggregates remain rejected. Aggregate values through
 variadic `...` are rejected even when the same structure is valid as a named
 parameter. Integer-structure arguments/results use their certified GPR locations;
 pure-floating structures use the single SSE bank location, spilling to the stack
@@ -116,6 +119,33 @@ may have flags=4, while a single mixed-field structure is still unsupported.
 Canonical codec version remains 2; this adds an allowed certification value,
 not a new field layout.
 
+## Integer-pair address transport and native result buffers
+
+`abi.plan-int-pair.v1` names the certified 16-byte two-long extension. A named
+argument is still one address value on the existing IR evaluation stack, but
+its argbytes entry is explicit: `IR_ARG_BYVALUE_ADDRESS=0x80000`, low 16 bits=16,
+and optional `0x10000` alignment only. Pointer-slot and FP-class flags must not
+coexist. The AMD64 use consumer requires the matching certified plan and reads
+two by-value fragments from that address; this is not a native pointer argument.
+If the two INTEGER fragments do not fit the remaining GPR budget, the complete
+object rolls back to the stack and a following scalar can use the remaining GPR.
+
+The existing `IR_CALL` bit36/size reservation provides an internal caller-owned
+16-byte result buffer. It does not imply a native ABI hidden result pointer:
+`plan.sret=0`, so no hidden RDI is passed. The callee returns the two fragments
+in RAX/RDX; the caller stores them in its reserved buffer and pushes that buffer
+address for the existing greater-than-eight-byte IR consumers. Likewise the
+callee's existing address-valued return is read into RAX/RDX by its certified
+result plan. Separate call sites have separate frame buffers, preserving multiple
+live returns and nested calls. Default private-wire lowering is unchanged.
+
+The serializer checks every new argbytes entry and the complete argument-table
+run, subtracting the indirect callee pointer from the argument count. Cross-engine
+or non-use consumers reject the extension; a valid native plan and matching
+source certification are required. The outer IR container remains version 2,
+and canonical plan codec remains version 2; no raw C structures or new opaque
+return-offset field is introduced.
+
 ## Canonical plan codec, versions 1 and 2
 
 All fields below are `u32` little-endian, written individually. No raw C struct,
@@ -142,11 +172,12 @@ Version 2 verification values are:
 | 1 (`SCALAR_VERIFIED`) | Result, named parameters and actuals are supported scalars, after C parameter decay; void results are allowed. |
 | 2 (`SMALL_INTEGER_AGGREGATE_VERIFIED`) | The complete signature/call mixes supported scalars with at least one certified 1–8-byte integer/pointer structure. |
 | 4 (`SMALL_SSE_AGGREGATE_VERIFIED`) | The signature/call includes a certified pure-floating single-SSE struct4/8; its other components may be supported scalars or certified integer structures. |
+| 8 (`INTEGER_PAIR_AGGREGATE_VERIFIED`) | The complete signature/call includes a certified 16-byte two-long structure; other components must also belong to a supported subset. |
 
-Values 1, 2 and 4 are alternatives, not independent bits to OR: **3, 5, 6 and 7
-are rejected**, as are other unknown values. Combining source-type proofs produces
-4 when any eligible SSE structure is present, otherwise 2 for eligible integer
-structures, 1 for scalar-only, and 0 if any component is unsupported. This is a
+Values 0, 1, 2, 4 and 8 are the only accepted certification values. They are
+alternatives, not bit masks to combine: 3, 5, 6, 7 and other combinations are
+rejected. Combining source proofs produces the highest required supported
+level (8, then 4, then 2, then 1), or 0 if any component is unsupported. This is a
 capability level for the complete signature, not permission to mix integer and
 float fields inside one structure. Every nested structure must independently satisfy the exact
 1–8-byte, field-bounds and natural-alignment checks; a placement resembling a
@@ -204,7 +235,7 @@ this two-test result.
 
 ## Native execution evidence
 
-`tests/test_abi_plan_codegen.py` passed **8/8** against root artifact 906911,
+`tests/test_abi_plan_codegen.py` passed **9/9** against root artifact 910138,
 with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
 
 1. Two separately compiled xhcc translation units execute integer registers and
@@ -227,6 +258,11 @@ with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
    correctly (result 51); a signature mixing GPR scalars and separate SSE
    structures returns 15. The return checks preserve 2.5f, {4.5f,6.5f} and 8.5.
 
+9. A natural two-long struct16 passes and returns in all three routes, including
+   rollback when only one GPR remains, a following scalar reusing that GPR,
+   multiple simultaneously live caller result buffers, nested returns and
+   unchanged destination canaries. Each combined check returns 0.
+
 The canary gate initially exposed a missing 16-bit mov operand-size prefix in
 three assembler paths: a textual word store encoded as a dword store. After the
 prefix correction, the unchanged seven-test suite passed. This records a real
@@ -239,14 +275,15 @@ The preceding IR persistence and builder/codec suites remain separate evidence.
 
 ## Next phase and package guidance
 
-Remaining aggregate integration includes larger/multi-fragment
+Remaining aggregate integration includes other 16-byte and larger/multi-fragment
 structures, mixed integer/SSE fields, MEMORY/sret, unions/arrays, packed/bitfield
 layouts and aggregate variadic access. Those need their own source certification,
 caller/callee lowering and mixed-toolchain execution tests. Recording their
 classifications does not establish native support.
 
 Package/skill documentation must distinguish record mode, certified scalar/
-1–8-byte integer-structure or single-SSE 4/8-byte structure use, and unsupported
+1–8-byte integer structures, single-SSE 4/8-byte structures or certified two-long
+16-byte structure use, and unsupported
 aggregate use. Neither flag
 is enabled by default. Capability names must describe an integrated consumer
 and its schema; accepting an option is not a universal ABI guarantee.

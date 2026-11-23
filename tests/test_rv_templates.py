@@ -177,6 +177,14 @@ unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff00000123
    for old,new in [('stack alloca 32 v dynamic stack.alloca 1 1','stack alloca 32 v dynamic stack.alloca 0 1'),('memory copy 32 v word_tail memory.copy 2 0','memory copy 32 v word_tail memory.copy 1 0')]:
     rules.write_text(original.replace(old,new));path=OUT/'fieldbad.c';path.write_text(source);p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-O0','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'fieldbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_register_aliases_are_used_by_assembler(self):
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-register-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();rules.write_text(original.replace('fp 8\\n','fp 8\\nargfirst 10\\n').replace('rule abi.arg_register.0\ntext a0\n','rule abi.arg_register.0\ntext argfirst\n'))
+   source='int one(int x){return x+1;} int entry(void){int result;asm volatile("li %0, 42\\n mv argfirst, %0" : "=r"(result));return one(result)-1;}';exe=self.compile(source,'alias42',root);self.assertEqual(self.execute(exe),42)
+   for bad in [original.replace('a0 10\\n','a0 11\\n'),original.replace('rule isa.register_count\ntext 32','rule isa.register_count\ntext 16'),original.replace('fp 8\\n','fp 8\\na0 10\\n')]:
+    rules.write_text(bad);path=OUT/'aliasbad.c';path.write_text('int entry(void){return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'aliasbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('register ABI contract',p.stderr)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

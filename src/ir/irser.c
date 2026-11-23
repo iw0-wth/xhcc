@@ -300,7 +300,12 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
 
     /* --- IR_CALL argument-size table --- */
     w_u32(&w, (unsigned)p->argbytes_count);
-    for (i = 0; i < p->argbytes_count; i++) w_i32(&w, p->argbytes[i]);
+    for (i = 0; i < p->argbytes_count; i++) {
+        int v=p->argbytes[i];
+        if((v&IR_ARG_BYVALUE_ADDRESS) && ((v&0xFFFF)!=16 || (v&~(IR_ARG_BYVALUE_ADDRESS|0x10000|0xFFFF))))
+            return ir_ser_fail(who,"invalid by-value address argument metadata",0);
+        w_i32(&w,v);
+    }
 
     w_sstr(&w, p->source_file);
 
@@ -353,6 +358,15 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
             IrInst *I = &f->code[k];
             const char *why = ir_wire_inst_error(I);
             if (why) return ir_ser_fail(who, why, 0);
+            if(I->op==IR_CALL && I->aux2){
+                unsigned count=(unsigned)I->val;
+                int start;
+                if(I->aux2<0)return ir_ser_fail(who,"invalid argument-size table index",0);
+                start=I->aux2-1;
+                if(I->name&&I->name[0]=='?'){if(!count)return ir_ser_fail(who,"invalid indirect call argument count",0);count--;}
+                if(count>64 || start<0 || start>p->argbytes_count || count>(unsigned)(p->argbytes_count-start))
+                    return ir_ser_fail(who,"IR_CALL argument-size run exceeds its table",0);
+            }
             w_u32(&w, (unsigned)I->op);
             w_i64(&w, I->val);
             w_sstr(&w, I->name);
@@ -810,10 +824,13 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
     {
         int n = (int)r_u32(&r);
         if (r.err) goto bad;
-        if (n < 0 || n * 4 > r.n) { r.why = "implausible argument-size table count"; goto bad; }
+        if (n < 0 || n > r.n / 4) { r.why = "implausible argument-size table count"; goto bad; }
         for (i = 0; i < n; i++) {
             int v = r_i32(&r);
             if (r.err) goto bad;
+            if((v&IR_ARG_BYVALUE_ADDRESS) && ((v&0xFFFF)!=16 || (v&~(IR_ARG_BYVALUE_ADDRESS|0x10000|0xFFFF)))){
+                r.why="invalid by-value address argument metadata";goto bad;
+            }
             ir_program_add_argbytes(p, &v, 1);
         }
     }
@@ -924,10 +941,15 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
                     break;
                 }
                 case IR_CALL:
-                    if (I->aux2 < 0 ||
-                        (I->aux2 > 0 && I->aux2 - 1 >= p->argbytes_count)) {
-                        r.why = "IR_CALL refers past the argument-size table";
-                        goto bad;
+                    if(I->aux2){
+                        unsigned count=(unsigned)I->val;
+                        int start;
+                        if(I->aux2<0){r.why="invalid argument-size table index";goto bad;}
+                        start=I->aux2-1;
+                        if(I->name&&I->name[0]=='?'){if(!count){r.why="invalid indirect call argument count";goto bad;}count--;}
+                        if(count>64 || start>p->argbytes_count || count>(unsigned)(p->argbytes_count-start)){
+                            r.why="IR_CALL argument-size run exceeds its table";goto bad;
+                        }
                     }
                     break;
                 default:

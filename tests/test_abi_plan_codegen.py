@@ -63,7 +63,7 @@ class AbiPlanCodegen(unittest.TestCase):
    self.assertEqual(self.execute(objects,work/'combined.o'),1)
  def test_unsupported_aggregate_is_explicitly_rejected(self):
   cases=['struct S { float x; int y; }; struct S f(struct S x) { return x; }',
-         'struct S { long a,b; }; extern int f(struct S); int entry(void) { struct S x={1,2}; return f(x); }',
+         'struct S { long a,b,c; }; extern int f(struct S); int entry(void) { struct S x={1,2,3}; return f(x); }',
          'struct __attribute__((packed)) S { int x; }; struct S f(struct S x) { return x; }',
          'struct S { unsigned x:4; }; struct S f(struct S x) { return x; }',
          'union S { int x; }; union S f(union S x) { return x; }',
@@ -153,6 +153,43 @@ int entry(void) {
 }
 '''
   with tempfile.TemporaryDirectory(prefix='abi-sse-aggregate-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(library_text);caller.write_text(caller_text)
+   for route in ['xhcc','clang-library','clang-caller']:
+    objects=[]
+    for src in [library,caller]:
+     reference=(route=='clang-library' and src==library) or (route=='clang-caller' and src==caller)
+     obj=work/(src.stem+'_'+route+'.o')
+     if reference:
+      p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-O0','-ffreestanding','-fno-stack-protector','-fno-pic','-c',str(src),'-o',str(obj)],cwd=ROOT,capture_output=True,text=True)
+      self.assertEqual(p.returncode,0,p.stderr)
+     else:self.invoke(src,obj)
+     objects.append(obj)
+    self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
+ def test_integer_pair16_clang_routes_rollback_returns_and_canaries(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'reference Clang required')
+  header='struct Pair16 { long a,b; };\n'
+  library_text=header+'''
+struct Pair16 make_pair(long n) { struct Pair16 p; p.a=n; p.b=n+10; return p; }
+struct Pair16 edit_pair(struct Pair16 p) { p.a+=2; p.b+=3; return p; }
+long rollback_pair(long a,long b,long c,long d,long e,struct Pair16 p,long tail) { return a+b+c+d+e+p.a+p.b+tail; }
+'''
+  caller_text=header+'''
+struct Pair16 make_pair(long); struct Pair16 edit_pair(struct Pair16);
+long rollback_pair(long,long,long,long,long,struct Pair16,long);
+int entry(void) {
+ struct Guard { long before; struct Pair16 p; long after; } g;
+ struct Pair16 a,b,c,d;
+ g.before=91;g.after=93;g.p=make_pair(5);
+ if(g.before!=91||g.after!=93||g.p.a!=5||g.p.b!=15)return 1;
+ a=make_pair(7);b=make_pair(11);c=edit_pair(a);d=edit_pair(make_pair(13));
+ if(a.a!=7||a.b!=17||b.a!=11||b.b!=21)return 2;
+ if(c.a!=9||c.b!=20||d.a!=15||d.b!=26)return 3;
+ if(rollback_pair(1,2,3,4,5,a,19)!=58)return 4;
+ return 0;
+}
+'''
+  with tempfile.TemporaryDirectory(prefix='abi-intpair-',dir=ROOT/'build') as tmp:
    work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(library_text);caller.write_text(caller_text)
    for route in ['xhcc','clang-library','clang-caller']:
     objects=[]

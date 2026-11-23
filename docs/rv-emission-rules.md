@@ -135,6 +135,24 @@ VLA allocation/epilogue and an 11-byte aggregate copy with a byte tail. Redirect
 the signed field record to the unsigned sequence changes -1 to 127 while compiler
 SHA remains unchanged.
 
+## External register aliases and caller register names
+
+`isa.register_count` declares the supported 32-register namespace;
+`isa.register.aliases` contains the full name/number table, bounded to 64 unique
+lexical aliases. `abi.arg_register.0` through `.7` select the names used by caller
+and callee parameter emission. The assembler actually consults the external
+alias table, including aliases added by a copied package. Canonical `xN` parsing
+remains a primitive with its bound read from the declared register count.
+
+The adapter verifies existing required ABI names (zero/ra/sp/fp/a0..a7 and the
+scratch/saved registers used by templates) retain their native numbers. Argument
+names may be alternate aliases only when they map to x10..x17. Register count
+changes, duplicate aliases, invalid tokens or wrong ABI mappings fail before
+emission. The constraints preserve the existing native engine contract; they
+are not a mechanism for inventing a new register file.
+A same-SHA test adds `argfirst 10`, uses it both as argument-register spelling
+and in inline assembly, and executes the compiled result as 42.
+
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for
 their native engine family. The shared template VM enforces syntax, bounds,

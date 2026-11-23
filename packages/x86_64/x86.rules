@@ -3159,3 +3159,18 @@ end
 rule aggregate.parameter.copy.8
 text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 8\n    rep movsb\n
 end
+rule abi.plan.stage_stride
+text 16
+end
+rule aggregate16.stage
+text     pop rax\n    mov rcx, qword ptr [rax]\n    mov qword ptr [rbp${0}], rcx\n    mov rcx, qword ptr [rax+8]\n    mov qword ptr [rbp${1}], rcx\n
+end
+rule aggregate16.return
+text     pop rcx\n    mov rax, qword ptr [rcx]\n    mov rdx, qword ptr [rcx+8]\n
+end
+rule aggregate16.result
+text     mov qword ptr [rbp${0}], rax\n    mov qword ptr [rbp${1}], rdx\n    lea rax, [rbp${0}]\n
+end
+rule aggregate16.copy
+text     lea rsi, [rbp${0}]\n    lea rdi, [rbp${1}]\n    mov ecx, 16\n    rep movsb\n
+end

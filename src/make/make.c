@@ -25,7 +25,8 @@
 typedef struct Mem { struct Mem *next; } Mem;
 typedef struct Var { struct Var *next; char *name,*value; int simple,command,is_default,local,overridden; } Var;
 typedef struct Recipe { struct Recipe *next; char *text; } Recipe;
-typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*last; } Rule;
+typedef struct Binding {struct Binding *next;char *name,*value;int op,forced;} Binding;
+typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*last; Binding *bindings,*last_binding;} Rule;
 typedef struct Node { struct Node *next; char *name; int state,failed,changed; } Node;
 typedef struct Make {
     Mem *mem; size_t used; Var *vars; Rule *rules,*last,*current;
@@ -443,6 +444,27 @@ static int merge_dependencies(Make *m,Rule *rule,const char *text) {
     rc=0;
 done:release(m,d,sizeof(*d));return rc;
 }
+static Rule *explicit_rule(Make *m,const char *target) {
+    Rule *r;for(r=m->rules;r;r=r->next)if(!strcmp(r->target,target))return r;
+    r=(Rule *)alloc(m,sizeof(*r));if(!r)return 0;r->target=copy(m,target);r->deps=copy(m,"");if(!r->target||!r->deps)return 0;
+    if(m->last)m->last->next=r;else m->rules=r;m->last=r;return r;
+}
+static int target_assignment(Make *m,char *target,char *text) {
+    char *eq=separator(text,'='),*name,*value,*names[WORDS+1];int forced=0,op='=',n;Rule *r;Binding *b;
+    if(!eq)return 0;
+    if(!strncmp(text,"override",8)&&isspace((unsigned char)text[8])){forced=1;text=trim(text+8);eq=separator(text,'=');}
+    if(!eq)return fail(m,"target assignment needs equals",0);
+    if(eq>text&&strchr(":?+",eq[-1]))op=*--eq;
+    value=strchr(eq,'=')+1;*eq=0;name=trim(text);value=trim(value);
+    if(!*name||strpbrk(name," \t\r\n"))return fail(m,"invalid target variable name",name);
+    n=words(m,target,names,0);if(n!=1||strchr(names[0],'%'))return fail(m,"target variables require one explicit target",0);
+    r=explicit_rule(m,names[0]);if(!r)return -1;
+    b=(Binding *)alloc(m,sizeof(*b));if(!b)return -1;b->name=copy(m,name);b->op=op;b->forced=forced;
+    if(op==':'){char expanded[TEXT];if(expand(m,value,0,expanded,0))return -1;b->value=copy(m,expanded);}else b->value=copy(m,value);
+    if(!b->name||!b->value)return -1;
+    if(r->last_binding)r->last_binding->next=b;else r->bindings=b;r->last_binding=b;
+    m->current=0;m->multi_rule=0;m->recipe_conflict=0;return 1;
+}
 static int parse(Make *m,const char *path,int optional,int depth) {
     FILE *f;char line[TEXT];int line_no=0,ncond=0,active=1;Condition conditions[8];
     if(depth>8)return fail(m,"include nesting/cycle limit",path);
@@ -486,7 +508,9 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         colon=strchr(s,':');if(!colon){fail(m,"unsupported makefile statement",s);break;}
         *colon++=0;
         {char target[TEXT],deps[TEXT],*ts[WORDS+1];int n,i;Rule *r;
-            if(expand(m,trim(s),0,target,0)||expand(m,trim(colon),0,deps,0))break;
+            if(expand(m,trim(s),0,target,0))break;
+            ar=target_assignment(m,target,trim(colon));if(ar<0)break;if(ar)continue;
+            if(expand(m,trim(colon),0,deps,0))break;
             if(strchr(deps,';')||strchr(deps,':')){fail(m,"unsupported rule syntax",deps);break;}
             if(!strcmp(target,".PHONY")) {char merged[TEXT];size_t z=0;merged[0]=0;if(m->phony&&(put(m,merged,&z,m->phony)||put(m,merged,&z," ")))break;if(put(m,merged,&z,deps))break;m->phony=copy(m,merged);m->current=0;continue;}
             n=words(m,target,ts,0);if(n<=0){fail(m,"rule needs a target",0);break;}
@@ -566,7 +590,8 @@ static int execute(Make *m,const char *text,const Auto *a) {
     return 0;
 }
 typedef struct Frame {char deps[TEXT],all[TEXT],stem[TEXT];char *dv[WORDS+1];Rule combined;} Frame;
-static int build(Make *m,const char *name,int depth) {
+static int build(Make *m,const char *name,int depth);
+static int build_impl(Make *m,const char *name,int depth) {
     Node *node,*depnode;Rule *r,*chosen=0;Recipe *recipe;struct stat st,depst;
     Frame *frame=0;char *deps,*all,*stem,**dv;int dn,i,present,dirty,phony,normal;size_t used=0;
     if(strlen(name)>=TEXT)return fail(m,"target path too long",0);
@@ -633,6 +658,25 @@ static int build(Make *m,const char *name,int depth) {
 bad:
     for(node=m->nodes;node;node=node->next)if(!strcmp(node->name,name))break;
     if(node){node->state=2;node->failed=1;}if(frame&&frame->combined.deps)release(m,frame->combined.deps,strlen(frame->combined.deps)+1);release(m,frame,sizeof(*frame));return -1;
+}
+static int build(Make *m,const char *name,int depth) {
+    Rule *rule;Binding *b;Var *saved=m->vars,*v;int rc=-1;
+    for(rule=m->rules;rule;rule=rule->next)if(!strcmp(rule->target,name))break;
+    if(!rule||!rule->bindings)return build_impl(m,name,depth);
+    for(b=rule->bindings;b;b=b->next) {
+        Var *existing=variable(m,b->name),*local;
+        if(existing&&(b->op=='?'||(!b->forced&&(existing->command||existing->overridden))))continue;
+        local=(Var *)alloc(m,sizeof(*local));if(!local)goto done;
+        if(existing){local->simple=existing->simple;local->value=copy(m,existing->value);}else local->value=copy(m,"");
+        local->name=copy(m,b->name);if(!local->name||!local->value)goto done;
+        local->next=m->vars;m->vars=local;
+        if(setvar(m,b->name,b->value,(b->op==':'||b->op=='?')?'=':b->op,b->forced?2:0))goto done;
+        if(b->op==':')local->simple=1;
+    }
+    rc=build_impl(m,name,depth);
+done:
+    while(m->vars!=saved){v=m->vars;m->vars=v->next;release(m,v->name,strlen(v->name)+1);release(m,v->value,strlen(v->value)+1);release(m,v,sizeof(*v));}
+    return rc;
 }
 int xh_make_main(int argc,char **argv) {
     Make m;int i,rc=0,nt=0;char *targets[WORDS],*file="Makefile",cwd[TEXT];Mem *p;

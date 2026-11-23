@@ -27,11 +27,8 @@
 #  include <stdio.h>
 #endif
 
-static const char *arg_reg_r(int i) {
-    static const char *r[] = { "a0","a1","a2","a3","a4","a5","a6","a7" };
-    if (i < 0 || i >= 8) return "a0";
-    return r[i];
-}
+static const char *arg_reg_r(int i){return xh_rv_argument_register(i);}
+
 
 /* ---- frame layout -------------------------------------------------------
  * Every frame is a fixed 48-byte header followed by the locals, variadic or
@@ -347,7 +344,7 @@ static IrProgram *xh_rv_prog;
 static int rv_emit(IrProgram *prog, char *out, int cap) {
     xh_rv_prog = prog;
     xh_rv_rules_reset();
-    if(xh_rv_abi_load())return -1;
+    if(xh_rv_abi_load()||xh_rv_registers_load())return -1;
     AsmBuffer buf;
     int fi;
     asmbuf_init(&buf);
@@ -2079,30 +2076,20 @@ static int rv_read_ll(const char **p, long long *out) {
 }
 
 static int rv_read_reg(const char **p) {
-    static const struct { const char *n; int r; } tab[] = {
-        {"zero",0},{"ra",1},{"sp",2},{"gp",3},{"tp",4},
-        {"t0",5},{"t1",6},{"t2",7},{"s0",8},{"fp",8},{"s1",9},
-        {"a0",10},{"a1",11},{"a2",12},{"a3",13},{"a4",14},{"a5",15},
-        {"a6",16},{"a7",17},{"s2",18},{"s3",19},{"s4",20},{"s5",21},
-        {"s6",22},{"s7",23},{"s8",24},{"s9",25},{"s10",26},{"s11",27},
-        {"t3",28},{"t4",29},{"t5",30},{"t6",31}
-    };
     const char *s = *p;
-    char name[8];
+    char name[24];
     int n, i;
     n = rv_read_ident(&s, name, (int)sizeof(name));
-    if (n == 0) return -1;
+    if (n == 0 || n >= (int)sizeof(name)) return -1;
     if (name[0] == 'x' && name[1]) {
         long long v = 0;
         const char *q = name + 1;
         if (!rv_read_ll(&q, &v) || *q) return -1;
-        if (v < 0 || v > 31) return -1;
+        if (v < 0 || v >= xh_rv_register_count()) return -1;
         *p = s;
         return (int)v;
     }
-    for (i = 0; i < (int)(sizeof(tab) / sizeof(tab[0])); i++)
-        if (rv_streq_(tab[i].n, name)) { *p = s; return tab[i].r; }
-    return -1;
+    i=xh_rv_register_number(name);if(i>=0){*p=s;return i;}return -1;
 }
 
 /* off(base) */
@@ -2963,7 +2950,7 @@ int xhcc_rv_write_elf(const char*path,unsigned char*code,int len){
 static int rv_assemble(const char *asm_text, unsigned char *out, int cap) {
     RvAsm a;
     int i, total;
-    rv_rule_errors=0;if(xh_rules_load())return -1;
+    rv_rule_errors=0;if(xh_rules_load()||xh_rv_registers_load())return -1;
 
     a.src = asm_text;
     a.out = out;

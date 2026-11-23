@@ -2028,14 +2028,15 @@ static void amd_store_fp(AsmBuffer *b, int is_double) {
 int g_xhcc_use_sysv_abi_plan=0;
 static const IrAbiPlan *amd_plan(IrProgram*p,int index){return index>0&&index<=p->abi_plan_count?p->abi_plans[index-1]:0;}
 static int amd_scalar_type(Type*t){return !t || t->kind==TYPE_VOID || t->kind==TYPE_PTR || type_is_integer(t) || t->kind==TYPE_FLOAT || t->kind==TYPE_DOUBLE;}
-static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint){unsigned k;if(!p || !xh_sysv_plan_wire_size(p) || p->version<2 || !(p->flags&(XH_SYSV_PLAN_SCALAR_VERIFIED|XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED|XH_SYSV_PLAN_SMALL_SSE_AGGREGATE_VERIFIED)) || p->abi_id!=1 || p->rule_fingerprint!=fingerprint || p->sret || p->result.memory || p->result.count>1)return 0;
- for(k=0;k<p->arg_count;k++){const XhAbiArgumentPlan*a=&p->args[k];if(a->size>8 || a->count>1 || (!a->by_value_stack&&a->count!=1) || (a->by_value_stack&&(a->stack_extent!=8||a->stack_offset%8)))return 0;if(a->count&&(a->fragments[0].object_offset || a->fragments[0].bank>1 || a->fragments[0].index>=(a->fragments[0].bank?8u:6u)))return 0;}
+static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint){unsigned k,j;if(!p||!xh_sysv_plan_wire_size(p)||p->version<2||!p->flags||p->abi_id!=1||p->rule_fingerprint!=fingerprint||p->sret||p->result.memory||p->result.count>2)return 0;
+ if(p->result.count==2&&(p->flags!=8||p->result.fragments[0].class_id!=1||p->result.fragments[1].class_id!=1||p->result.fragments[0].offset||p->result.fragments[1].offset!=8||p->result.fragments[0].size!=8||p->result.fragments[1].size!=8))return 0;
+ for(k=0;k<p->arg_count;k++){const XhAbiArgumentPlan*a=&p->args[k];int pair=a->size==16;if((a->size>8&&!pair)||(pair&&p->flags!=8)||a->count>(pair?2u:1u)||(!a->by_value_stack&&a->count!=(pair?2u:1u))||(a->by_value_stack&&(a->stack_extent!=(pair?16u:8u)||a->stack_offset%8)))return 0;for(j=0;j<a->count;j++){const XhAbiPlanLocation*f=&a->fragments[j];if(f->object_offset!=(pair?8*j:0)||f->bank>1||f->index>=(f->bank?8u:6u)||(pair&&(f->bank||f->size!=8)))return 0;}}
  return 1;}
 static int amd_validate_plans(IrProgram*p){unsigned fingerprint=xh_template_fingerprint("x86_64.aggregate");int fi,i,k;
  for(fi=0;fi<p->func_count;fi++){IrFunc*f=p->funcs[fi];const IrAbiPlan*signature=amd_plan(p,f->parameter_plan),*result=amd_plan(p,f->result_plan);
-  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type)&&!xh_sysv_small_integer_struct(f->ret_type)&&!xh_sysv_small_sse_struct(f->ret_type))goto bad;
-  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&!xh_sysv_small_integer_struct(f->param_types[k])&&!xh_sysv_small_sse_struct(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
-  for(i=0;i<f->code_count;i++)if(f->code[i].op==IR_CALL){IrInst*inst=&f->code[i];const IrAbiPlan*call=amd_plan(p,inst->abi_plan);unsigned n=(unsigned)inst->val;if(inst->name&&inst->name[0]=='?')n--;if(!amd_plan_ok(call,fingerprint)||call->arg_count!=n)goto bad;}
+  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type)&&!xh_sysv_small_integer_struct(f->ret_type)&&!xh_sysv_small_sse_struct(f->ret_type)&&!xh_sysv_integer_pair_struct(f->ret_type))goto bad;
+  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&!xh_sysv_small_integer_struct(f->param_types[k])&&!xh_sysv_small_sse_struct(f->param_types[k])&&!xh_sysv_integer_pair_struct(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
+  for(i=0;i<f->code_count;i++)if(f->code[i].op==IR_CALL){IrInst*inst=&f->code[i];const IrAbiPlan*call=amd_plan(p,inst->abi_plan);unsigned n=(unsigned)inst->val;if(inst->name&&inst->name[0]=='?')n--;if(!amd_plan_ok(call,fingerprint)||call->arg_count!=n||(call->result.count==2&&(!((inst->val>>36)&1)||((inst->val>>37)&0xFFFF)!=16)))goto bad;}
  }
  return 0;
  bad:diag_tool(DIAG_SEV_ERROR,"x86_64","scalar SysV ABI-plan codegen requires complete, matching scalar/small-integer-struct plans; unsupported aggregate/missing/stale plans are rejected",0,0,0,0,0,0);return -1;
@@ -2046,6 +2047,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
      * then load x86 templates once before any emission begins. */
     if(g_xhcc_use_sysv_abi_plan && amd_validate_plans(prog))return -1;
     if (xh_x86_rules_begin(1)) return -1;
+    if(g_xhcc_use_sysv_abi_plan&&xh_x86_number("abi.plan.stage_stride")!=16)return -1;
     xh_x86_prog = prog;
     AsmBuffer buf;
     int fi;
@@ -2071,6 +2073,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
          * the first variadic argument is the one just past these. */
         int int_used = 0, sse_used = 0, stk = xh_x86_number("abi.stack.argument_base");
         int rs_off = 0;
+        int stage_stride=function_plan?xh_x86_number("abi.plan.stage_stride"):xh_x86_number("abi.stack.word");
         /* One result buffer per *call site* that returns a struct/union wider
          * than 8 bytes (IR_CALL bit 36).  SysV hands such a result back through
          * a buffer the caller owns, passed as the hidden first integer
@@ -2127,7 +2130,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
         /* The buffers sit below everything else the frame keeps (locals, the
          * argument spill area, and the variadic register save area), so
          * framelo and rs_off -- which existing code reads -- are unaffected. */
-        sret_area = framelo + xh_x86_number("abi.frame.spill_slots") * xh_x86_number("abi.stack.word") + (f->is_variadic ? xh_x86_number("abi.va.save_bytes") : 0);
+        sret_area = framelo + xh_x86_number("abi.frame.spill_slots") * stage_stride + (f->is_variadic ? xh_x86_number("abi.va.save_bytes") : 0);
         frame = x86_abi_align(sret_area+sret_pool,"abi.frame.alignment");
         /* A variadic definition also owns the ABI's 176-byte register save
          * area: the six integer argument registers (48 bytes) followed by the
@@ -2136,9 +2139,9 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
          * so the base is 16-byte aligned -- which is what the vector half
          * needs, and it is why the area is allocated at all instead of being
          * read out of the registers on demand. */
-        rs_off = framelo + xh_x86_number("abi.frame.spill_slots") * xh_x86_number("abi.stack.word") + xh_x86_number("abi.va.save_bytes");
+        rs_off = framelo + xh_x86_number("abi.frame.spill_slots") * stage_stride + xh_x86_number("abi.va.save_bytes");
 
-        if (x86_type_class(f->ret_type,1,0,0).indirect)
+        if (!function_plan && x86_type_class(f->ret_type,1,0,0).indirect)
             sret_used = 1;
 
         if (!f->is_static) {
@@ -2193,6 +2196,12 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 if (I->op != IR_GETARG || I->val >= 8000) continue;
                 if (f->param_types && pi < f->param_count) pt = f->param_types[pi];
                 pi++;
+                if(function_plan&&function_plan->args[k].size==16){
+                    const XhAbiArgumentPlan*saved=&function_plan->args[k];int j;
+                    tmp=-framelo-stage_stride*(k+1);
+                    for(j=0;j<2;j++){if(saved->by_value_stack){amd_mem_rd(&buf,"mov","rax","qword",xh_x86_number("abi.stack.argument_base")+(int)saved->stack_offset+8*j);amd_rd_mem(&buf,"mov","qword",tmp+8*j,"rax");}else{int reg=(int)saved->fragments[j].index;amd_rd_mem(&buf,"mov","qword",tmp+8*j,amd_argreg64(reg));if(int_used<=reg)int_used=reg+1;}}
+                    k++;continue;
+                }
                 param_class=x86_type_class(pt,0,f->is_variadic,pi-1);
                 if(function_plan){
                     const XhAbiArgumentPlan*saved=&function_plan->args[k];
@@ -2200,7 +2209,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     else{location=(int)saved->fragments[0].bank;location_index=(int)saved->fragments[0].index;if(location==0&&int_used<=location_index)int_used=location_index+1;if(location==1&&sse_used<=location_index)sse_used=location_index+1;}
                     param_class.bank=location;
                 }else location=xh_x86_allocate(&param_class,&int_used,&sse_used,&stack_used,&location_index);
-                tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
+                tmp = -framelo - stage_stride * (k + 1);
                 k++;
                 if (param_class.bank==1) {
                     if (location==1) {
@@ -2277,11 +2286,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     }
                     sz = (int)((I->aux >> 8) & 0xFF);
                     if (sz <= 0) sz = 4;
-                    tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
+                    tmp = -framelo - stage_stride * (k + 1);
                     dst = (int)I->val - framelo;
                     if(function_plan && f->param_types && k<f->param_count && f->param_types[k]->kind==TYPE_STRUCT){
                         char key[64],source[32],destination[32];const char *args[2];
-                        snprintf(key,sizeof(key),"aggregate.parameter.copy.%d",sz);
+                        snprintf(key,sizeof(key),sz==16?"aggregate16.copy":"aggregate.parameter.copy.%d",sz);
                         snprintf(source,sizeof(source),"%+d",tmp);snprintf(destination,sizeof(destination),"%+d",dst);args[0]=source;args[1]=destination;
                         asmbuf_puts(&buf,xh_x86_expand(key,args,2));break;
                     }
@@ -2711,6 +2720,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * this switch does. */
                     int sret_call = (int)((I->val >> 36) & 1);
                     int sret_buf = 0;
+                    int register_pair_result=call_plan&&call_plan->result.count==2;
                     if (sret_call) {
                         if (sret_site_cur < sret_site_n) {
                             sret_buf = sret_area + sret_off_tab[sret_site_cur] +
@@ -2722,6 +2732,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             sret_call = 0;
                         }
                     }
+                    if(register_pair_result)sret_call=0;
                     if (sret_call) int_used = 1;
 
                     if (is_indirect) {
@@ -2737,6 +2748,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                      * two-word order: high word first (it is on top). */
                     for (k = 0; k < n; k++) {
                         int b, w, slot64, tmp;
+                        if(call_plan&&call_plan->args[k].size==16){char lo[32],hi[32];const char*args[2];if(!wires||!(wires[k]&IR_ARG_BYVALUE_ADDRESS)){amd_unsupported(&buf,"integer-pair argument requires by-value-address IR contract");break;}tmp=-framelo-stage_stride*(k+1);snprintf(lo,sizeof(lo),"%+d",tmp);snprintf(hi,sizeof(hi),"%+d",tmp+8);args[0]=lo;args[1]=hi;asmbuf_puts(&buf,xh_x86_expand("aggregate16.stage",args,2));continue;}
                         if (wires) {
                             b = wires[k] & 0xFFFF;
                             slot64 = (wires[k] & 0x20000) != 0;
@@ -2750,7 +2762,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                             xh_x86_classify(0,slot64?XH_ABI_POINTER:floating?XH_ABI_FLOAT:XH_ABI_INTEGER,b,1,0,k,&argument_class[k]);
                             w=argument_class[k].words;
                         }
-                        tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
+                        tmp = -framelo - stage_stride * (k + 1);
                         if (w == 2) {
                             asmbuf_puts(&buf, xh_x86_rule("text.d0aef66727d08b37"));
                             amd_rd_mem(&buf, "mov", "dword", tmp + 4, "edx");
@@ -2781,6 +2793,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         if(call_plan){const XhAbiArgumentPlan*saved=&call_plan->args[k];if(saved->by_value_stack){cls[k]=2;where[k]=(int)saved->stack_offset;nstk++;}else{cls[k]=(int)saved->fragments[0].bank;where[k]=(int)saved->fragments[0].index;if(cls[k]==0&&int_used<=where[k])int_used=where[k]+1;if(cls[k]==1&&sse_used<=where[k])sse_used=where[k]+1;}}
                         else cls[k]=xh_x86_allocate(&argument_class[k],&int_used,&sse_used,&nstk,&where[k]);
                     }
+                    if(call_plan){unsigned a,j;for(a=0;a<call_plan->arg_count;a++)for(j=0;j<call_plan->args[a].count;j++){const XhAbiPlanLocation*l=&call_plan->args[a].fragments[j];if(!l->bank&&int_used<=(int)l->index)int_used=(int)l->index+1;}}
                     asmbuf_puts(&buf, xh_x86_rule("text.d142bbe448005ce7"));
                     if (nstk > 0) {
                         asmbuf_puts(&buf, xh_x86_rule("text.cb03efe8ee360a4b"));
@@ -2793,10 +2806,11 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         for (k = 0; k < n; k++) {
                             int b, tmp;
                             if (cls[k] != 2) continue;
+                            if(call_plan&&call_plan->args[k].size==16){int j;tmp=-framelo-stage_stride*(k+1);for(j=0;j<2;j++){amd_mem_rd(&buf,"mov","rax","qword",tmp+8*j);asmbuf_puts(&buf,xh_x86_rule("text.e4109461abaf377f"));asmbuf_int(&buf,where[k]+8*j);asmbuf_puts(&buf,xh_x86_rule("text.42ade291e14ed386"));}continue;}
                             if (wires) b = wires[k] & 0xFFFF;
                             else b = (k < 16 && ((argmask >> (2 * k + 1)) & 1)) ? 8 : 4;
                             (void)b;
-                            tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
+                            tmp = -framelo - stage_stride * (k + 1);
                             amd_mem_rd(&buf, "mov", "rax", "qword", tmp);
                             asmbuf_puts(&buf, xh_x86_rule("text.e4109461abaf377f"));
                             asmbuf_int(&buf, call_plan?where[k]:xh_x86_number("abi.stack.word") * next);
@@ -2808,9 +2822,10 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                     for (k = 0; k < n; k++) {
                         int b, tmp;
                         if (cls[k] == 2) continue;
+                        if(call_plan&&call_plan->args[k].size==16){int j;tmp=-framelo-stage_stride*(k+1);for(j=0;j<2;j++)amd_mem_rd(&buf,"mov",amd_argreg64((int)call_plan->args[k].fragments[j].index),"qword",tmp+8*j);continue;}
                         if (wires) b = wires[k] & 0xFFFF;
                         else b = (k < 16 && ((argmask >> (2 * k + 1)) & 1)) ? 8 : 4;
-                        tmp = -framelo - xh_x86_number("abi.stack.word") * (k + 1);
+                        tmp = -framelo - stage_stride * (k + 1);
                         if (cls[k] == 1) {
                             asmbuf_puts(&buf, xh_x86_rule("text.cc3836120ed5ecf8"));
                             asmbuf_int(&buf, where[k]);
@@ -2854,6 +2869,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                         asmbuf_putc(&buf, '\n');
                     }
                     asmbuf_puts(&buf, xh_x86_rule("text.b0d7482d199fb842"));
+                    if(register_pair_result){char lo[32],hi[32];const char*args[2];snprintf(lo,sizeof(lo),"%+d",-sret_buf);snprintf(hi,sizeof(hi),"%+d",-sret_buf+8);args[0]=lo;args[1]=hi;asmbuf_puts(&buf,xh_x86_expand("aggregate16.result",args,2));asmbuf_puts(&buf,xh_x86_rule("text.de1843ef75a9fb24"));break;}
                     if (sret_call) {
                         /* The IR value of a struct-returning call is the
                          * address of the result, and the front end copies the
@@ -2904,6 +2920,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
 
                 case IR_RETURN: {
                     Type *rt = f->ret_type;
+                    if(function_plan&&function_plan->result.count==2){asmbuf_puts(&buf,xh_x86_rule("aggregate16.return"));asmbuf_puts(&buf,xh_x86_rule("text.433c6caaac074862"));break;}
                     XhX86AbiClass result_class=x86_type_class(rt,1,0,0);
                     int two=result_class.words==2;
                     if(function_plan)result_class.bank=function_plan->result.count&&function_plan->result.fragments[0].class_id==2?1:0;

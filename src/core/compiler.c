@@ -3460,6 +3460,12 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
 #ifdef XHCC
     {
         int fi;
+        for(fi=0;fi<ir->argbytes_count;fi++){
+            if((ir->argbytes[fi]&IR_ARG_BYVALUE_ADDRESS) && (!opts->use_sysv_abi_plan||!ark_streq(be->name,"x86_64"))){
+                diag_tool(DIAG_SEV_ERROR,opts->input_path,"by-value address arguments require verified AMD64 ABI-plan use mode",0,0,0,0,0,0);
+                return ARK_ERR_CODEGEN;
+            }
+        }
         for(fi=0;fi<ir->func_count;fi++){
             int ii;
             for(ii=0;ii<ir->funcs[fi]->code_count;ii++){

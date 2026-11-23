@@ -43,6 +43,17 @@ Supported syntax and behavior:
   `value NAME` returns a variable's stored text without expanding it; `flavor NAME`
   reports `undefined`, `recursive`, or `simple`. Their name arguments expand,
   while a raw stored `$(error ...)` remains unevaluated when returned by value.
+- One explicit target can define local variables using `target: NAME = value`,
+  `:=`, `+=`, or `?=`, optionally `target: override NAME = value`. The local
+  bindings apply during that target and inherit into its prerequisites; global
+  values are restored afterwards. Command-line/override values retain priority
+  unless a local override is specified. `?=` preserves a definition already
+  visible in the inherited context. Immediate local `:=` expands when the
+  makefile is read using the then-current global context; other bindings resolve
+  when the target is entered, in declaration order. A shared prerequisite uses
+  its first traversal's context, as it is built once. Variable-only declarations
+  do not choose a default goal and cannot carry recipes. Pattern-specific and
+  multiple-target variable declarations remain unsupported.
 - Nested references and text functions `strip`, `addprefix`, `addsuffix`,
   `notdir`, `basename`, `subst`, `filter`, `filter-out`, `sort`, and `patsubst`.
   Function arguments can contain nested variable references/functions. `filter`
@@ -138,7 +149,7 @@ inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
 This does **not** implement full GNU make: functions beyond the twenty-four listed,
-conditionals beyond the listed forms, target-specific variables,
+conditionals beyond the listed forms, pattern-specific variables,
 export/environment variable import, grouped targets and recipes shared by
 multiple targets, double-colon/static pattern rules, inline recipes,
 secondary expansion, implicit wildcard expansion outside the function,

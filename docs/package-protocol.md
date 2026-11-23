@@ -24,7 +24,7 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1`, `abi.plan-small-int-struct.v2` and `abi.plan-small-sse-struct.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1`, `abi.plan-small-int-struct.v2`, `abi.plan-small-sse-struct.v1` and `abi.plan-int-pair.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
 
 `semantic.selector.v1` declares the bounded shared semantic selector contract:
 `XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
@@ -99,7 +99,7 @@ three naturally aligned structures: F4 (one float, 4 bytes), FPair8 (two floats,
 original source type and a single-SSE classification; neither byte width nor a
 single placement fragment alone is sufficient. Flag value 4 certifies this
 signature class. Legal canonical certification values are mutually exclusive
-0, 1, 2 and 4; combined or unknown values such as 3 are rejected. A signature
+0, 1, 2, 4 and 8; combined or unknown values such as 3 are rejected. A signature
 containing both an already certified integer structure and an eligible SSE
 structure uses the highest class, flag 4, rather than bitwise flag combination.
 This does not permit mixed integer/floating fields inside one structure.
@@ -116,6 +116,32 @@ include the spill result 51, GP-mix result 15 and returned floating values 2.5,
 within such signatures. This establishes these specific pure-SSE shapes, not
 all SSE aggregate combinations or mixed fields within a single structure; it
 is not evidence of complete SysV aggregate, deployment or hardware support.
+
+`abi.plan-int-pair.v1` adds only a naturally aligned 16-byte structure with
+exactly two 64-bit `TYPE_LONG` fields at offsets 0 and 8. Builder certification
+of the original source type and two INTEGER classifications produces flag 8.
+This is the highest eligible signature class when combined with previously
+supported components; flags remain exclusive values, not bit combinations.
+Other 16-byte forms, including long-long-field variants and mixed INTEGER/SSE
+fields, are not authorized by this capability. Use remains explicitly enabled
+through `-fuse-sysv-abi-plan` on x86_64 only.
+
+Arguments carry validated `BYVALUE_ADDRESS=0x80000` IR metadata with low-16-bit
+size 16 and no FP-slot flag. It denotes an internal address to by-value source
+bytes, not an ABI pointer argument. A pair uses two GP registers when available;
+otherwise its entire 16 bytes go to the stack with register-allocation rollback,
+allowing a later scalar to reuse the remaining GP register. Results use RAX/RDX.
+Caller bit 36 requests only an internal result buffer: the native plan retains
+`sret=0` and does not introduce a hidden RDI argument. Serialization and engine/
+mode guards must reject malformed metadata or unsupported consumers rather than
+reinterpret these internal representations as native ABI arguments.
+
+The actual 910138-byte root artifact passed all nine ABI plan codegen tests
+with Clang enabled. The Pair16 fixture passed all three toolchain routes,
+including parameter/return handling, multiple simultaneously live result
+buffers, nested calls, whole-argument stack rollback and canary checks. This
+certifies the exact two-long subset, not all 16-byte structures, arbitrary
+long-long/mixed-field forms or complete SysV aggregate interoperability.
 
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.
