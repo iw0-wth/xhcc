@@ -9542,7 +9542,7 @@ static void out16(ArmAsm *a, unsigned v) {
 
 static unsigned arm_encoding(ArmAsm *a,const char *key,int x,int y,int z,int t,int count){
     int args[4];unsigned word=0;args[0]=x;args[1]=y;args[2]=z;args[3]=t;
-    if(xh_encoding_encode("arm",key,args,count,&word)){a->hard_errors++;a->error_count++;}
+    if(xh_arm_feature_check(key)||xh_encoding_encode("arm",key,args,count,&word)){a->hard_errors++;a->error_count++;}
     return word;
 }
 static void arm_encode16(ArmAsm *a,const char *key,int x,int y,int z,int t,int count){
@@ -9555,7 +9555,7 @@ static void arm_encode32(ArmAsm *a,const char *key,int x,int y,int z,int t,int c
 
 static void arm_encode32_args(ArmAsm *a,const char *key,const int *args,int count){
     unsigned word=0;
-    if(xh_encoding_encode("arm",key,args,count,&word)){a->hard_errors++;a->error_count++;}
+    if(xh_arm_feature_check(key)||xh_encoding_encode("arm",key,args,count,&word)){a->hard_errors++;a->error_count++;}
     out16(a,word>>16);out16(a,word&65535u);
 }
 
@@ -13090,6 +13090,7 @@ static int arm_emit(IrProgram *m, char *out, int cap) {
     char *text;
     xh_arm_rules_reset();
     text = codegen_arm(m);
+    if(xh_arm_feature_text(text))return -1;
     if(xh_arm_rules_failed()){if(cap>0)out[0]=0;return -1;}
     int n = ark_strlen(text);
     int i;

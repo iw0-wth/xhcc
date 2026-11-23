@@ -127,6 +127,47 @@ unsigned entry(void){union Z a,b,c;a.words[0]=1;a.words[1]=2;b.words[0]=3;b.word
    root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';text=rules.read_text()
    bad=text.replace('memory store 64 v index_aligned semantic.index.store.wide.aligned 3 2','memory store 64 v index_aligned semantic.index.store.wide.aligned 2 2');rules.write_text(bad);path=OUT/'indexed_bad.c';path.write_text(source);p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'indexed_bad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_packed_complex_byte_access_offsets_and_expression_values(self):
+  # Mapping helpers verify float<->double call ABI with exact known patterns;
+  # they intentionally do not implement general IEEE conversion.
+  source='''union D{double _Complex z;unsigned long long w[2];}; union F{float _Complex z;unsigned w[2];};
+unsigned long long __extendsfdf2(unsigned x){if(x==0x3f800000u)return 0x3ff0000000000000ULL;if(x==0x40000000u)return 0x4000000000000000ULL;return 0;} unsigned __truncdfsf2(unsigned long long x){if(x==0x3ff0000000000000ULL)return 0x3f800000u;if(x==0x4000000000000000ULL)return 0x40000000u;return 0;}
+int entry(void){return 1;}'''
+  for offset in range(4):
+   padding=f'char pad[{offset}];' if offset else ''
+   source+=f'''struct __attribute__((packed)) D{offset}{{{padding} double _Complex z;}}; struct __attribute__((packed)) F{offset}{{{padding} float _Complex z;}};
+unsigned d{offset}(void){{struct D{offset} p;union D a,b,c;a.w[0]=0x1122334455667788ULL;a.w[1]=0x99aabbccddeeff00ULL;c.z=(p.z=a.z);b.z=p.z;return (unsigned)(b.w[0]>>32)^(unsigned)b.w[1]^(unsigned)(c.w[1]>>32);}}
+unsigned f{offset}(void){{struct F{offset} p;union F a,b;a.w[0]=0x3f800000u;a.w[1]=0x40000000u;p.z=a.z;b.z=p.z;return b.w[0]^b.w[1];}}
+unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff0000012345678ULL;a.w[1]=0x400000009abcdef0ULL;c.z=(p.z=a.z);return (unsigned)c.w[0]^(unsigned)c.w[1];}}
+'''
+  exe=self.compile(source,'packedcomplex')
+  for offset in range(4):
+   self.assertEqual(self.execute(exe,'d'+str(offset)),0x11223344^0xddeeff00^0x99aabbcc,offset)
+   self.assertEqual(self.execute(exe,'f'+str(offset)),0x3f800000^0x40000000,offset)
+   self.assertEqual(self.execute(exe,'keep'+str(offset)),0,offset)
+   # C assignment converts to the target float-complex type before widening,
+   # so the mapping fixture intentionally drops these nonzero low words.
+  # Verify the lower-level store rule separately with raw IR-layout words:
+  # it must retain the incoming expression value, independent of narrowing.
+  import re
+  text=(ROOT/'packages/riscv32/rv.rules').read_text();body=re.search(r'rule semantic.index.store.complex64.packed\ntext ([^\n]*)\nend',text).group(1).replace('\\n','\n')
+  for offset in [1,2,3]:
+   asm='addi sp, sp, -64\nsw ra, 60(sp)\naddi t0, sp, '+str(32+offset)+'\naddi sp, sp, -20\nsw t0, 16(sp)\n'
+   for word,position in [(0x3ff00000,0),(0x12345678,4),(0x40000000,8),(0x9abcdef0,12)]:asm+='li t0, '+str(word)+'\nsw t0, '+str(position)+'(sp)\n'
+   asm+=body+'lw t0, 4(sp)\nlw t1, 12(sp)\nxor a0, t0, t1\naddi sp, sp, 16\nlw ra, 60(sp)\naddi sp, sp, 64\nret\n'
+   basic=asm.replace('\\','\\\\').replace('"','\\"').replace('\n','\\n')
+   fixture='unsigned __truncdfsf2(unsigned long long x){return 0;} unsigned raw(void){asm("'+basic+'");} int entry(void){return 1;}'
+   command=[sys.executable,'tools/xhcc.py','--package-root','packages','riscv32-unknown-elf-gcc']
+   # Explicit legacy assembly input uses the integrated assembler and the same
+   # relocation VM, avoiding a C prologue around the raw stack-contract gate.
+   path=OUT/f'rawstore{offset}.s';obj=OUT/f'rawstore{offset}.ark_obj';image=OUT/f'rawstore{offset}.bin'
+   path.write_text('.globl raw\nraw:\n'+asm+'\n__truncdfsf2:\nli a0, 0\nret\n')
+   wasm=os.environ.get('WASMTIME',r'C:\Program Files\Wasmtime\bin\wasmtime.exe');legacy=[wasm,'run','--dir=.','build/wasm/dev/all/xhcc.wasm','--ark-compat','-target','riscv32']
+   p=subprocess.run([*legacy,'-c',str(path.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+   p=subprocess.run([*legacy,'-link',str(obj.relative_to(ROOT)),'-o',str(image.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stderr)
+   uc=Uc(UC_ARCH_RISCV,UC_MODE_RISCV32);uc.mem_map(0x10000,0x20000);uc.mem_map(0x700000,0x20000);uc.mem_write(0x10000,image.read_bytes());uc.reg_write(UC_RISCV_REG_SP,0x71f000);uc.reg_write(UC_RISCV_REG_RA,0x2f000);uc.emu_start(0x10000,0x2f000,count=100000);self.assertEqual(uc.reg_read(UC_RISCV_REG_A0)&0xffffffff,0x12345678^0x9abcdef0,offset)
+  with exe.open('rb') as f:
+   elf=ELFFile(f);self.assertIsNotNone(elf.get_section_by_name('.text'))
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

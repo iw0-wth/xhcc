@@ -1108,7 +1108,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                      * added shift leaves those cases untouched. */
                     if(es!=1)xh_rv_semantic(&buf,"address","scale",es*8,"v","index",0,0,0,0);
                     xh_rv_rule(&buf,"emit.fixed.0130");
-                    {int complex=(I->aux&IR_AUX_COMPLEX)!=0||es==16;if(complex&&packed){diag_tool(DIAG_SEV_ERROR,"riscv32","packed complex indexed load requires unsupported unaligned conversion",0,0,0,0,0,0);break;}const char*sign=complex?"complex":es==8?"v":"s";xh_rv_semantic(&buf,"memory","load",es*8,sign,packed?"index_packed":"index_aligned",0,complex?4:es==8?2:1,0,0);}
+                    {int complex=(I->aux&IR_AUX_COMPLEX)!=0||es==16;const char*sign=complex?"complex":es==8?"v":"s";xh_rv_semantic(&buf,"memory","load",es*8,sign,packed?"index_packed":"index_aligned",0,complex?4:es==8?2:1,0,0);}
                     break;
                 }
 
@@ -1125,7 +1125,6 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     int packed = (I->aux & 0x400) ? 1 : 0;
                     if(es!=1&&es!=2&&es!=4&&es!=8&&es!=16){diag_tool(DIAG_SEV_ERROR,"riscv32","unsupported indexed store width",0,0,0,0,0,0);break;}
                     {int complex=(I->aux&IR_AUX_COMPLEX)!=0||es==16;
-                     if(complex&&packed){diag_tool(DIAG_SEV_ERROR,"riscv32","packed complex-float indexed store is unsupported",0,0,0,0,0,0);break;}
                      xh_rv_semantic(&buf,"memory",es<8?"store_full":"store",es*8,complex?"complex":"v",packed?"index_packed":"index_aligned",complex?5:es==8?3:2,complex?4:es==8?2:1,0,0);}
                     break;
                 }

@@ -1834,6 +1834,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * 清回了 0 —— `-cpu cortex-m7` 看着被接受，实际仍发 BL __aeabi_f2d，
      * 在没有符号解析运行库的小程序侧就是 unresolved symbol。 */
     g_arm_fpu_dp = 0;
+#if defined(XHCC) && ARKCC_BACKEND_ARM
+    arm_set_target_features(0,0);
+#endif
     if (opts->cpu && (!opts->target || ark_streq(opts->target,"arm"))) {
         const CpuInfo *cpu = cpu_lookup(opts->cpu);
         if (!cpu) {
@@ -1843,6 +1846,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
             return ARK_ERR_ARG;
         }
         cpu_apply_predefines(cpu);
+#if defined(XHCC) && ARKCC_BACKEND_ARM
+        arm_set_target_features(cpu,!opts->private_object);
+#endif
         /* Which FPU the ARM backend may use for double <-> float conversion:
          * only the DP variants (Cortex-M7 DP) can encode VCVT.F64.*. */
         g_arm_fpu_dp = cpu->has_fpu_dp ? 1 : 0;
@@ -3405,7 +3411,14 @@ int xh_backend_from_ir(const ArkOptions *opts,const char *ir_path){
     }
     type_set_ptr_size(be->pointer_size);type_set_long_size((int)xh_stage_rd(buf+16));
     {extern int g_xhcc_elf_mode,g_xhcc_listing_mode;g_xhcc_elf_mode=!opts->private_object;g_xhcc_listing_mode=opts->emit_asm;}
-    g_arm_fpu_dp=0;if(opts->cpu&&ark_streq(be->name,"arm")){const CpuInfo*cpu=cpu_lookup(opts->cpu);if(!cpu)return ARK_ERR_ARG;g_arm_fpu_dp=cpu->has_fpu_dp;if(!cpu->has_fpu)g_config.enable_fpu_hw=0;}if(g_config.fpu_type&&ark_streq(g_config.fpu_type,"fpv5-sp-d16"))g_arm_fpu_dp=0;
+#if ARKCC_BACKEND_ARM
+    arm_set_target_features(0,0);
+#endif
+    g_arm_fpu_dp=0;if(opts->cpu&&ark_streq(be->name,"arm")){const CpuInfo*cpu=cpu_lookup(opts->cpu);if(!cpu)return ARK_ERR_ARG;
+#if ARKCC_BACKEND_ARM
+    arm_set_target_features(cpu,!opts->private_object);
+#endif
+    g_arm_fpu_dp=cpu->has_fpu_dp;if(!cpu->has_fpu)g_config.enable_fpu_hw=0;}if(g_config.fpu_type&&ark_streq(g_config.fpu_type,"fpv5-sp-d16"))g_arm_fpu_dp=0;
     ir=ir_deserialize(buf+32,size-32,ir_path);if(!ir)return ARK_ERR_IRGEN;
     /* Configuration is supplied by the request adapter; deserialization and
      * emission intentionally never call preprocessing, parsing or pipelines. */

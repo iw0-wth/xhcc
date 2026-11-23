@@ -91,11 +91,18 @@ loads and stores, aligned complex-float/double indexed loads and stores, and
 complete scalar indexed store actions. The adapter normalizes width/type and
 expected stack effect rather than choosing the target sequence in C. Address
 formation and element scaling remain shared mechanisms. Existing high/low word
-and complex real/imaginary order is preserved. Packed integer64 accesses use
-byte sequences; packed complex accesses are explicitly rejected because their
-conversion and multiword access sequence is not yet safely unaligned.
+and complex real/imaginary order is preserved. Packed integer64 and complex accesses use byte sequences. Complex-double
+reads assemble each 32-bit word from bytes and writes split each word to bytes,
+retaining real/imaginary and stack word order. Complex-float loads preserve the
+unaligned address across both float-to-double helper calls in bounded scratch;
+stores preserve the original internal double value, narrow both parts with
+bounded scratch, then write the converted float bytes. The store expression
+result is retained from the original IR value, never reconstructed by a lossy
+float round trip. No unaligned lw/sw touches the packed object.
 Tests cover indexed integer64, misaligned packed integer64, complex-double
-word order, and incompatible selected stack effects.
+word order, packed complex offsets 0/1/2/3, retained expression low words, and
+incompatible selected stack effects. Conversion fixtures validate known-bit ABI
+marshalling rather than general IEEE conversion correctness.
 
 ## Control, argument, call and return protocol selection
 

@@ -299,6 +299,18 @@ class ArmRules(unittest.TestCase):
                     self.assertEqual(results,dict(local_only=34,call_only=34,array_only=34,memory_routes=90,double_return=34))
             self.assertEqual(values,[5,3]);self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
 
+    def test_explicit_cpu_feature_requirements_for_raw_assembly(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-features-') as tmp:
+            work=Path(tmp);source=work/'feature.c'
+            cases=[('cortex-m3',None,'VADD.F32 s0,s0,s1',False),('cortex-m4',None,'VADD.F32 s0,s0,s1',True),('cortex-m4',None,'VADD.F64 d0,d0,d1',False),('cortex-m7','fpv5-d16','VADD.F64 d0,d0,d1',True),('cortex-m7','fpv5-sp-d16','VADD.F64 d0,d0,d1',False),('cortex-m7','fpv5-sp-d16','VCVT.F64.F32 d0,s0',False),('cortex-m4',None,'VLDR d0,[r0]',True),('cortex-m3',None,'SADD16 r0,r0,r1',False),('cortex-m33',None,'SADD16 r0,r0,r1',True)]
+            for i,(cpu,fpu,asm,allowed) in enumerate(cases):
+                source.write_text('__asm int entry(void){\n'+asm+'\nBX lr\n}\n')
+                for mode in ['-c','-S']:
+                    out=work/(str(i)+('.o' if mode=='-c' else '.s'));args=[sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-mcpu='+cpu,'-O0',mode]
+                    if fpu:args+=['-mfpu='+fpu,'-mfloat-abi=softfp']
+                    p=self.command(*args,source.relative_to(ROOT),'-o',out.relative_to(ROOT),ok=allowed)
+                    if not allowed:self.assertIn('capabilities',p.stderr);self.assertFalse(out.exists())
+
     def test_adr_cbz_cbnz_gnu_boundaries(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='arm-narrow-bytes-') as tmp:
             work=Path(tmp)

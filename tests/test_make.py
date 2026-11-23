@@ -185,6 +185,40 @@ class MakeTests(unittest.TestCase):
                 self.makefile(content)
                 self.run_make(success=False)
 
+    def test_filter_sort_patsubst_and_substitution_references(self):
+        self.makefile('SOURCES = two.c note.txt one.c two.c sub/third.c\n'
+                      'CFILES := $(sort $(filter %.c,$(SOURCES)))\n'
+                      'OBJECTS := $(patsubst %.c,%.o,$(CFILES))\n'
+                      'all: $(filter two.o,$(OBJECTS))\n'
+                      '\t@echo sorted=$(CFILES)\n'
+                      '\t@echo other=$(filter-out %.c,$(SOURCES))\n'
+                      '\t@echo suffix=$(CFILES:.c=.o)\n'
+                      '\t@echo pattern=$(CFILES:%.c=build/%.o)\n'
+                      '\t@echo nested=$(patsubst %.c,%.o,$(filter %.c,$(sort $(SOURCES))))\n'
+                      'two.o: two.c\n\t' + self.recipe('arm-none-eabi-gcc') + '\n')
+        result = self.run_make()
+        self.assertIn('sorted=one.c sub/third.c two.c', result.stdout)
+        self.assertIn('other=note.txt', result.stdout)
+        self.assertIn('suffix=one.o sub/third.o two.o', result.stdout)
+        self.assertIn('pattern=build/one.o build/sub/third.o build/two.o', result.stdout)
+        self.assertIn('nested=one.o sub/third.o two.o', result.stdout)
+        self.assertEqual((self.directory / 'two.o').read_bytes()[:4], b'\x7fELF')
+
+    def test_default_goal_and_serial_job_option(self):
+        self.makefile('GOAL = selected\n.DEFAULT_GOAL = $(GOAL)\n'
+                      'first:\n\techo unwanted\nselected:\n\techo chosen\n')
+        for flags in [('-j1',), ('-j', '1')]:
+            result = self.run_make(*flags)
+            self.assertIn('chosen', result.stdout)
+            self.assertNotIn('unwanted', result.stdout)
+        result = self.run_make('first', '-j1')
+        self.assertIn('unwanted', result.stdout)
+        self.assertNotIn('chosen', result.stdout)
+        for flags in [('-j2',), ('-j', '4'), ('-j',)]:
+            self.assertIn('only serial', self.run_make(*flags, success=False).stderr)
+        self.makefile('.DEFAULT_GOAL = first selected\nfirst:\nselected:\n')
+        self.assertIn('.DEFAULT_GOAL', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

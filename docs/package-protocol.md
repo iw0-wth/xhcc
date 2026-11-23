@@ -24,7 +24,32 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1` and `target.descriptor.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1` `target.descriptor.v1`, `semantic.selector.v1` and `abi.decision.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+
+`semantic.selector.v1` declares the bounded shared semantic selector contract:
+`XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
+family/operation/width/sign/form matching, template references, and validated
+pop/push effects. It does not mean arbitrary IR lowering or every family is
+implemented by every backend. A package needs its selected backend's operand
+and effect contract as well as the shared parser. Unknown semantic record
+versions fail even when the package requires the supported v1 capability.
+
+`abi.decision.v1` declares the finite, source-ordered first-match ABI decision
+relation and its validated argument/return inputs and result fields. It does
+not authorize changing a frontend-coupled wire representation independently,
+and does not claim complete SysV aggregate interoperability. The production
+C/ARM/RISC-V/x86 packages declare the capabilities their active records consume;
+adding a requirement alone does not make an inactive library a production API.
+Standalone `typeclass` and `abiplan` experiments are not advertised as production
+manifest capabilities until an end-to-end production consumer is integrated and
+validated. In particular `typeclass.v1` is currently unsupported in `requires`.
+
+Capability major versions are independent of the v3 manifest format and the
+compiler product version. New incompatible semantic/effect or ABI record
+meanings require a new capability/schema version; unknown requirements fail
+before preprocessing or output. Omitting `requires` only preserves legacy
+acceptance and does not negotiate newer behavior. The Python host continues to
+validate capability-name syntax only; the compiler owns support decisions.
 
 The format is one `key=value` per line, with no sections, interpolation or nested data. Blank lines and whole-line `#`/`;` comments are ignored. Duplicate and unknown fields fail validation. `id` must match the containing directory. `tools` contains comma-separated unique aliases; empty aliases, whitespace, path separators, `:`, aliases starting with `-`, and duplicates across packages are rejected.
 

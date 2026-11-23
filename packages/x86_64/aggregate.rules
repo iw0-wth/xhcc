@@ -108,3 +108,24 @@ end
 rule typeclass.merge.24
 text 4 4 4
 end
+# Standalone argument placement: version GP FP slot callAlign maxAlign sretBank sretCount classes.
+rule abiplan.config
+text 1 6 8 8 16 16 0 1 5
+end
+# class -> bank demand sharePrevious; bank2 is an omitted NO_CLASS fragment.
+rule abiplan.class.0
+text 2 0 0
+end
+rule abiplan.class.1
+text 0 1 0
+end
+rule abiplan.class.2
+text 1 1 0
+end
+rule abiplan.class.3
+text 1 0 1
+end
+# MEMORY is represented by classification.memory, not a register fragment.
+rule abiplan.class.4
+text 2 0 0
+end

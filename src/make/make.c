@@ -73,6 +73,41 @@ static char *separator(char *s,char wanted) {
         else if(!level&&*s==wanted)return s;
     }return 0;
 }
+static int matchword(const char *pat,const char *word,const char **stem,size_t *length) {
+    const char *percent=strchr(pat,'%');size_t pre,post,n=strlen(word);
+    if(!percent){*stem=word;*length=0;return !strcmp(pat,word);}
+    pre=(size_t)(percent-pat);post=strlen(percent+1);
+    if(n<pre+post||strncmp(pat,word,pre)||strcmp(percent+1,word+n-post))return 0;
+    *stem=word+pre;*length=n-pre-post;return 1;
+}
+static int replacement(Make *m,char *out,size_t *used,const char *to,const char *stem,size_t length) {
+    const char *p=strchr(to,'%');char piece[TEXT];
+    if(!p)return put(m,out,used,to);
+    memcpy(piece,to,(size_t)(p-to));piece[p-to]=0;
+    if(put(m,out,used,piece))return -1;
+    memcpy(piece,stem,length);piece[length]=0;
+    return put(m,out,used,piece)||put(m,out,used,p+1)?-1:0;
+}
+static int wordlist(Make *m,char *s,char **list) {
+    int count=0;while(*s){while(isspace((unsigned char)*s))s++;if(!*s)break;
+        if(count==WORDS)return fail(m,"too many function words",0);list[count++]=s;
+        while(*s&&!isspace((unsigned char)*s))s++;if(*s)*s++=0;}return count;
+}
+static int comparewords(const void *a,const void *b) {return strcmp(*(const char *const *)a,*(const char *const *)b);}
+static int transform(Make *m,int kind,char values[3][TEXT],char *out) {
+    char *items[WORDS],*patterns[WORDS];int count,np=0,i,j;size_t used=0;out[0]=0;
+    count=wordlist(m,values[kind==10?2:kind==9?0:1],items);if(count<0)return -1;
+    if(kind==7||kind==8){np=wordlist(m,values[0],patterns);if(np<0)return -1;}
+    if(kind==9)qsort(items,(size_t)count,sizeof(*items),comparewords);
+    for(i=0;i<count;i++) {
+        const char *stem="";size_t length=0;int match=0;
+        if(kind==9&&i&&!strcmp(items[i],items[i-1]))continue;
+        if(kind==7||kind==8){for(j=0;j<np;j++)if(matchword(patterns[j],items[i],&stem,&length)){match=1;break;}if((kind==7&&!match)||(kind==8&&match))continue;}
+        if(used&&put(m,out,&used," "))return -1;
+        if(kind==10&&matchword(values[0],items[i],&stem,&length)) {if(replacement(m,out,&used,values[1],stem,length))return -1;}
+        else if(put(m,out,&used,items[i]))return -1;
+    }return 0;
+}
 static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,char values[3][TEXT]) {
     char *rest=expr,*raw[3],*p;int argc=1,i,kind;size_t used=0;
     while(*rest&&!isspace((unsigned char)*rest))rest++;
@@ -80,14 +115,17 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     if(!strcmp(expr,"strip"))kind=1;else if(!strcmp(expr,"addprefix"))kind=2;
     else if(!strcmp(expr,"addsuffix"))kind=3;else if(!strcmp(expr,"notdir"))kind=4;
     else if(!strcmp(expr,"basename"))kind=5;else if(!strcmp(expr,"subst"))kind=6;
+    else if(!strcmp(expr,"filter"))kind=7;else if(!strcmp(expr,"filter-out"))kind=8;
+    else if(!strcmp(expr,"sort"))kind=9;else if(!strcmp(expr,"patsubst"))kind=10;
     else return fail(m,"unsupported make function",expr);
     raw[0]=rest;
-    if(kind==2||kind==3||kind==6) {
-        int required=kind==6?3:2;
+    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10) {
+        int required=kind==6||kind==10?3:2;
         while(argc<required) {p=separator(raw[argc-1],',');if(!p)return fail(m,"missing function argument",expr);*p=0;raw[argc++]=p+1;}
     }
     for(i=0;i<argc;i++)if(expand(m,raw[i],a,values[i],depth+1))return -1;
     out[0]=0;
+    if(kind>=7)return transform(m,kind,values,out)?-1:1;
     if(kind==6) {
         size_t from=strlen(values[0]);p=values[2];
         while(*p){char c[2]={*p,0};if(from&&!strncmp(p,values[0],from)){if(put(m,out,&used,values[1]))return -1;p+=from;}else{if(put(m,out,&used,c))return -1;p++;}}
@@ -113,6 +151,25 @@ static int function(Make *m,char *expr,const Auto *a,char *out,int depth) {
     values=(char (*)[TEXT])alloc(m,3*TEXT);if(!values)return -1;
     rc=function_inner(m,expr,a,out,depth,values);release(m,values,3*TEXT);return rc;
 }
+static int substitution_ref(Make *m,char *expr,const Auto *a,char *out,int depth) {
+    char *colon=separator(expr,':'),*equal;char (*values)[TEXT];Var *v;int rc=-1;
+    if(!colon)return 0;*colon++=0;equal=separator(colon,'=');
+    if(!equal)return fail(m,"substitution reference missing equals",0);*equal++=0;
+    values=(char (*)[TEXT])alloc(m,3*TEXT);if(!values)return -1;
+    if(expand(m,expr,a,values[2],depth+1))goto done;v=variable(m,values[2]);
+    if(!v)values[2][0]=0;
+    else if(v->simple){if(strlen(v->value)>=TEXT){fail(m,"variable text exceeds limit",0);goto done;}strcpy(values[2],v->value);}
+    else if(expand(m,v->value,a,values[2],depth+1))goto done;
+    if(expand(m,colon,a,values[0],depth+1)||expand(m,equal,a,values[1],depth+1))goto done;
+    if(!strchr(values[0],'%')) {
+        size_t n=strlen(values[0]),r=strlen(values[1]);
+        if(n+1>=TEXT||r+1>=TEXT){fail(m,"substitution text exceeds limit",0);goto done;}
+        memmove(values[0]+1,values[0],n+1);values[0][0]='%';
+        memmove(values[1]+1,values[1],r+1);values[1][0]='%';
+    }
+    rc=transform(m,10,values,out)?-1:1;
+done:release(m,values,3*TEXT);return rc;
+}
 static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
     size_t n=0;out[0]=0;
     if(depth>8)return fail(m,"recursive variable expansion",s);
@@ -135,6 +192,8 @@ static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
             }
             if(level)return fail(m,"unterminated variable reference",0);name[k]=0;
             fr=function(m,name,a,nested,depth);if(fr<0)return -1;
+            if(fr){if(put(m,out,&n,nested))return -1;continue;}
+            fr=substitution_ref(m,name,a,nested,depth);if(fr<0)return -1;
             if(fr){if(put(m,out,&n,nested))return -1;continue;}
             if(strchr(name,':'))return fail(m,"unsupported variable expression",name);
             if(strchr(name,'$')){if(expand(m,name,a,nested,depth+1))return -1;v=variable(m,nested);}else v=variable(m,name);
@@ -409,13 +468,18 @@ int xh_make_main(int argc,char **argv) {
     for(i=0;i<argc;i++) {
         char *arg=argv[i];
         if(!strcmp(arg,"-f")||!strcmp(arg,"-C")) {if(++i==argc){fail(&m,"option needs value",arg);break;}if(arg[1]=='f')file=argv[i];else if(chdir(argv[i])){fail(&m,"cannot change directory",argv[i]);break;}}
+        else if(!strncmp(arg,"-j",2)) {const char *jobs=arg+2;if(!*jobs&&i+1<argc)jobs=argv[++i];if(strcmp(jobs,"1")){fail(&m,"only serial -j1 is supported",arg);break;}}
         else if(arg[0]=='-'&&arg[1]) {char *c=arg+1;for(;*c;c++){if(*c=='n')m.dry=1;else if(*c=='B')m.force=1;else if(*c=='s')m.silent=1;else if(*c=='k')m.keep=1;else {fail(&m,"unsupported option",arg);break;}}}
         else if(strchr(arg,'=')) {char *s=copy(&m,arg);if(!s||assignment(&m,s,1)<0)break;}
         else if(nt<WORDS)targets[nt++]=arg;else {fail(&m,"too many targets",0);break;}
     }
     if(!m.error&&parse(&m,file,0,0)==0) {
-        if(!nt){if(m.first)targets[nt++]=m.first;else fail(&m,"no default target",0);}
-        for(i=0;i<nt;i++)if(build(&m,targets[i],0)){rc=1;if(!m.keep)break;}
+        if(!nt){
+            Var *goal=variable(&m,".DEFAULT_GOAL");char expanded[TEXT],*goals[WORDS+1];int count=0;
+            if(goal&&*goal->value){if(!expand(&m,goal->value,0,expanded,0)){count=words(&m,expanded,goals,0);if(count!=1)fail(&m,".DEFAULT_GOAL must name one target",0);else targets[nt++]=copy(&m,goals[0]);}}
+            else if(m.first)targets[nt++]=m.first;else fail(&m,"no default target",0);
+        }
+        if(!m.error)for(i=0;i<nt;i++)if(build(&m,targets[i],0)){rc=1;if(!m.keep)break;}
     }
     if(m.error)rc=1;if(chdir(cwd))rc=1;
     while((p=m.mem)!=0){m.mem=p->next;free(p);}return rc;

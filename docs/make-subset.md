@@ -35,8 +35,14 @@ Supported syntax and behavior:
   `$(NAME)`, `${NAME}`, and single-character variables expand; `$$` yields a
   literal dollar. Command assignments have priority over file assignments.
 - Nested references and text functions `strip`, `addprefix`, `addsuffix`,
-  `notdir`, `basename`, and `subst`. Function arguments can contain nested
-  variable references/functions. Unknown functions and malformed references fail.
+  `notdir`, `basename`, `subst`, `filter`, `filter-out`, `sort`, and `patsubst`.
+  Function arguments can contain nested variable references/functions. `filter`
+  and `filter-out` accept whitespace-separated patterns with one `%`; `patsubst`
+  replaces matching words using the first `%` as the stem placeholder. `sort`
+  uses deterministic byte ordering and removes duplicates. Substitution references
+  `$(VAR:%.c=%.o)` and `$(VAR:.c=.o)` support pattern and word-suffix replacement.
+  Text functions split words on whitespace; they do not interpret path quotes.
+  Unknown functions and malformed references fail.
 - `ifeq (left,right)`, `ifneq (left,right)`, `ifdef NAME`, `ifndef NAME`, `else`,
   and `endif`, up to eight nested blocks per file. Comparisons expand both sides;
   `ifdef` tests whether the named variable has a nonempty raw value. Inactive
@@ -60,6 +66,9 @@ Supported syntax and behavior:
 - `-n` prints without executing, `-B` rebuilds, `-s` suppresses recipe echo, `-k`
   continues independent prerequisites/targets. Recipe prefixes `@` and `-`
   suppress echo and ignore an executed command's failure respectively.
+  `-j1` and `-j 1` select the existing serial execution; other job counts and bare
+  `-j` fail explicitly. `.DEFAULT_GOAL` selects one expanded default target when
+  no target argument was given; command-line target arguments take precedence.
 - Recipe tokenization supports single/double quotes, quoted portions inside an
   argument, backslash escaping, and spaces in paths. Quote paths in rules too.
   This is a deterministic token parser, not an operating-system shell.
@@ -73,7 +82,7 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions beyond the six listed,
+This does **not** implement full GNU make: functions beyond the ten listed,
 conditionals beyond the listed forms, target-specific variables,
 export/environment variable import, grouped
 or multiple targets, double-colon/static pattern rules, inline recipes,

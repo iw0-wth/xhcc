@@ -13,6 +13,7 @@
 #define ARK_BACKEND_H
 
 #include "common.h"
+#include "cpu.h"
 #include "arkcc_config.h"   /* ARKCC_BACKEND_* switches live here */
 #include "ir.h"
 
@@ -121,5 +122,7 @@ extern int g_x86_obj_mode;
 int rv_patch_reloc(unsigned char *code, int code_size, int off, int target,
                    int type, unsigned image_base);
 void arm_dump_syms_init(void);
+/* Select actual instruction capabilities independently of marketing names. */
+void arm_set_target_features(const CpuInfo *cpu,int strict);
 
 #endif /* ARK_BACKEND_H */

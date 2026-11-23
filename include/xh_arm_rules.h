@@ -7,6 +7,8 @@ typedef struct {int word_bytes,core_regs,pair_words,pair_align,stack_align,saved
 const XhArmAbi *xh_arm_abi(void);
 /* External finite memory-form policy: returns 2 or 4-byte form, -1 for invalid. */
 int xh_arm_mem_form(int kind,int is_load,int rt,int rn,int rm,int imm,int wb,int shift);
+int xh_arm_feature_check(const char *key);
+int xh_arm_feature_text(const char *text);
 void xh_arm_rules_reset(void);
 int xh_arm_rules_failed(void);
 void xh_arm_semantic(AsmBuffer *b,const char *family,const char *operation,int width,const char *sign,const char *form,int pop,int push);

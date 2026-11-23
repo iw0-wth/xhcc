@@ -4,9 +4,53 @@
 #include "xh_semantic.h"
 #include <stdio.h>
 #include "diag.h"
+#include "cpu.h"
+#include "config.h"
+#include <string.h>
 static int failed;
 static XhArmAbi abi;
 static int abi_loaded;
+typedef struct{char key[48];int thumb2,dsp,sp,dp;}ArmFeatureRule;
+static ArmFeatureRule feature_rules[160];static int feature_count,feature_loaded;
+static int target_strict,target_thumb2,target_dsp,target_sp,target_dp;
+void arm_set_target_features(const CpuInfo*cpu,int strict){
+    target_strict=strict;target_thumb2=cpu?cpu->thumb2:0;target_dsp=cpu?cpu->has_dsp:0;
+    target_sp=cpu?cpu->has_fpu:0;target_dp=cpu?cpu->has_fpu_dp:0;
+    if(g_config.fpu_type&&(!strcmp(g_config.fpu_type,"fpv5-sp-d16")||!strcmp(g_config.fpu_type,"fpv4-sp-d16")))target_dp=0;
+    feature_loaded=0;
+}
+static int feature_load(void){
+    char text[16384],*p;int n,used,t,d,s,q;char key[48];
+    if(feature_loaded)return 0;
+    n=xh_template_emit("arm","feature.records",0,0,text,sizeof text);if(n<0)goto bad;
+    p=text;feature_count=0;
+    while(*p){int i;used=0;if(sscanf(p,"%47s %d %d %d %d %n",key,&t,&d,&s,&q,&used)!=5||used<1||feature_count==160||t<0||t>1||d<0||d>1||s<0||s>1||q<0||q>1)goto bad;
+        for(i=0;i<feature_count;i++)if(!strcmp(key,feature_rules[i].key))goto bad;
+        strcpy(feature_rules[feature_count].key,key);feature_rules[feature_count].thumb2=t;feature_rules[feature_count].dsp=d;feature_rules[feature_count].sp=s;feature_rules[feature_count].dp=q;feature_count++;p+=used;
+    }if(!feature_count||strcmp(feature_rules[0].key,"default"))goto bad;feature_loaded=1;return 0;
+    bad:failed=1;diag_tool(DIAG_SEV_ERROR,"ARM feature rules","invalid feature requirement records",0,0,0,0,0,0);return -1;
+}
+int xh_arm_feature_check(const char*key){
+    int i;ArmFeatureRule*r;if(!target_strict)return 0;if(feature_load())return -1;r=&feature_rules[0];
+    for(i=1;i<feature_count;i++)if(!strcmp(feature_rules[i].key,key)){r=&feature_rules[i];break;}
+    if((r->thumb2&&!target_thumb2)||(r->dsp&&!target_dsp)||(r->sp&&!target_sp)||(r->dp&&!target_dp)){
+        failed=1;diag_tool(DIAG_SEV_ERROR,"ARM feature rules","instruction %s is not supported by selected CPU/FPU capabilities",key,0,0,0,0,0);return -1;
+    }return 0;
+}
+/* Validate raw/generated assembly before -S output as well as final encoding.
+ * Mnemonic normalization only; requirements remain external finite records. */
+int xh_arm_feature_text(const char*text){
+    const char*p=text;char word[48],key[48];int n,i;
+    if(!target_strict)return 0;
+    while(*p){while(*p==' '||*p=='\t'||*p=='\r')p++;n=0;while(((*p>='a'&&*p<='z')||(*p>='A'&&*p<='Z')||(*p>='0'&&*p<='9')||*p=='.'||*p=='_')&&n<47){word[n++]=(*p>='a'&&*p<='z')?*p-'a'+'A':*p;p++;}word[n]=0;
+        if(*p==':'||!n||word[0]=='.')goto next;
+        strcpy(key,word);for(i=0;key[i];i++)if(key[i]=='.')key[i]='_';
+        if(!strncmp(key,"VCVT_",5)){int r=5,w=5;while(key[r]){if(key[r]!='_')key[w++]=key[r];r++;}key[w]=0;}
+        if(!strncmp(key,"VLDR_",5)||!strncmp(key,"VSTR_",5)||!strncmp(key,"VMOV_",5)||!strncmp(key,"VMRS_",5))key[4]=0;
+        if(xh_arm_feature_check(key))return -1;
+        next:while(*p&&*p!='\n')p++;if(*p)p++;
+    }return 0;
+}
 static int abi_record(const char *key,int *values,int count){
     char text[192],*p;int n,i=0,v;
     n=xh_template_emit("arm",key,0,0,text,sizeof text);if(n<0)return -1;
@@ -56,7 +100,7 @@ int xh_arm_mem_form(int kind,int is_load,int rt,int rn,int rm,int imm,int wb,int
     }failed=1;return -1;
 }
 
-void xh_arm_rules_reset(void){failed=0;abi_loaded=0;}
+void xh_arm_rules_reset(void){failed=0;abi_loaded=0;feature_loaded=0;}
 int xh_arm_rules_failed(void){return failed;}
 void xh_arm_rule_args(AsmBuffer*b,const char*key,const char*const*args,int count){
     char out[4096];int n;
