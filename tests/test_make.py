@@ -367,6 +367,38 @@ class MakeTests(unittest.TestCase):
         self.makefile('TEXT = ' + 'x' * 1100 + '\nX := $(foreach i,a b,$(TEXT))\nall:\n')
         self.assertIn('exceeds limit', self.run_make(success=False).stderr)
 
+    def test_override_include_compiler_and_flavor(self):
+        (self.directory / 'override.mk').write_text(
+            'override CC = riscv32-unknown-elf-gcc\n'
+            'override CFLAGS := -DVALUE=7\noverride CFLAGS += -O1\n'
+            'override KEEP ?= replaced\n')
+        (self.directory / 'two.c').write_text(
+            '#if VALUE != 7\n#error override flags failed\n#endif\nint two(void){return VALUE;}\n')
+        self.makefile('include override.mk\nCC = missing\nCFLAGS += -DVALUE=0\n'
+                      'all: two.o\n\t@echo origins=$(origin CC)/$(origin CFLAGS)/$(origin KEEP)\n'
+                      '\t@echo flavors=$(flavor CC)/$(flavor CFLAGS)/$(flavor MISSING)\n'
+                      'two.o: two.c\n\t' + self.recipe() + '\n')
+        result = self.run_make('CC=arm-none-eabi-gcc', 'CFLAGS=-DVALUE=0', 'KEEP=command')
+        self.assertIn('origins=override/override/command line', result.stdout)
+        self.assertIn('flavors=recursive/simple/undefined', result.stdout)
+        self.assertEqual(int.from_bytes((self.directory / 'two.o').read_bytes()[18:20], 'little'), 243)
+
+    def test_undefine_and_raw_value(self):
+        self.makefile('FILE = file\nundefine FILE\nundefine CLI\n'
+                      'override OV = protected\nundefine OV\n'
+                      'KEEP := $(CLI):$(origin CLI):$(OV):$(origin OV)\n'
+                      'override undefine CLI\noverride undefine OV\n'
+                      'RAW = $(error must-not-run)\nCOPY := $(value RAW)\n'
+                      'all:\n\t@echo before=$(KEEP) after=$(origin CLI)/$(origin OV)/$(origin FILE)\n'
+                      '\t@echo raw=$(value RAW) copied=$(value COPY)\n')
+        result = self.run_make('CLI=command')
+        self.assertIn('before=command:command line:protected:override after=undefined/undefined/undefined', result.stdout)
+        self.assertIn('raw=$(error must-not-run) copied=$(error must-not-run)', result.stdout)
+        for content in ['override\n', 'override bad\n', 'undefine\n', 'undefine A B\n',
+                        'override undefine A B\n']:
+            self.makefile(content + 'all:\n')
+            self.run_make(success=False)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

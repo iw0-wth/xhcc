@@ -1,6 +1,7 @@
 """Build the shared multi-target xhcc application and external configuration packs."""
 from pathlib import Path
 import argparse, os, shutil, subprocess, sys
+from build_cache import ObjectCache, compiler_identity, header_snapshot
 ROOT=Path(__file__).resolve().parents[1]
 TARGETS={'all':(0,'all'),'arm':(1,'arm'),'riscv32':(2,'riscv32'),'x86':(3,'x86'),'x86_64':(4,'x86_64'),'c':(5,'c')}
 if os.name=='nt':
@@ -12,10 +13,13 @@ p.add_argument('--cc');p.add_argument('--native',action='store_true');p.add_argu
 p.add_argument('--target',choices=TARGETS,default='all');p.add_argument('--all',action='store_true')
 p.add_argument('--memory-mib',type=int,default=4)
 p.add_argument('--app',choices=['xhcc','xhccm','both'],default='both')
+p.add_argument('--no-cache',action='store_true',help='compile every translation unit without object-cache reuse')
+p.add_argument('--cache-dir',type=Path,default=ROOT/'build/object-cache')
 p.add_argument('--wasm-validate',default=os.environ.get('WASM_VALIDATE') or shutil.which('wasm-validate') or (r'D:\wabt-1.0.42\bin\wasm-validate.exe' if os.name=='nt' else 'wasm-validate'))
 p.add_argument('--wasm-opt',default=os.environ.get('WASM_OPT') or shutil.which('wasm-opt') or (r'D:\binaryen-version_133\bin\wasm-opt.exe' if os.name=='nt' else 'wasm-opt'))
 a=p.parse_args()
 cc=a.cc or str(Path(a.sdk)/'bin'/('clang.exe' if os.name=='nt' else 'clang'))
+object_cache=ObjectCache(a.cache_dir,compiler_identity(cc),header_snapshot(ROOT,a.sdk),enabled=not a.no_cache)
 def run(cmd):
     if a.verbose:print(' '.join(cmd),flush=True)
     r=subprocess.run(cmd)
@@ -37,12 +41,13 @@ def build(target,app):
         sources.append(source)
     sources+=sorted((ROOT/'object').glob('*.c'))
     flags=['-std=c99','-Oz','-g0','-ffunction-sections','-fdata-sections','-include',str(ROOT/'include/xh_small.h'),'-I'+str(ROOT/'include'),'-I'+str(ROOT/'object'),f'-DXH_TARGET={num}',f'-DXH_MODULE_TARGET="{target}"','-Wno-unused-value','-Wno-incompatible-pointer-types']
-    if app=='xhccm':flags+=['-DXH_DRIVER_NO_MAIN=1']
     if not a.native:flags+=['--target=wasm32-wasip1','-mno-bulk-memory','-mno-sign-ext','-mno-nontrapping-fptoint','-mno-simd128','-mno-atomics']
     objects=[]
     for source in sources:
         obj=out/(source.relative_to(ROOT).as_posix().replace('/','_')+'.o')
-        run([cc,*flags,'-c',str(source),'-o',str(obj)]);objects.append(str(obj))
+        unit_flags=[*flags]
+        if app=='xhccm' and source==ROOT/'src/driver.c':unit_flags+=['-DXH_DRIVER_NO_MAIN=1']
+        object_cache.compile(source,unit_flags,obj,run);objects.append(str(obj))
     output=out/(app+'.exe' if a.native and os.name=='nt' else app if a.native else app+'.wasm')
     link=[cc,*objects,'-o',str(output)]
     if not a.native:
@@ -61,3 +66,4 @@ def build(target,app):
     print(f'{app}/{target}: {output} ({output.stat().st_size} bytes)',flush=True)
 for target in (TARGETS if a.all else [a.target]):
     for app in (['xhcc','xhccm'] if a.app=='both' else [a.app]):build(target,app)
+print(f'Object cache: {object_cache.hits} hits, {object_cache.misses} compilations',flush=True)

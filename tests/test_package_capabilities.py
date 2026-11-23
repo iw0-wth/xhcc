@@ -25,6 +25,12 @@ class Capabilities(unittest.TestCase):
    with self.subTest(requirements=requirements):self.invoke(self.base+'requires='+requirements+'\n',False)
  def test_shared_semantic_and_abi_requirements_are_supported(self):
   self.invoke(self.base+'requires=semantic.selector.v1,abi.decision.v1\n',True)
+ def test_small_sse_struct_plan_capability_is_known(self):
+  # Requirements describe the shared engine, not this ARM package's ABI.
+  self.invoke(self.base+'requires=abi.plan-small-sse-struct.v1\n',True)
+ def test_unknown_small_sse_struct_plan_capability_version_is_rejected(self):
+  p=self.invoke(self.base+'requires=abi.plan-small-sse-struct.v999\n',False)
+  self.assertIn('capability',(p.stdout+p.stderr).lower())
  def test_new_semantic_or_abi_capability_versions_are_rejected(self):
   for requirement in ['semantic.selector.v999','abi.decision.v999','typeclass.v1']:
    with self.subTest(requirement=requirement):

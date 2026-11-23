@@ -24,7 +24,7 @@ The required fields are `version`, `id`, `tools`, `target`, `cpu`, `abi`, and `i
 
 Optional `requires` declares compiler capabilities, for example `requires=encoding.fields.v1,selection.scalar32.v2`. It is a comma-separated list of unique nonempty ASCII names matching `[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*`; whitespace within the list, empty entries, duplicates and malformed names are rejected. Omitting the field preserves legacy behavior; an explicitly empty field is invalid. The host checks syntax only and accepts unknown syntactically valid capabilities. The shared compiler decides whether the selected package's requirements are supported and diagnoses unsupported requirements. This avoids binding package acceptance to the Python host's release or a host-maintained capability allowlist.
 
-Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1` and `abi.plan-small-int-struct.v2`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
+Current compiler capability names are `package.options.v1`, `encoding.fields.v1`, `selection.scalar32.v1`, `selection.scalar32.v2`, `object.elf32`, `object.elf64`, `codegen.templates.v1`, `object.descriptor.v1`, `relocation.vm.v1`, `cpu.descriptor.v1`, `target.descriptor.v1`, `semantic.selector.v1`, `abi.decision.v1`, the opt-in metadata capability `abi.plan-record.v1` and the certified native scalar-plan capability `abi.plan-scalar.v1` and the versioned narrow structure-plan capabilities `abi.plan-small-int-struct.v1`, `abi.plan-small-int-struct.v2` and `abi.plan-small-sse-struct.v1`. Selection versions declare the corresponding rule VM contract, not universal IR/ABI support. A newer package can require a newer capability explicitly; a package without `requires` receives no new compatibility guarantee from omission. Requirements are capability contracts independent of product version numbers.
 
 `semantic.selector.v1` declares the bounded shared semantic selector contract:
 `XHSEMANTIC 1` and legacy `CSELECT 1` / `CSELECT1` headers, normalized
@@ -92,6 +92,30 @@ bitfield, floating-field, union, array, oversized and variadic aggregate cases
 remain negative coverage. These results validate this <=8-byte subset rather
 than complete native SysV aggregate interoperability; they are separate from
 deployment or hardware evidence.
+
+The integrated native-use capability `abi.plan-small-sse-struct.v1` specifies only
+three naturally aligned structures: F4 (one float, 4 bytes), FPair8 (two floats,
+8 bytes) and D8 (one double, 8 bytes). Builder certification must check the
+original source type and a single-SSE classification; neither byte width nor a
+single placement fragment alone is sufficient. Flag value 4 certifies this
+signature class. Legal canonical certification values are mutually exclusive
+0, 1, 2 and 4; combined or unknown values such as 3 are rejected. A signature
+containing both an already certified integer structure and an eligible SSE
+structure uses the highest class, flag 4, rather than bitwise flag combination.
+This does not permit mixed integer/floating fields inside one structure.
+Packed, bitfield, union, array, variadic aggregate and other SSE-word combinations
+remain excluded. The option remains disabled by default, and packages depending
+on this subset declare the capability explicitly.
+
+The actual 906911-byte root artifact passed all eight ABI plan codegen tests
+with Clang enabled and no skips. The new fixtures exercise F4/FPair8/D8
+parameters and returns through all three xhcc/Clang routes, stack spills after
+eight SSE registers, mixed GP/SSE signatures and canary checks. Expected results
+include the spill result 51, GP-mix result 15 and returned floating values 2.5,
+4.5/6.5 and 8.5. Existing scalars and certified integer structures remain usable
+within such signatures. This establishes these specific pure-SSE shapes, not
+all SSE aggregate combinations or mixed fields within a single structure; it
+is not evidence of complete SysV aggregate, deployment or hardware support.
 
 Standalone type-classification experiments remain separate;
 `typeclass.v1` is currently unsupported in `requires`.

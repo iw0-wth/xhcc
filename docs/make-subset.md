@@ -33,7 +33,16 @@ Supported syntax and behavior:
 
 - Recursive `=`, immediate `:=`, conditional `?=`, and append `+=` variables.
   `$(NAME)`, `${NAME}`, and single-character variables expand; `$$` yields a
-  literal dollar. Command assignments have priority over file assignments.
+  literal dollar. Command assignments have priority over ordinary file assignments.
+  `override NAME =`, `:=`, `+=`, and `?=` mark assignments with `override` origin
+  and priority above command arguments. Conditional `?=` still preserves any
+  existing definition. Ordinary `undefine NAME` removes file/default definitions
+  but preserves command-line/override definitions; `override undefine NAME`
+  removes those too. Undefine expands its one variable name and rejects extra
+  names. Later ordinary assignments cannot replace an override definition.
+  `value NAME` returns a variable's stored text without expanding it; `flavor NAME`
+  reports `undefined`, `recursive`, or `simple`. Their name arguments expand,
+  while a raw stored `$(error ...)` remains unevaluated when returned by value.
 - Nested references and text functions `strip`, `addprefix`, `addsuffix`,
   `notdir`, `basename`, `subst`, `filter`, `filter-out`, `sort`, and `patsubst`.
   Function arguments can contain nested variable references/functions. `filter`
@@ -66,11 +75,11 @@ Supported syntax and behavior:
   at 128 paths and the text limit. Hidden names require a pattern starting with
   `.`; `.` and `..` are omitted. This function reads directories through WASI/POSIX
   `opendir`/`readdir`; recipe arguments and ordinary prerequisites are not globbed.
-- `origin NAME` returns `undefined`, `default`, `file`, `command line`, or
+- `origin NAME` returns `undefined`, `default`, `file`, `command line`, `override`, or
   `automatic` for the supported automatic variables during a recipe. Built-in
   `CC` and the TOOL default have origin `default`; file assignment changes it
   to `file`, while ignored `?=` and overridden file assignments preserve origin.
-  Environment import and the `override` directive remain unsupported.
+  Environment import and export directives remain unsupported.
 - `error text` expands its message and stops with an error. `warning text`
   emits an expanded diagnostic and returns empty text. These work in recursive
   expansion, recipes, or as standalone `$(error ...)`/`$(warning ...)` lines;
@@ -128,7 +137,7 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions beyond the twenty-two listed,
+This does **not** implement full GNU make: functions beyond the twenty-four listed,
 conditionals beyond the listed forms, target-specific variables,
 export/environment variable import, grouped targets and recipes shared by
 multiple targets, double-colon/static pattern rules, inline recipes,

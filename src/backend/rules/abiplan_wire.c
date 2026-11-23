@@ -4,7 +4,7 @@
 #include <string.h>
 #define MAGIC 0x50414858u
 static int power(unsigned n){return n&&!(n&(n-1));}
-static int valid(const XhSysvPlan*p){unsigned i,j;if(!p||(p->version!=1&&p->version!=2)||p->abi_id!=1||p->flags>2||(p->version==1&&p->flags)||p->arg_count>64||p->sret>1||p->result.memory<0||p->result.memory>1||(unsigned)p->result.memory!=p->sret||p->result.count>2||(p->result.memory&&p->result.count)||p->stack_bytes>0x7fffffffu||p->stack_bytes%16)return 0;
+static int valid(const XhSysvPlan*p){unsigned i,j;if(!p||(p->version!=1&&p->version!=2)||p->abi_id!=1||(p->flags!=0&&p->flags!=1&&p->flags!=2&&p->flags!=4)||(p->version==1&&p->flags)||p->arg_count>64||p->sret>1||p->result.memory<0||p->result.memory>1||(unsigned)p->result.memory!=p->sret||p->result.count>2||(p->result.memory&&p->result.count)||p->stack_bytes>0x7fffffffu||p->stack_bytes%16)return 0;
  for(j=0;j<p->result.count;j++){const XhTypeclassFragment*f=&p->result.fragments[j];if(f->class_id<0||f->class_id>7||!f->size||f->size>16||f->offset>65535||f->size>65535-f->offset||(j&&f->offset<p->result.fragments[j-1].offset+p->result.fragments[j-1].size))return 0;}
  for(i=0;i<p->arg_count;i++){const XhAbiArgumentPlan*a=&p->args[i];if(a->version!=1||a->by_value_stack>1||a->size>0x7fffffffu||!power(a->alignment)||a->alignment>256||a->count>2||(a->by_value_stack&&a->count))return 0;
   if(a->by_value_stack){if(a->stack_offset%a->alignment||a->stack_offset>p->stack_bytes||a->stack_extent<a->size||a->stack_extent>p->stack_bytes-a->stack_offset)return 0;}

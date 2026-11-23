@@ -62,7 +62,7 @@ class AbiPlanCodegen(unittest.TestCase):
     obj=src.with_suffix('.o');self.invoke(src,obj);objects.append(obj)
    self.assertEqual(self.execute(objects,work/'combined.o'),1)
  def test_unsupported_aggregate_is_explicitly_rejected(self):
-  cases=['struct S { double x; }; struct S f(struct S x) { return x; }',
+  cases=['struct S { float x; int y; }; struct S f(struct S x) { return x; }',
          'struct S { long a,b; }; extern int f(struct S); int entry(void) { struct S x={1,2}; return f(x); }',
          'struct __attribute__((packed)) S { int x; }; struct S f(struct S x) { return x; }',
          'struct S { unsigned x:4; }; struct S f(struct S x) { return x; }',
@@ -112,6 +112,48 @@ class AbiPlanCodegen(unittest.TestCase):
    work=Path(tmp);library=work/'library.c';caller=work/'caller.c'
    library.write_text(header+'\n'.join(definitions)+'\n')
    caller.write_text(header+'\n'.join(prototypes)+'\nint entry(void) {'+'\n'.join(checks)+'return 0;}\n')
+   for route in ['xhcc','clang-library','clang-caller']:
+    objects=[]
+    for src in [library,caller]:
+     reference=(route=='clang-library' and src==library) or (route=='clang-caller' and src==caller)
+     obj=work/(src.stem+'_'+route+'.o')
+     if reference:
+      p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-O0','-ffreestanding','-fno-stack-protector','-fno-pic','-c',str(src),'-o',str(obj)],cwd=ROOT,capture_output=True,text=True)
+      self.assertEqual(p.returncode,0,p.stderr)
+     else:self.invoke(src,obj)
+     objects.append(obj)
+    self.assertEqual(self.execute(objects,work/(route+'_combined.o')),0,route)
+ def test_small_sse_struct_clang_routes_fp_spill_gpr_mix_canaries(self):
+  clang=os.environ.get('CLANG_REFERENCE') or str(Path(r'D:\msys64\ucrt64\bin\clang.exe'))
+  self.assertTrue(Path(clang).is_file(),'reference Clang required')
+  header='struct F4 { float x; }; struct F8 { float x,y; }; struct D8 { double x; };\n'
+  library_text=header+'''
+struct F4 echo_f4(struct F4 x) { x.x += 1.0f; return x; }
+struct F8 echo_f8(struct F8 x) { x.x += 2.0f; x.y += 3.0f; return x; }
+struct D8 echo_d8(struct D8 x) { x.x += 4.0; return x; }
+double spill_f8(double a,double b,double c,double d,double e,double f,double g,double h,struct F8 v,long n) { return a+b+c+d+e+f+g+h+v.x+v.y+n; }
+double mix_sse(long a,struct F4 b,long c,struct F8 d,struct D8 e) { return a+b.x+c+d.x+d.y+e.x; }
+'''
+  caller_text=header+'''
+struct F4 echo_f4(struct F4); struct F8 echo_f8(struct F8); struct D8 echo_d8(struct D8);
+double spill_f8(double,double,double,double,double,double,double,double,struct F8,long);
+double mix_sse(long,struct F4,long,struct F8,struct D8);
+int entry(void) {
+ struct WF4 { int before; struct F4 value; int after; } a;
+ struct WF8 { int before; struct F8 value; int after; } b;
+ struct WD8 { long before; struct D8 value; long after; } c;
+ struct F4 in4={1.5f}; struct F8 in8={2.5f,3.5f}; struct D8 inD={4.5};
+ a.before=71;a.after=73;b.before=75;b.after=77;c.before=79;c.after=81;
+ a.value=echo_f4(in4);b.value=echo_f8(in8);c.value=echo_d8(inD);
+ if(a.before!=71||a.after!=73||b.before!=75||b.after!=77||c.before!=79||c.after!=81)return 1;
+ if(a.value.x!=2.5f||b.value.x!=4.5f||b.value.y!=6.5f||c.value.x!=8.5)return 2;
+ if(spill_f8(1,2,3,4,5,6,7,8,in8,9)!=51.0)return 3;
+ if(mix_sse(1,in4,2,in8,inD)!=15.0)return 4;
+ return 0;
+}
+'''
+  with tempfile.TemporaryDirectory(prefix='abi-sse-aggregate-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(library_text);caller.write_text(caller_text)
    for route in ['xhcc','clang-library','clang-caller']:
     objects=[]
     for src in [library,caller]:

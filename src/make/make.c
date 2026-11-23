@@ -23,7 +23,7 @@
 #define DEPTH 32
 
 typedef struct Mem { struct Mem *next; } Mem;
-typedef struct Var { struct Var *next; char *name,*value; int simple,command,is_default,local; } Var;
+typedef struct Var { struct Var *next; char *name,*value; int simple,command,is_default,local,overridden; } Var;
 typedef struct Recipe { struct Recipe *next; char *text; } Recipe;
 typedef struct Rule { struct Rule *next; char *target,*deps; Recipe *recipes,*last; } Rule;
 typedef struct Node { struct Node *next; char *name; int state,failed,changed; } Node;
@@ -170,11 +170,18 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     else if(!strcmp(expr,"word"))kind=17;else if(!strcmp(expr,"words"))kind=18;
     else if(!strcmp(expr,"if"))kind=19;else if(!strcmp(expr,"foreach"))kind=20;
     else if(!strcmp(expr,"findstring"))kind=21;else if(!strcmp(expr,"join"))kind=22;
+    else if(!strcmp(expr,"value"))kind=23;else if(!strcmp(expr,"flavor"))kind=24;
     else return fail(m,"unsupported make function",expr);
     raw[0]=rest;
-    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10||kind==17||kind>=19) {
+    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10||kind==17||(kind>=19&&kind<=22)) {
         int required=kind==6||kind==10||kind==20?3:2;
         while(argc<required) {p=separator(raw[argc-1],',');if(!p)return fail(m,"missing function argument",expr);*p=0;raw[argc++]=p+1;}
+    }
+    if(kind==23||kind==24) {
+        Var *v;out[0]=0;
+        if(expand(m,raw[0],a,values[0],depth+1))return -1;
+        v=variable(m,trim(values[0]));
+        return put(m,out,&used,kind==23?(v?v->value:""):!v?"undefined":v->simple?"simple":"recursive")?-1:1;
     }
     if(kind==19) {
         char *other=separator(raw[1],',');if(other)*other++=0;
@@ -202,7 +209,7 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
         for(i=0;i<count;i++){if(i&&put(m,out,&used," "))return -1;if(i<nl&&put(m,out,&used,left[i]))return -1;if(i<nr&&put(m,out,&used,right[i]))return -1;}return 1;
     }
     if(kind==11)return wildcard(m,values[0],out)?-1:1;
-    if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->local?"automatic":v->command?"command line":v->is_default?"default":"file";
+    if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->local?"automatic":v->overridden?"override":v->command?"command line":v->is_default?"default":"file";
         if(a&&*name&&!name[1]&&strchr("@<^*",*name))origin="automatic";
         return put(m,out,&used,origin)?-1:1;}
     if(kind==13)return fail(m,"error",values[0]);
@@ -316,16 +323,17 @@ static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
     }return 0;
 }
 static int setvar(Make *m,char *name,const char *value,int op,int command) {
+    int forced=command==2;if(forced)command=0;
     Var *v=variable(m,name);char text[TEXT];size_t n=0;
     if(!*name)return fail(m,"empty variable name",0);
-    if(v&&((v->command&&!command)||op=='?'))return 0;
+    if(v&&(op=='?'||(!forced&&(v->overridden||(v->command&&!command)))))return 0;
     if(op==':'||(op=='+'&&v&&v->simple)) {if(expand(m,value,0,text,0))return -1;value=text;}
     if(op=='+'&&v) {char joined[TEXT];joined[0]=0;if(put(m,joined,&n,v->value)||put(m,joined,&n," ")||put(m,joined,&n,value))return -1;v->value=copy(m,joined);}
     else {
         if(!v){v=(Var *)alloc(m,sizeof(*v));if(!v)return -1;v->name=copy(m,name);v->next=m->vars;m->vars=v;}
         v->value=copy(m,value);v->simple=op==':';
     }
-    v->command=command;v->is_default=0;return v->value&&v->name?0:-1;
+    v->command=command;v->is_default=0;v->overridden=forced;return v->value&&v->name?0:-1;
 }
 /* Split shell-like quoting only. No expansion, shell syntax, or subprocess. */
 static int words(Make *m,char *s,char **v,int commands) {
@@ -354,6 +362,14 @@ static int assignment(Make *m,char *s,int command) {
     val=strchr(eq,'=')+1;*eq=0;name=trim(s);
     if(strchr(name,' ')||strchr(name,'\t'))return fail(m,"unsupported assignment",name);
     if(setvar(m,name,trim(val),op,command))return -1;return 1;
+}
+static int undefine(Make *m,char *name,int forced) {
+    char expanded[TEXT];Var **link=&m->vars,*v;
+    if(expand(m,trim(name),0,expanded,0))return -1;
+    name=trim(expanded);if(!*name||strpbrk(name," \t\r\n"))return fail(m,"undefine expects one variable name",name);
+    while(*link&&strcmp((*link)->name,name))link=&(*link)->next;v=*link;
+    if(!v||(!forced&&(v->command||v->overridden)))return 0;
+    *link=v->next;release(m,v->name,strlen(v->name)+1);release(m,v->value,strlen(v->value)+1);release(m,v,sizeof(*v));return 0;
 }
 static char *readline(char *s,int cap,FILE *f) {
     char *r=fgets(s,cap,f);size_t n;if(!r)return r;n=strlen(s);
@@ -453,6 +469,13 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         ar=condition(m,s,conditions,&ncond,&active);if(ar<0)break;if(ar)continue;
         if(!active)continue;
         if(*s=='$'){char expanded[TEXT];if(expand(m,s,0,expanded,0))break;if(!*trim(expanded))continue;fail(m,"unsupported expanded makefile statement",expanded);break;}
+        if(!strncmp(s,"override",8)&&(!s[8]||isspace((unsigned char)s[8]))) {
+            s=trim(s+8);
+            if(!strncmp(s,"undefine",8)&&(!s[8]||isspace((unsigned char)s[8]))) {if(undefine(m,s+8,1))break;}
+            else {ar=assignment(m,s,2);if(ar<0)break;if(!ar){fail(m,"override expects assignment or undefine",s);break;}}
+            m->current=0;continue;
+        }
+        if(!strncmp(s,"undefine",8)&&(!s[8]||isspace((unsigned char)s[8]))) {if(undefine(m,s+8,0))break;m->current=0;continue;}
         ar=assignment(m,s,0);if(ar<0)break;if(ar){m->current=0;continue;}
         if(!strncmp(s,"include ",8)||!strncmp(s,"-include ",9)||!strncmp(s,"sinclude ",9)) {
             int opt=*s!='i',n,i;char expanded[TEXT],*args[WORDS+1];s+=opt?9:8;
