@@ -2,9 +2,9 @@
 
 The IR carries persistent SysV AMD64 classification/placement plans. Recording
 and native consumption are separate opt-ins: `-frecord-sysv-abi` records metadata;
-`-fuse-sysv-abi-plan` records and consumes verified **scalar-only** plans for
+`-fuse-sysv-abi-plan` records and consumes verified scalar or certified **4/8-byte integer-structure** plans for
 caller/callee placement. Default compilation retains its original lowering.
-Aggregate plans remain record-only and are explicitly rejected by use mode.
+Other aggregate plans remain record-only and are explicitly rejected by use mode.
 Scalar interoperability is tested below; complete aggregate SysV interoperability
 is not claimed.
 
@@ -17,10 +17,16 @@ parameters use the declared parameter types; variadic float arguments use their
 promoted double type. Functions receive parameter/result references to their
 whole-signature plan. A failed or unsupported inspection is diagnosed, not
 silently replaced with a guessed plan. Use mode additionally requires a version
-2 plan with `SCALAR_VERIFIED` and matching ABI identity/rule fingerprint. Integers,
+2 plan with a supported verification flag and matching ABI identity/rule fingerprint. Integers,
 float/double and pointers, including stack spills and variadic calls, are within
-this first native-consumer phase. Aggregate arguments/results, including
-single-fragment small structures, are rejected. Function/array parameter types
+the scalar consumer. The small-aggregate phase also supports nonempty structures
+of exactly 4 or 8 bytes, containing only integer/pointer fields or recursively
+eligible nested structures. Packed/unaligned/bitfield, floating-field, union,
+array-field and other-sized aggregates remain rejected. Aggregate values through
+variadic `...` are rejected even when the same structure is valid as a named
+parameter. Structure arguments may use one GPR or spill to the stack; certified
+4/8-byte structure results are returned through the supported integer result
+location. Function/array parameter types
 undergo the required C pointer adjustment before planning. `_Generic`-selected
 function designators recover prototypes from real declared symbols; argument
 values are not used to invent missing prototypes.
@@ -96,14 +102,23 @@ arguments, at most 4412 bytes for 64. Canonical v2 adds the flags word after
 slots must be all zero. The ABI id remains 1; outer IR container version remains
 2 independently of the inner plan version.
 
-Version 2 flag `SCALAR_VERIFIED=1` certifies that the builder checked the original
-result, named parameter and actual argument types as supported scalars (with
-C parameter decay and void results handled explicitly). Unknown flags fail.
-A small aggregate cannot gain this flag just because its placement resembles an
-integer. Version 1 decodes with flags=0 and is accepted for inspection/persistence,
-but use mode rejects it. The scalar consumer maps the result classification to
-its supported GPR/SSE result location; aggregate result placement remains future
-work.
+Version 2 verification values are:
+
+| flags | Source-type proof and consumer permission |
+| --- | --- |
+| 0 | No native-use certification; record/inspect only. |
+| 1 (`SCALAR_VERIFIED`) | Result, named parameters and actuals are supported scalars, after C parameter decay; void results are allowed. |
+| 2 (`SMALL_INTEGER_AGGREGATE_VERIFIED`) | The complete signature/call mixes supported scalars with at least one certified 4/8-byte integer/pointer structure. |
+
+Values 1 and 2 are alternatives, not independent bits to OR: **3 is rejected**,
+as are other unknown values. Combining source-type proofs produces 2 when any
+eligible small structure is present, 1 for scalar-only, and 0 if any component
+is unsupported. Every nested structure must independently satisfy the exact
+4/8-byte, field-bounds and natural-alignment checks; a placement resembling a
+single integer fragment is insufficient proof. Variadic aggregate actuals clear
+native eligibility. Version 1 decodes with flags=0 and remains record-compatible,
+but native use rejects it. The outer IR container stays version 2; adding this
+second certified subset does not change its field layout.
 
 Validation includes supported versions/ABI id, argument/fragment counts,
 stack alignment and extent, power-of-two bounded argument alignment,
@@ -127,7 +142,7 @@ reference to zero.
 
 This is metadata preservation and reference relocation. It does not re-plan a
 call under a different rule fingerprint or authorize merging incompatible ABI
-policies as equivalent native code. The native scalar consumer validates the ABI identity and rule fingerprint
+policies as equivalent native code. The native plan consumer validates the ABI identity and rule fingerprint
 before using placements; mismatches are rejected rather than silently re-planned.
 
 ## Actual verification in this round
@@ -152,32 +167,38 @@ rejected atomically, and unsupported bitfields preserve caller output. Those
 checks should retain their own run evidence rather than being inferred from
 this two-test result.
 
-## Native scalar execution evidence
+## Native execution evidence
 
-`tests/test_abi_plan_codegen.py` passed **4/4** against root artifact 903358,
-with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` set explicitly and no
-reference-toolchain skip:
+`tests/test_abi_plan_codegen.py` passed **6/6** against root artifact 905474,
+with `CLANG_REFERENCE=D:\msys64\ucrt64\bin\clang.exe` and no skip:
 
-1. Two separately compiled xhcc translation units link through LLVM and execute
-   integer register/stack arguments, ten double arguments including SSE spills,
-   float results, pointer arguments and mixed variadic access. The check returns 1.
-2. Small aggregate parameter/result signatures fail explicitly in use mode.
-3. Private-object IR plans with only their rule fingerprints modified fail LTO
-   use with the stale-plan diagnostic and no output.
-4. Both xhcc caller -> Clang callee and Clang caller -> xhcc callee compile, link
-   and execute the same scalar/FP/stack/variadic fixture successfully.
+1. Two separately compiled xhcc translation units execute integer registers and
+   stack spills, ten double arguments, float results, pointers and mixed scalar
+   variadic access, returning 1.
+2. Unsupported floating, packed, bitfield, union, array-field and 16-byte
+   structures are explicitly rejected.
+3. Private-object plans with only their rule fingerprints changed fail LTO use
+   with a stale-plan diagnostic and no output.
+4. Both scalar xhcc caller -- Clang callee and Clang caller -- xhcc callee execute.
+5. Struct4 and struct8 arguments/results, a structure passed after six occupied
+   GPR slots, and a pointer-field structure execute in three routes: xhcc/xhcc,
+   Clang callee and Clang caller. Each combined fixture returns 1.
+6. Three-/five-byte structures and aggregate variadic actuals are rejected.
 
-These are native scalar ABI evidence, not aggregate interoperability evidence.
-The preceding IR two-test result and builder/codec tests remain separate layers.
+This establishes the tested certified small-integer-structure subset, not full
+SysV aggregate interoperability. Recursive certification is a source contract;
+this execution fixture directly covers flat struct4/8 and pointer-field forms.
+The preceding IR persistence and builder/codec suites remain separate evidence.
 
 ## Next phase and package guidance
 
-Native aggregate caller/callee integration remains the next phase. It needs
-complete multi-fragment and memory argument/result handling, hidden result
-pointers, matching variadic aggregate semantics and mixed-toolchain execution
-checks. Recorded aggregate classifications alone do not establish that behavior.
+Remaining aggregate integration includes irregular sizes, larger/multi-fragment
+structures, floating/mixed classes, MEMORY/sret, unions/arrays, packed/bitfield
+layouts and aggregate variadic access. Those need their own source certification,
+caller/callee lowering and mixed-toolchain execution tests. Recording their
+classifications does not establish native support.
 
-Package/skill documentation must distinguish record mode, scalar use mode and
-unsupported aggregate use. Neither flag is enabled by default. Capability names
-must describe an integrated consumer and its schema; accepting a compiler option
-alone is not a universal ABI implementation guarantee.
+Package/skill documentation must distinguish record mode, certified scalar/
+4-or-8-byte integer-structure use, and unsupported aggregate use. Neither flag
+is enabled by default. Capability names must describe an integrated consumer
+and its schema; accepting an option is not a universal ABI guarantee.

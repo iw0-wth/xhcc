@@ -42,6 +42,11 @@ Supported syntax and behavior:
   uses deterministic byte ordering and removes duplicates. Substitution references
   `$(VAR:%.c=%.o)` and `$(VAR:.c=.o)` support pattern and word-suffix replacement.
   Text functions split words on whitespace; they do not interpret path quotes.
+  `dir` returns each word's directory including `/`, or `./` without a slash;
+  `suffix` returns its final dot suffix (excluding directory components).
+  `word n,text` selects a one-based word or empty text when out of range, and
+  `words text` counts words. A zero, negative, malformed or overflowing word index
+  fails. Paths use `/`; these functions share the normal text and word limits.
   Unknown functions and malformed references fail.
 - `wildcard` enumerates existing paths with `*` and `?` in the final path
   component. Directory components must be literal; bracket classes, backslashes,
@@ -85,6 +90,9 @@ Supported syntax and behavior:
   includes. Includes are read only; make does not regenerate or reread them.
 - Tab-prefixed recipe lines; automatic `$@`, `$<`, `$^` (deduplicated), and `$*`.
   `$*` is the pattern/suffix stem and is empty for ordinary explicit rules.
+  `$(@D)`, `$(@F)`, `$(<D)` and `$(<F)` select the directory or filename of
+  target/first normal prerequisite. Automatic directories omit the final `/`
+  and return `.` when there is no directory component.
 - Dependency traversal, missing-file errors, cycle detection, mtime-based
   rebuilding, and propagation of recipe/dependency failures. Successful rebuilt
   prerequisites trigger their parents even on coarse timestamp filesystems.
@@ -94,6 +102,8 @@ Supported syntax and behavior:
   `-j1` and `-j 1` select the existing serial execution; other job counts and bare
   `-j` fail explicitly. `.DEFAULT_GOAL` selects one expanded default target when
   no target argument was given; command-line target arguments take precedence.
+  Long aliases are `--always-make`, `--dry-run`, `--silent`, `--keep-going`,
+  `--file NAME`/`--file=NAME`, and `--directory DIR`/`--directory=DIR`.
 - Recipe tokenization supports single/double quotes, quoted portions inside an
   argument, backslash escaping, and spaces in paths. Quote paths in rules too.
   This is a deterministic token parser, not an operating-system shell.
@@ -107,7 +117,7 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions beyond the fourteen listed,
+This does **not** implement full GNU make: functions beyond the eighteen listed,
 conditionals beyond the listed forms, target-specific variables,
 export/environment variable import, grouped targets and recipes shared by
 multiple targets, double-colon/static pattern rules, inline recipes,

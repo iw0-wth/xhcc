@@ -27,9 +27,17 @@ void xh_rules_release(void);
 int xh_rules_encode(const char *rule,const int *args,int count,unsigned *word);
 /* Validate without encoding (used before an assembler pass). */
 int xh_rules_load(void);
-/* Scalar32 IR selection VM v1/v2. A matched record emits up to eight
- * constrained instructions; caller should provide >=512 output bytes.
- * 1=selected, 0=unmatched (caller retains C fallback), -1=error. */
+/* Generic finite sequence selector. XHSELECT3 profiles declare register names
+ * and allowed instruction shapes externally. Optional bindings must match the
+ * profile contract, and contain only one lexical register token each.
+ * Returned text is bounded, at most eight instructions; no native evaluation.
+ * 1=selected, 0=unmatched, -1=invalid profile/binding or output failure. */
+typedef struct {const char *dst,*lhs,*rhs;} XhSequenceBindings;
+int xh_sequence_set_path(const char *target,const char *path);
+int xh_sequence_select(const char *target,const char *operation,const XhSequenceBindings *bindings,char *output,int capacity);
+void xh_sequence_release(void);
+/* Compatibility RV32 wrappers: v1/v2 retain their historical profile; v3
+ * must declare the existing t0/t0/t1 caller binding. */
 int xh_rules_set_selection_path(const char *path);
 int xh_rules_select_binary(const char *operation,char *output,int capacity);
 #endif

@@ -107,22 +107,30 @@ transport/API capability negotiation must require matching call-class semantics.
 This is additive record encoding, not a claim of semantic compatibility with all
 historical compiler binaries.
 
-## Optional SysV ABI plan recording and scalar use
+## Optional SysV ABI plan recording and certified native use
 
 IR container version 2 persists independently indexed call/function plans and
-accepts v1 payloads with no plans. Canonical plan codec v2 adds
-`SCALAR_VERIFIED`; old canonical v1 plans decode with no certification and cannot
-be used for native lowering. `-frecord-sysv-abi` records supported classifications
-without changing machine ABI. `-fuse-sysv-abi-plan` is a separate x86_64-only
-opt-in that consumes certified scalar plans and validates the rule fingerprint.
-Integers, float/double, pointers, register/stack spills and variadic scalar access
-are covered; all aggregate arguments/results remain record-only and use mode
-rejects them explicitly. Defaults retain the previous calling path.
+accepts v1 payloads with no plans. Canonical plan codec v2 certifies scalar-only
+plans with flags=1 and supported small-integer-structure plans with flags=2;
+these are alternatives, and flags=3 is rejected. Old canonical v1 plans decode
+with flags=0 and cannot drive native use. `-frecord-sysv-abi` records supported
+classifications without changing machine ABI. `-fuse-sysv-abi-plan` is a separate
+x86_64-only opt-in that validates the rule fingerprint and consumes certified
+locations. Defaults retain the previous calling path.
 
-The four codegen tests passed on root 903358: two-TU scalar execution, small
-aggregate rejection, stale-fingerprint LTO rejection, and both caller/callee
-mixing directions with native Clang. No Clang test was skipped. This is evidence
-for the tested scalar subset, not complete SysV aggregate ABI interoperability.
+Scalar integers, float/double, pointers, register/stack spills and scalar
+variadic access are covered. The aggregate subset is nonempty structures of
+exactly 4 or 8 bytes with integer/pointer fields or recursively certified nested
+structures, proper natural alignment, no packing/bitfields and no aggregate
+variadic actuals. Floating fields, unions, arrays, other sizes and MEMORY/sret
+remain unsupported in use mode, though some can still be recorded.
+
+Six codegen tests passed on root 905474, including actual struct4/8 args/returns,
+after-six-GPR stack spill and pointer-field execution, with xhcc/xhcc and both
+Clang mixing directions. Scalar two-TU/FP/variadic tests, unsupported aggregate
+rejections and stale-fingerprint LTO rejection also passed. No Clang test was
+skipped. This proves the tested small-integer-structure subset, not complete
+SysV aggregate ABI interoperability.
 See [ABI plan IR v2](abi-plan-ir-v2.md) for the wire fields, capacities and exact
 compatibility/verification boundaries.
 

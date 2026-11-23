@@ -1,8 +1,12 @@
-# xhcc
+# 曦和编译器 · XH Compiler Collection
 
 [English](README.md) · 简体中文
 
-xhcc 是面向 NuttX 等 MCU/RTOS 受限内存环境的多目标 C 交叉编译器。编译器作为 WASI Preview1 command 运行，按需读取外部配置、代码生成规则、头文件和运行库资源。
+**项目定位**
+
+> 可在 MCU 上运行的跨 OS 模块化编译器集合：多后端交叉编译生成可烧录固件，兼容 make/gcc 语法并接入 make/CC，开发态可由 RTOS harness 调用，通过复制目录添加后端。
+
+曦和编译器（`xhcc`）当前以 WASI Preview1 command 运行，已具备桌面 SD 部署模拟及有界的 make/GCC 兼容接口。外部包按需提供配置、代码生成规则、头文件和运行库资源；复制目录可扩展已有引擎，任意新 ISA 仍可能需要引擎改动。MCU 运行和 RTOS harness 集成是部署方向，NuttX/WAMR 真机内存尚未测量。现代通用链接尚不完整，历史镜像生成接口也不等于已完成从编译到固件烧录的完整流程。
 
 两个独立应用共享一份 `packages/` 目录：
 
@@ -66,18 +70,18 @@ make 子集支持变量赋值与替换引用、include、有界条件语句、�
 | ARM | Cortex-M3/M4/M7/M33、Thumb-2、base AAPCS、受检 soft/softfp | 无 hard-float 参数 ABI；M0/M0+/M1/M23 需要 Thumb-1 lowering |
 | RV32 | RV32IM、ILP32、软件浮点辅助调用 | 无 RV64 或硬浮点 ABI |
 | i386 | ILP32、当前标量 SysV 子集及 xhcc 聚合 wire | 不保证完整 GNU 聚合 ABI |
-| AMD64 | LP64、标量 SysV/SSE 和已测变参场景 | 完整原生 SysV 聚合互操作尚未实现 |
+| AMD64 | LP64、标量 SysV/SSE 和已测变参场景；可选有限的 4/8 字节整数/指针结构体 | 完整原生 SysV 聚合互操作尚未实现 |
 | C 输出 | IR 转为 C 文本 | 不是 wasm32 代码生成后端 |
 
 详细范围见 [目标与架构边界](docs/targets.md)。编译器本身运行于 Wasm；将输入 C 直接编译为 wasm32/WASI 需要另一目标后端，目前尚未实现。
 
 前端继承 arkcc 的 C99 实现，带 ARMCC 扩展和有限 C11 关键词子集：`_Alignas`、`_Alignof`、`_Static_assert`、`_Generic`、`_Thread_local`、`_Atomic`。这不代表完整 C11。原生 TLS 明确拒绝，原子操作受目标及运行库限制。基本 asm 和 ARMCC asm 函数按目标支持；GNU 扩展 asm 目前接受一个 32 位 `=r` 输出、最多两个 `r/i` 输入及 `memory/cc` clobber，更广泛约束明确拒绝。详见 [功能对照](docs/feature-parity.md) 与 [对象库文档](object/README.md)。
 
-### AMD64 实验性标量 ABI 计划
+### AMD64 实验性 ABI 计划
 
-`-frecord-sysv-abi` 记录版本化参数/返回计划，`-c --private-object --obj-ir` 可保留计划供检查。`-fuse-sysv-abi-plan` 进一步启用**实验性标量 caller/callee 消费路径**，校验版本 2 标量资格、ABI 身份和规则指纹。两个选项均需显式启用。整数、浮点、指针、寄存器/栈溢出参数和标量变参场景已有执行覆盖，包含 **xhcc caller → Clang callee 与 Clang caller → xhcc callee 双向互操作**。
+`-frecord-sysv-abi` 记录版本化参数/返回计划，`-c --private-object --obj-ir` 可保留计划供检查。`-fuse-sysv-abi-plan` 进一步启用**实验性 caller/callee 消费路径**，支持认证标量，以及恰好 4 或 8 字节、自然对齐、含整数/指针字段的结构体具名参数与返回值。两个选项仍默认关闭。use 模式校验版本 2 资格标志（`SCALAR_VERIFIED=1` 或 `SMALL_INTEGER_AGGREGATE_VERIFIED=2`）、ABI 身份和规则指纹，不能仅凭单片段布局猜测资格。
 
-聚合计划仍仅供检查。use 模式明确拒绝聚合参数/返回，包括小结构体；聚合原生互操作尚未实现。IR 容器 v2 持久化计划表和独立引用，读取 v1 时按无计划处理。合同与测试证据见 [ABI 计划文档](docs/abi-plan-ir-v2.md)。
+执行测试覆盖标量整数、浮点、指针、寄存器/栈溢出参数及标量变参，也覆盖有限结构体的参数/返回、GP 寄存器耗尽后的栈传递和指针字段，包含 **xhcc caller → Clang callee 与 Clang caller → xhcc callee 双向互操作**。use 模式拒绝 packed 结构体、浮点字段、位域、union、数组、3/5/16 字节结构体及变参聚合实参。其余聚合计划仍仅供记录检查，不代表完整原生 SysV 聚合互操作。IR 容器 v2 持久化计划表和独立引用，读取 v1 时按无计划处理。合同与测试证据见 [ABI 计划文档](docs/abi-plan-ir-v2.md)。
 
 ## 命令行兼容范围
 

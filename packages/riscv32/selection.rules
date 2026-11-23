@@ -1,5 +1,27 @@
 # RV32 scalar32 instruction sequences. Unmatched IR retains C fallback.
-XHSELECT 2
+XHSELECT 3
+# Native RV32 operand-binding contract; declared in package data.
+register dst t0
+register lhs t0
+register rhs t1
+allow add rrr
+allow sub rrr
+allow and rrr
+allow or rrr
+allow xor rrr
+allow mul rrr
+allow sll rrr
+allow srl rrr
+allow sra rrr
+allow slt rrr
+allow sltu rrr
+allow div rrr
+allow divu rrr
+allow rem rrr
+allow remu rrr
+allow seqz rr
+allow snez rr
+allow xori rri
 select ADD scalar32
 emit add dst lhs rhs
 end

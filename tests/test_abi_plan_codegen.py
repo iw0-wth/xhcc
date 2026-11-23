@@ -24,6 +24,24 @@ int entry(void) { long x=17;
  && single(1.5f,2)==3.5f && pointed(&x)==17 && variadic(3,1.5,4L,2.5)==11.0; }
 '''
 
+AGG_LIBRARY = '''
+struct S4 { int x; }; struct S8 { int x; int y; }; struct P8 { long *p; };
+struct S4 echo4(struct S4 a) { a.x += 3; return a; }
+struct S8 echo8(struct S8 a) { a.x += 2; a.y += 5; return a; }
+long consume4(struct S4 a, long n) { return a.x + n; }
+long spill8(long a,long b,long c,long d,long e,long f,struct S8 x,long tail) { return a+b+c+d+e+f+x.x+x.y+tail; }
+long pointer8(struct P8 a) { return *a.p; }
+'''
+AGG_CALLER = '''
+struct S4 { int x; }; struct S8 { int x; int y; }; struct P8 { long *p; };
+struct S4 echo4(struct S4); struct S8 echo8(struct S8);
+long consume4(struct S4,long);long spill8(long,long,long,long,long,long,struct S8,long);long pointer8(struct P8);
+int entry(void) { struct S4 a={7}, ar; struct S8 b={11,13}, br; long value=31; struct P8 p;
+ ar=echo4(a);br=echo8(b);p.p=&value;
+ return ar.x==10 && br.x==13 && br.y==18 && consume4(a,5)==12
+ && spill8(1,2,3,4,5,6,b,9)==54 && pointer8(p)==31; }
+'''
+
 class AbiPlanCodegen(unittest.TestCase):
  def invoke(self,src,obj,*extra,ok=True):
   p=subprocess.run([*command(),'x86_64-linux-gnu-gcc','-O0','-fuse-sysv-abi-plan','-c',*extra,str(src.relative_to(ROOT)),'-o',str(obj.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True,timeout=60)
@@ -43,10 +61,39 @@ class AbiPlanCodegen(unittest.TestCase):
    for src in [library,caller]:
     obj=src.with_suffix('.o');self.invoke(src,obj);objects.append(obj)
    self.assertEqual(self.execute(objects,work/'combined.o'),1)
- def test_aggregate_is_explicitly_rejected_even_single_fragment(self):
-  cases=['struct S { int x; }; struct S f(struct S x) { return x; }',
-         'struct S { int x; }; extern int f(struct S); int entry(void) { struct S x={1}; return f(x); }']
+ def test_unsupported_aggregate_is_explicitly_rejected(self):
+  cases=['struct S { double x; }; struct S f(struct S x) { return x; }',
+         'struct S { long a,b; }; extern int f(struct S); int entry(void) { struct S x={1,2}; return f(x); }',
+         'struct __attribute__((packed)) S { int x; }; struct S f(struct S x) { return x; }',
+         'struct S { unsigned x:4; }; struct S f(struct S x) { return x; }',
+         'union S { int x; }; union S f(union S x) { return x; }',
+         'struct S { int x[2]; }; struct S f(struct S x) { return x; }']
   with tempfile.TemporaryDirectory(prefix='abi-aggregate-',dir=ROOT/'build') as tmp:
+   work=Path(tmp)
+   for i,text in enumerate(cases):
+    src=work/f'bad{i}.c';src.write_text(text+'\n');p=self.invoke(src,src.with_suffix('.o'),ok=False)
+    self.assertIn('aggregate',(p.stdout+p.stderr).lower())
+ def test_small_integer_struct_two_tu_and_clang_both_directions(self):
+  clang=os.environ.get('CLANG_REFERENCE') or shutil.which('clang') or (str(Path(r'D:\msys64\ucrt64\bin\clang.exe')) if Path(r'D:\msys64\ucrt64\bin\clang.exe').is_file() else None)
+  self.assertIsNotNone(clang,'reference Clang required for aggregate ABI acceptance')
+  with tempfile.TemporaryDirectory(prefix='abi-small-aggregate-',dir=ROOT/'build') as tmp:
+   work=Path(tmp);library=work/'library.c';caller=work/'caller.c';library.write_text(AGG_LIBRARY);caller.write_text(AGG_CALLER)
+   for route in ['xhcc','clang-library','clang-caller']:
+    objects=[]
+    for src in [library,caller]:
+     reference=(route=='clang-library' and src==library) or (route=='clang-caller' and src==caller)
+     obj=work/(src.stem+'_'+route+'.o')
+     if reference:
+      p=subprocess.run([clang,'--target=x86_64-unknown-linux-gnu','-O0','-ffreestanding','-fno-stack-protector','-fno-pic','-c',str(src),'-o',str(obj)],cwd=ROOT,capture_output=True,text=True)
+      self.assertEqual(p.returncode,0,p.stderr)
+     else:self.invoke(src,obj)
+     objects.append(obj)
+    self.assertEqual(self.execute(objects,work/(route+'_combined.o')),1,route)
+ def test_irregular_size_and_variadic_aggregate_are_rejected(self):
+  cases=['struct S { char a,b,c; }; struct S f(struct S a) { return a; }',
+         'struct S { char a,b,c,d,e; }; struct S f(struct S a) { return a; }',
+         'struct S { int x; }; extern int f(int,...); int entry(void) { struct S a={3};return f(1,a); }']
+  with tempfile.TemporaryDirectory(prefix='abi-small-reject-',dir=ROOT/'build') as tmp:
    work=Path(tmp)
    for i,text in enumerate(cases):
     src=work/f'bad{i}.c';src.write_text(text+'\n');p=self.invoke(src,src.with_suffix('.o'),ok=False)

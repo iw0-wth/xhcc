@@ -292,6 +292,47 @@ class MakeTests(unittest.TestCase):
         self.makefile('all other:\n\techo unsupported\n')
         self.assertIn('multiple-target', self.run_make(success=False).stderr)
 
+    def test_path_functions_automatic_parts_and_long_options(self):
+        (self.directory / 'src').mkdir()
+        (self.directory / 'src/two.c').write_text('int two(void){return 2;}\n')
+        self.makefile('SOURCES = src/two.c one.c README\n'
+                      'all: obj/deep/two.o\n'
+                      '\t@echo dirs=$(dir $(SOURCES)) suffixes=$(suffix $(SOURCES))\n'
+                      '\t@echo second=$(word 2,$(SOURCES)) count=$(words $(SOURCES))\n'
+                      '\t@echo flat=$(@D)/$(@F)\n'
+                      'obj/deep/two.o: src/two.c\n'
+                      '\tmkdir -p "$(@D)"\n'
+                      '\tarm-none-eabi-gcc --package-root ../packages -c "$(<D)/$(<F)" -o "$(@D)/$(@F)"\n')
+        (self.directory / 'Alternate.mk').write_text((self.directory / 'Makefile').read_text())
+        result = self.run_make('--file=Alternate.mk', '--dry-run')
+        self.assertFalse((self.directory / 'obj').exists())
+        self.assertIn('obj/deep', result.stdout)
+        result = self.run_make('--file=Alternate.mk')
+        self.assertIn('dirs=src/ ./ ./ suffixes=.c .c', result.stdout)
+        self.assertIn('second=one.c count=3', result.stdout)
+        self.assertIn('flat=./all', result.stdout)
+        self.assertEqual((self.directory / 'obj/deep/two.o').read_bytes()[:4], b'\x7fELF')
+        self.assertNotIn(' -c ', self.run_make('--file=Alternate.mk').stdout)
+        self.assertIn(' -c ', self.run_make('--file=Alternate.mk', '--always-make').stdout)
+        result = self.run_make('--silent')
+        self.assertNotIn('mkdir -p', result.stdout)
+        # Independent invocation tests the long directory alias without -C twice.
+        result = subprocess.run([*self.command, 'make', '--directory=' + self.relative,
+                                 '--file', 'Alternate.mk'], cwd=ROOT,
+                                capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_word_errors_and_expansion_limit(self):
+        for value in ['0', '-1', 'bad']:
+            self.makefile(f'X := $(word {value},one two)\nall:\n')
+            self.assertIn('positive integer', self.run_make(success=False).stderr)
+        self.makefile('X = ' + 'a' * 1100 + '\nY := $(X)$(X)\nall:\n')
+        self.assertIn('exceeds limit', self.run_make(success=False).stderr)
+        self.makefile('all:\n\techo $(shell echo forbidden)\n')
+        self.assertIn('unsupported make function', self.run_make(success=False).stderr)
+        self.makefile('all: bad good\nbad:\n\tunknown-tool\ngood:\n\techo survivor\n')
+        self.assertIn('survivor', self.run_make('--keep-going', success=False).stdout)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

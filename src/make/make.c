@@ -166,9 +166,11 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     else if(!strcmp(expr,"sort"))kind=9;else if(!strcmp(expr,"patsubst"))kind=10;
     else if(!strcmp(expr,"wildcard"))kind=11;else if(!strcmp(expr,"origin"))kind=12;
     else if(!strcmp(expr,"error"))kind=13;else if(!strcmp(expr,"warning"))kind=14;
+    else if(!strcmp(expr,"dir"))kind=15;else if(!strcmp(expr,"suffix"))kind=16;
+    else if(!strcmp(expr,"word"))kind=17;else if(!strcmp(expr,"words"))kind=18;
     else return fail(m,"unsupported make function",expr);
     raw[0]=rest;
-    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10) {
+    if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10||kind==17) {
         int required=kind==6||kind==10?3:2;
         while(argc<required) {p=separator(raw[argc-1],',');if(!p)return fail(m,"missing function argument",expr);*p=0;raw[argc++]=p+1;}
     }
@@ -180,6 +182,21 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
         return put(m,out,&used,origin)?-1:1;}
     if(kind==13)return fail(m,"error",values[0]);
     if(kind==14){fprintf(stderr,"xhccm make: warning: %s\n",values[0]);return 1;}
+    if(kind>=15) {
+        char *items[WORDS];int count=wordlist(m,values[kind==17?1:0],items);
+        if(count<0)return -1;
+        if(kind==17){char *end,*index=trim(values[0]);unsigned long word;
+            if(!isdigit((unsigned char)*index))return fail(m,"word index must be positive integer",index);
+            errno=0;word=strtoul(index,&end,10);if(errno||*end||!word)return fail(m,"word index must be positive integer",index);
+            if(word<=(unsigned long)count&&put(m,out,&used,items[word-1]))return -1;
+        } else if(kind==18){char number[24];snprintf(number,sizeof(number),"%d",count);if(put(m,out,&used,number))return -1;}
+        else for(i=0;i<count;i++) {
+            char *base=strrchr(items[i],'/'),*part;
+            if(kind==15){if(base){base[1]=0;part=items[i];}else part="./";}
+            else {char *dot=strrchr(items[i],'.');if(!dot||(base&&dot<base))continue;part=dot;}
+            if(used&&put(m,out,&used," "))return -1;if(put(m,out,&used,part))return -1;
+        }return 1;
+    }
     if(kind>=7)return transform(m,kind,values,out)?-1:1;
     if(kind==6) {
         size_t from=strlen(values[0]);p=values[2];
@@ -246,6 +263,13 @@ static int expand(Make *m,const char *s,const Auto *a,char *out,int depth) {
                 if(k+1>=sizeof(name))return fail(m,"variable expression too long",0);name[k++]=*s++;
             }
             if(level)return fail(m,"unterminated variable reference",0);name[k]=0;
+            if(a&&strlen(name)==2&&(name[0]=='@'||name[0]=='<')&&(name[1]=='D'||name[1]=='F')) {
+                const char *path=name[0]=='@'?a->target:a->first,*slash=strrchr(path,'/');
+                if(name[1]=='F')value=slash?slash+1:path;
+                else if(!slash)value=".";
+                else {size_t len=(size_t)(slash-path);if(!len)len=1;memcpy(nested,path,len);nested[len]=0;value=nested;}
+                if(put(m,out,&n,value))return -1;continue;
+            }
             fr=function(m,name,a,nested,depth);if(fr<0)return -1;
             if(fr){if(put(m,out,&n,nested))return -1;continue;}
             fr=substitution_ref(m,name,a,nested,depth);if(fr<0)return -1;
@@ -573,7 +597,13 @@ int xh_make_main(int argc,char **argv) {
     }
     for(i=0;i<argc;i++) {
         char *arg=argv[i];
-        if(!strcmp(arg,"-f")||!strcmp(arg,"-C")) {if(++i==argc){fail(&m,"option needs value",arg);break;}if(arg[1]=='f')file=argv[i];else if(chdir(argv[i])){fail(&m,"cannot change directory",argv[i]);break;}}
+        if(!strcmp(arg,"--always-make"))m.force=1;
+        else if(!strcmp(arg,"--dry-run"))m.dry=1;
+        else if(!strcmp(arg,"--silent"))m.silent=1;
+        else if(!strcmp(arg,"--keep-going"))m.keep=1;
+        else if(!strncmp(arg,"--file=",7)){if(!arg[7]){fail(&m,"option needs value",arg);break;}file=arg+7;}
+        else if(!strncmp(arg,"--directory=",12)){if(!arg[12]||chdir(arg+12)){fail(&m,"cannot change directory",arg+12);break;}}
+        else if(!strcmp(arg,"-f")||!strcmp(arg,"-C")||!strcmp(arg,"--file")||!strcmp(arg,"--directory")) {int isfile=!strcmp(arg,"-f")||!strcmp(arg,"--file");if(++i==argc){fail(&m,"option needs value",arg);break;}if(isfile)file=argv[i];else if(chdir(argv[i])){fail(&m,"cannot change directory",argv[i]);break;}}
         else if(!strncmp(arg,"-j",2)) {const char *jobs=arg+2;if(!*jobs&&i+1<argc)jobs=argv[++i];if(strcmp(jobs,"1")){fail(&m,"only serial -j1 is supported",arg);break;}}
         else if(arg[0]=='-'&&arg[1]) {char *c=arg+1;for(;*c;c++){if(*c=='n')m.dry=1;else if(*c=='B')m.force=1;else if(*c=='s')m.silent=1;else if(*c=='k')m.keep=1;else {fail(&m,"unsupported option",arg);break;}}}
         else if(strchr(arg,'=')) {char *s=copy(&m,arg);if(!s||assignment(&m,s,1)<0)break;}

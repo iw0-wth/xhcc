@@ -1,8 +1,12 @@
-# xhcc
+# XH Compiler Collection · 曦和编译器
 
 [简体中文](README.zh-CN.md) · English
 
-xhcc is a multi-target C cross-compiler intended for memory-constrained MCU/RTOS environments such as NuttX. It runs as a WASI Preview1 command and loads external configuration, code-generation rules, headers and runtime resources on demand.
+**Project direction**
+
+> Modular, cross-OS Compiler Collection running on MCUs: multi-backend cross-builds to flashable firmware, drop-in gcc replacement for make/CC, RTOS-harness callable, backends added by copying a directory.
+
+XH Compiler Collection (`xhcc`) currently runs as WASI Preview1 commands, with desktop SD-deployment simulation and bounded make/GCC-compatible interfaces. External packages load configuration, code-generation rules, headers and runtime resources on demand; copying a directory can extend an existing engine, while an arbitrary new ISA can require engine changes. MCU execution and RTOS-harness integration remain deployment goals: NuttX/WAMR hardware memory use is not yet measured. Modern general linking is incomplete; legacy image-generation interfaces are distinct from a complete compile-to-flash firmware workflow.
 
 Two independent applications share one `packages/` directory:
 
@@ -66,18 +70,18 @@ Machine-target `-c` emits standard ELF relocatable objects (`ET_REL`). The C bac
 | ARM | Cortex-M3/M4/M7/M33, Thumb-2, base AAPCS, checked soft/softfp | No hard-float parameter ABI; M0/M0+/M1/M23 need Thumb-1 lowering |
 | RV32 | RV32IM, ILP32, software floating-point helper calls | No RV64 or hardware floating-point ABI |
 | i386 | ILP32, current scalar SysV subset and xhcc aggregate wire | No complete GNU aggregate ABI guarantee |
-| AMD64 | LP64, scalar SysV/SSE and tested variadic cases | Complete native SysV aggregate interoperability is not implemented |
+| AMD64 | LP64, scalar SysV/SSE and tested variadic cases; opt-in limited 4/8-byte integer/pointer structures | Complete native SysV aggregate interoperability is not implemented |
 | C output | IR translated to C text | Not a wasm32 code-generation backend |
 
 See [target definitions and architecture limits](docs/targets.md). The compiler runs in Wasm; compiling input C directly into wasm32/WASI is a separate, currently unimplemented backend.
 
 The frontend derives from arkcc's C99 implementation, with ARMCC extensions and a limited C11 keyword subset: `_Alignas`, `_Alignof`, `_Static_assert`, `_Generic`, `_Thread_local` and `_Atomic`. This does not establish full C11 support. Native TLS is rejected; atomics have target/runtime limits. Basic asm and ARMCC asm functions depend on the target. GNU extended asm currently accepts one 32-bit `=r` output, up to two `r/i` inputs and `memory/cc` clobbers; broader constraints are rejected. Details are in the [feature comparison](docs/feature-parity.md) and [object library documentation](object/README.md).
 
-### Experimental AMD64 scalar ABI plans
+### Experimental AMD64 ABI plans
 
-`-frecord-sysv-abi` records versioned argument/result plans; `-c --private-object --obj-ir` preserves them for inspection. `-fuse-sysv-abi-plan` additionally enables the **experimental scalar caller/callee consumer**, checking version 2 scalar eligibility, ABI identity and the rule fingerprint. Both flags are opt-in. Integers, floating-point values, pointers, register/stack spills and scalar variadic cases have execution coverage, including **xhcc caller → Clang callee and Clang caller → xhcc callee**.
+`-frecord-sysv-abi` records versioned argument/result plans; `-c --private-object --obj-ir` preserves them for inspection. `-fuse-sysv-abi-plan` additionally enables the **experimental caller/callee consumer** for verified scalars and naturally aligned structures of exactly 4 or 8 bytes containing integer/pointer fields, as named parameters and return values. Both flags remain off by default. Use mode checks version 2 eligibility flags (`SCALAR_VERIFIED=1` or `SMALL_INTEGER_AGGREGATE_VERIFIED=2`), ABI identity and the rule fingerprint; a single-fragment layout alone does not establish eligibility.
 
-Aggregate plans remain inspection metadata. Use mode explicitly rejects aggregate arguments/results, including small structures; native aggregate interoperability is not implemented. IR container v2 persists the plan table and independent references; the reader accepts v1 with no plans. See the [ABI plan contract and test evidence](docs/abi-plan-ir-v2.md).
+Execution tests cover scalar integers, floating-point values, pointers, register/stack spills and scalar variadic cases, plus the limited structures' parameters/results, GP-register exhaustion and pointer fields. Coverage includes **xhcc caller → Clang callee and Clang caller → xhcc callee**. Packed structures, floating-point fields, bitfields, unions, arrays, 3/5/16-byte structures and variadic aggregate arguments are rejected by use mode. Other aggregate plans remain record-only; this is not complete native SysV aggregate interoperability. IR container v2 persists the plan table and independent references; the reader accepts v1 with no plans. See the [ABI plan contract and test evidence](docs/abi-plan-ir-v2.md).
 
 ## Command-line compatibility
 

@@ -55,7 +55,7 @@ overlapping fields, unknown rules, incorrect argument counts, invalid ranges
 and misaligned operands fail compilation. There are no branches, loops,
 filesystem directives, dynamic imports or arbitrary expressions in the grammar.
 
-## Scalar instruction selection v1/v2
+## Scalar instruction selection v1/v2/v3
 
 ```
 XHSELECT 2
@@ -68,14 +68,40 @@ end
 Version 1 single-line records remain accepted:
 `select ADD scalar32 add dst lhs rhs`. Version 2 has explicit `select` / `emit`
 / `end` records with at most eight instructions per selected operation.
-`xh_rules_set_selection_path(path)` independently selects the package table.
-The default is `packages/riscv32/selection.rules`. Files are limited to 8192
-bytes and 32 unique operations. Each instruction chooses an allowlisted
-mnemonic and `dst`/`lhs`/`rhs` register selectors; xori additionally accepts
-immediate 0 or 1. seqz/snez have two register operands. Every instruction writes
-`dst`; no instruction can write stack/frame state or insert arbitrary text.
-The current stack emitter supplies `dst=t0`, `lhs=t0`, `rhs=t1`.
-Generated instructions then pass through the external field encoder above.
+Version 3 additionally declares an external operand profile before any rules:
+
+```
+XHSELECT 3
+register dst t0
+register lhs t0
+register rhs t1
+allow add rrr
+allow seqz rr
+allow xori rri
+select EQ scalar32
+emit add dst lhs rhs
+emit seqz dst dst
+end
+```
+
+The example illustrates grammar, not an arithmetic-equivalent EQ definition.
+`rr`, `rrr` and `rri` describe operand arity and register/immediate categories.
+Immediate values are the finite language constants 0 and 1. Mnemonic and
+register tokens are lexical identifiers; no whitespace, newline or comma
+insertion is allowed. Every instruction destination selector must be `dst`.
+The generic v3 engine contains no RV mnemonic whitelist or register spelling.
+`xh_sequence_set_path(target,path)` / `xh_sequence_select(target,operation,
+bindings,...)` support up to eight path registrations and a single active table
+allocated for its actual rule count. Optional bindings must match the declared
+profile. `xh_sequence_release()` discards the parsed table. Files are limited
+to 16384 bytes, 32 operations, 64 allowed mnemonics and eight steps per operation.
+
+The historical `xh_rules_*` APIs remain RV32 wrappers. Versions 1/2 retain an
+explicit legacy RV32 profile for compatibility; version 3 production package
+spells its registers and allowed instructions in the external file. The wrapper
+checks its existing t0/t0/t1 calling contract against that profile. This does not
+make another register convention or ISA executable through the native RV engine.
+Generated instructions still pass through the assembler and field encoder.
 
 Native mnemonics are add, sub, and, or, xor, mul, sll, srl, sra, slt, sltu, div,
 divu, rem, remu, seqz, snez and xori. The default package covers ADD/SUB/MUL,

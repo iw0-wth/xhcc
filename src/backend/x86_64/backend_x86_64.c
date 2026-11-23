@@ -2028,17 +2028,17 @@ static void amd_store_fp(AsmBuffer *b, int is_double) {
 int g_xhcc_use_sysv_abi_plan=0;
 static const IrAbiPlan *amd_plan(IrProgram*p,int index){return index>0&&index<=p->abi_plan_count?p->abi_plans[index-1]:0;}
 static int amd_scalar_type(Type*t){return !t || t->kind==TYPE_VOID || t->kind==TYPE_PTR || type_is_integer(t) || t->kind==TYPE_FLOAT || t->kind==TYPE_DOUBLE;}
-static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint){unsigned k;if(!p || !xh_sysv_plan_wire_size(p) || p->version<2 || !(p->flags&XH_SYSV_PLAN_SCALAR_VERIFIED) || p->abi_id!=1 || p->rule_fingerprint!=fingerprint || p->sret || p->result.memory || p->result.count>1)return 0;
+static int amd_plan_ok(const IrAbiPlan*p,unsigned fingerprint){unsigned k;if(!p || !xh_sysv_plan_wire_size(p) || p->version<2 || !(p->flags&(XH_SYSV_PLAN_SCALAR_VERIFIED|XH_SYSV_PLAN_SMALL_INTEGER_AGGREGATE_VERIFIED)) || p->abi_id!=1 || p->rule_fingerprint!=fingerprint || p->sret || p->result.memory || p->result.count>1)return 0;
  for(k=0;k<p->arg_count;k++){const XhAbiArgumentPlan*a=&p->args[k];if(a->size>8 || a->count>1 || (!a->by_value_stack&&a->count!=1) || (a->by_value_stack&&(a->stack_extent!=8||a->stack_offset%8)))return 0;if(a->count&&(a->fragments[0].object_offset || a->fragments[0].bank>1 || a->fragments[0].index>=(a->fragments[0].bank?8u:6u)))return 0;}
  return 1;}
 static int amd_validate_plans(IrProgram*p){unsigned fingerprint=xh_template_fingerprint("x86_64.aggregate");int fi,i,k;
  for(fi=0;fi<p->func_count;fi++){IrFunc*f=p->funcs[fi];const IrAbiPlan*signature=amd_plan(p,f->parameter_plan),*result=amd_plan(p,f->result_plan);
-  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type))goto bad;
-  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
+  if(!amd_plan_ok(signature,fingerprint)||!amd_plan_ok(result,fingerprint)||signature->arg_count!=(unsigned)f->param_count||!amd_scalar_type(f->ret_type)&&!xh_sysv_small_integer_struct(f->ret_type))goto bad;
+  for(k=0;k<f->param_count;k++)if(!f->param_types||!amd_scalar_type(f->param_types[k])&&!xh_sysv_small_integer_struct(f->param_types[k])&&f->param_types[k]->kind!=TYPE_ARRAY&&f->param_types[k]->kind!=TYPE_FUNC)goto bad;
   for(i=0;i<f->code_count;i++)if(f->code[i].op==IR_CALL){IrInst*inst=&f->code[i];const IrAbiPlan*call=amd_plan(p,inst->abi_plan);unsigned n=(unsigned)inst->val;if(inst->name&&inst->name[0]=='?')n--;if(!amd_plan_ok(call,fingerprint)||call->arg_count!=n)goto bad;}
  }
  return 0;
- bad:diag_tool(DIAG_SEV_ERROR,"x86_64","scalar SysV ABI-plan codegen requires complete, matching scalar-only plans; aggregate/missing/stale plans are unsupported",0,0,0,0,0,0);return -1;
+ bad:diag_tool(DIAG_SEV_ERROR,"x86_64","scalar SysV ABI-plan codegen requires complete, matching scalar/small-integer-struct plans; unsupported aggregate/missing/stale plans are rejected",0,0,0,0,0,0);return -1;
 }
 
 static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
