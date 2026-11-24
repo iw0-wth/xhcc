@@ -17,6 +17,9 @@ ROOT=Path(__file__).resolve().parents[1]
 EXAMPLES={
  'first.c':'int first(void){return 17;}\n',
  'second.c':'int second(void){return 25;}\n',
+ 'entry.c':'int first(void); int second(void); int entry(void){return first()+second();}\n',
+ 'memory.ld':'ENTRY(entry)\nMEMORY { FLASH(rx) : ORIGIN = 0x08004000, LENGTH = 128K RAM(rw) : ORIGIN = 0x20002000, LENGTH = 32K }\nSECTIONS { .text : { *(.text*) *(.rodata*) } > FLASH .data : { _sdata = .; *(.data*) _edata = .; } > RAM AT> FLASH .bss (NOLOAD) : { _sbss = .; *(.bss*) *(COMMON) _ebss = .; } > RAM }\n',
+ 'Makefile.link':'CC ?= arm-none-eabi-gcc\nCFLAGS = -O0 -mcpu=cortex-m3\nOBJECTS = first.o second.o entry.o\nall: firmware.elf\nfirmware.elf: $(OBJECTS)\n\t$(CC) --entry entry --text-address 0x08004000 --data-address 0x20002000 $(OBJECTS) -o $@\n%.o: %.c\n\t$(CC) $(CFLAGS) -c $< -o $@\n',
  'Makefile':'CC ?= arm-none-eabi-gcc\nCFLAGS ?= -O1 -mcpu=cortex-m3\nOBJECTS = first.o second.o\n.PHONY: all clean\nall: $(OBJECTS)\n%.o: %.c\n\t$(CC) $(CFLAGS) -c $< -o $@\nclean:\n\trm -f $(OBJECTS)\n',
  'Makefile.extended':'MODE ?= arm\nSOURCES = first.c second.c\nOBJECTS := $(addsuffix .o,$(basename $(SOURCES)))\nifeq ($(MODE),rv32)\nCC = riscv32-unknown-elf-gcc\nCFLAGS = -O0\nelse\nCC = arm-none-eabi-gcc\nCFLAGS = -O1 -mcpu=cortex-m3\nendif\n.PHONY: all prepare\nall: $(OBJECTS)\nprepare:\n\tmkdir -p output\n%.o: %.c | prepare\n\t$(CC) $(CFLAGS) -c $< -o $@\n'}
 
@@ -64,7 +67,7 @@ def read_previous(root):
 
 def source_files(root):
  files={}
- for app in ['xhcc','xhccm']:
+ for app in ['xhcc','xhccm','xhccn','xhlinker']:
   path=root/'build/wasm'/f'{app}.wasm'
   if not path.is_file():raise ValueError(f'build {app} first: {path}')
   files[path.name]=path.read_bytes()

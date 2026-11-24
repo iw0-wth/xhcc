@@ -12,7 +12,7 @@ p.add_argument('--sdk',default=os.environ.get('WASI_SDK_PATH',r'D:\wasi-sdk-34.0
 p.add_argument('--cc');p.add_argument('--native',action='store_true');p.add_argument('--verbose',action='store_true')
 p.add_argument('--target',choices=TARGETS,default='all');p.add_argument('--all',action='store_true')
 p.add_argument('--memory-mib',type=int,default=4)
-p.add_argument('--app',choices=['xhcc','xhccm','both'],default='both')
+p.add_argument('--app',choices=['xhcc','xhccm','xhccn','xhlinker','both','all-apps'],default='all-apps')
 p.add_argument('--no-cache',action='store_true',help='compile every translation unit without object-cache reuse')
 p.add_argument('--cache-dir',type=Path,default=ROOT/'build/object-cache')
 p.add_argument('--wasm-validate',default=os.environ.get('WASM_VALIDATE') or shutil.which('wasm-validate') or (r'D:\wabt-1.0.42\bin\wasm-validate.exe' if os.name=='nt' else 'wasm-validate'))
@@ -28,18 +28,22 @@ def build(target,app):
     num,package=TARGETS[target]
     out=ROOT/'build'/('native' if a.native else 'wasm')
     out=out/'dev'/target
-    if app=='xhccm':out=out/'xhccm'
+    if app!='xhcc':out=out/app
     out.mkdir(parents=True,exist_ok=True)
     sources=[]
     for source in sorted((ROOT/'src').rglob('*.c')):
         rel=source.relative_to(ROOT/'src').as_posix()
+        if app=='xhlinker':
+            if rel not in ('link/main.c','link/elf_link.c','link/elf_read.c','link/arm_elf_reloc.c','link/ld_script.c','backend/rules/relocation.c','platform/wasi/flash_fs_host.c'):continue
+        elif rel=='link/main.c':continue
+        if app=='xhccn' and rel.startswith('link/'):continue
         if rel.startswith('stages/'):continue
         if rel.startswith('make/') and app!='xhccm':continue
         if rel.startswith('backend/riscv32/') and target not in ('all','riscv32'):continue
         if rel.startswith('backend/x86_64/') and target not in ('all','x86','x86_64'):continue
         if rel.startswith('backend/c/') and target not in ('all','c'):continue
         sources.append(source)
-    sources+=sorted((ROOT/'object').glob('*.c'))
+    if app!='xhlinker':sources+=sorted((ROOT/'object').glob('*.c'))
     flags=['-std=c99','-Oz','-g0','-ffunction-sections','-fdata-sections','-include',str(ROOT/'include/xh_small.h'),'-I'+str(ROOT/'include'),'-I'+str(ROOT/'object'),f'-DXH_TARGET={num}',f'-DXH_MODULE_TARGET="{target}"','-Wno-unused-value','-Wno-incompatible-pointer-types']
     if not a.native:flags+=['--target=wasm32-wasip1','-mno-bulk-memory','-mno-sign-ext','-mno-nontrapping-fptoint','-mno-simd128','-mno-atomics']
     objects=[]
@@ -47,6 +51,7 @@ def build(target,app):
         obj=out/(source.relative_to(ROOT).as_posix().replace('/','_')+'.o')
         unit_flags=[*flags]
         if app=='xhccm' and source==ROOT/'src/driver.c':unit_flags+=['-DXH_DRIVER_NO_MAIN=1']
+        if app=='xhccn' and source.relative_to(ROOT).as_posix() in ('src/driver.c','src/core/compiler.c','src/ir/ipo.c'):unit_flags+=['-DXH_WITH_LINKER=0']
         object_cache.compile(source,unit_flags,obj,run);objects.append(str(obj))
     output=out/(app+'.exe' if a.native and os.name=='nt' else app if a.native else app+'.wasm')
     link=[cc,*objects,'-o',str(output)]
@@ -65,5 +70,6 @@ def build(target,app):
             shutil.copy2(output,production)
     print(f'{app}/{target}: {output} ({output.stat().st_size} bytes)',flush=True)
 for target in (TARGETS if a.all else [a.target]):
-    for app in (['xhcc','xhccm'] if a.app=='both' else [a.app]):build(target,app)
+    apps=['xhcc','xhccm','xhccn','xhlinker'] if a.app=='all-apps' else ['xhcc','xhccm'] if a.app=='both' else [a.app]
+    for app in apps:build(target,app)
 print(f'Object cache: {object_cache.hits} hits, {object_cache.misses} compilations',flush=True)

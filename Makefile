@@ -1,14 +1,14 @@
-# Host build of both WASI applications. Tool paths are overridable.
+# Four sibling WASI applications. Tool paths are overridable.
 PYTHON ?= python
 WASI_SDK_PATH ?= D:/wasi-sdk-34.0-x86_64-windows
 SD_ROOT ?= ../sd/xhcc
-.PHONY: all xhcc xhccm test deploy-sd test-sd resources
+.PHONY: all xhcc xhccm xhccn xhlinker test deploy-sd test-sd resources nopy
 all:
-	$(PYTHON) tools/build.py --app both --sdk "$(WASI_SDK_PATH)"
-xhcc:
-	$(PYTHON) tools/build.py --app xhcc --sdk "$(WASI_SDK_PATH)"
-xhccm:
-	$(PYTHON) tools/build.py --app xhccm --sdk "$(WASI_SDK_PATH)"
+	$(PYTHON) tools/build.py --app all-apps --sdk "$(WASI_SDK_PATH)"
+xhcc xhccm xhccn xhlinker:
+	$(PYTHON) tools/build.py --app $@ --sdk "$(WASI_SDK_PATH)"
+nopy:
+	$(MAKE) -f Makefile.nopy all
 test:
 	$(PYTHON) tools/test.py
 	$(PYTHON) tests/test_make.py

@@ -6,7 +6,7 @@ spec=importlib.util.spec_from_file_location('deploy_sd',ROOT/'tools/deploy_sd.py
 class DeploySd(unittest.TestCase):
  def fixture(self,base):
   source=base/'source';(source/'build/wasm').mkdir(parents=True);(source/'packages/demo').mkdir(parents=True)
-  for app in ['xhcc','xhccm']:(source/'build/wasm'/f'{app}.wasm').write_bytes(b'\0asm-'+app.encode())
+  for app in ['xhcc','xhccm','xhccn','xhlinker']:(source/'build/wasm'/f'{app}.wasm').write_bytes(b'\0asm-'+app.encode())
   (source/'packages/demo/package.ini').write_text('id=demo\n');(source/'packages/demo/current.rules').write_text('current');(source/'packages/demo/old.rules').write_text('old');(source/'packages/demo/ignored.wasm').write_bytes(b'ignored')
   return source,base/'sd'
  def test_update_removes_only_unchanged_old_managed_files(self):

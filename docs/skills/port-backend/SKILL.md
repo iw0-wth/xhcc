@@ -1,6 +1,6 @@
 ---
 name: port-backend
-description: 为 xhcc 移植或扩展后端配置包、共享规则契约及必要的引擎支持，并验证标准目标文件、真实执行、资源预算与双应用 SD 部署。适用于已有 ISA 的包变体和需要诚实界定范围的新 ISA 移植。
+description: 为 xhcc 移植或扩展后端配置包、共享规则契约及必要的引擎支持，并验证标准目标文件、真实执行、资源预算与四应用 SD 部署。适用于已有 ISA 的包变体和需要诚实界定范围的新 ISA 移植。
 ---
 
 # xhcc 后端移植
@@ -76,7 +76,7 @@ $Py = 'C:\Users\wth09\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\
 
 保持有限记录数、有限输入字节、有限输出和有界执行。按 [模板](../../../include/xh_template.h)、[编码](../../../include/xh_rules.h)、[语义](../../../include/xh_semantic.h) 等当前 header 的上限设计；不要凭本文扩大 parser 上限。按需加载实际大小的表，在路径/目标/模板 generation 变化时失效并释放旧缓存；不要静态装入所有包，也不要保留悬空模板指针。4 MiB 是当前 Wasm 线性内存目标，完整 MCU RAM 还要加 runtime、WASI、文件系统和任务栈实测，不能从文件大小推断。
 
-## 5. 构建两个独立应用
+## 5. 构建四个独立应用
 
 修改源代码/共享 schema 后统一重建，避免并发测试脚本覆盖公共产物。仅数据变体的 same-SHA 实验必须在基线构建完成后进行，实验中不得重建。
 
@@ -88,11 +88,13 @@ $Sdk = 'D:\wasi-sdk-34.0-x86_64-windows'
 $env:WASMTIME = 'C:\Program Files\Wasmtime\bin\wasmtime.exe'
 $env:WASM_VALIDATE = 'D:\wabt-1.0.42\bin\wasm-validate.exe'
 $env:WASM_OPT = 'D:\binaryen-version_133\bin\wasm-opt.exe'
-& $Py tools/build.py --app both --target all --sdk $Sdk --memory-mib 4
+& $Py tools/build.py --app all-apps --target all --sdk $Sdk --memory-mib 4
 if ($LASTEXITCODE) { throw 'build failed' }
 ```
 
-[根 Makefile](../../../Makefile) 提供独立 `xhcc`、`xhccm` 和默认双应用构建：有 GNU make 时可运行 `make all PYTHON="..." WASI_SDK_PATH="..."`。`xhcc` 是直接编译应用；`xhccm` 是带进程内 make 子集的独立应用，调用同一 driver，不依赖 shell/subprocess 来执行配方。二者共享一份外部包目录，并非逐后端 Wasm。需确认新包工具在两个入口都可发现。
+[根 Makefile](../../../Makefile) 默认构建四应用，也可分别构建 `xhcc`、`xhccm`、`xhccn`、`xhlinker`。`xhcc` 提供编译与受限链接；`xhccm` 加入进程内 make；`xhccn` 保留编译、排除链接；`xhlinker` 是独立 ARM Thumb ELF 链接器，不带前端、IR/codegen 后端或 make。它们共享外部包目录，并非逐后端 Wasm。用 [四应用测试](../../../tests/test_four_apps.py) 验证真实行为和一致输出，并核对 map 中 xhccn 无链接器、xhlinker 无前端；本轮六项资源/隔离审计已通过，后续构建仍须重跑，不能只凭名称宣称隔离。
+
+[无 Python 构建合同](../../no-python-build.md) 给出 [Makefile.nopy](../../../Makefile.nopy) 的直接 GNU Make→Clang→Binaryen→WABT 路径，不依赖 Python 生成源清单或必要中间件。Windows 可用 `D:/msys64/usr/bin/make.exe -f Makefile.nopy all`，并按机器覆盖 `WASI_SDK_PATH`、`WASI_CC`、`WASM_OPT`、`WASM_VALIDATE`、`MEMORY_BYTES`、`WINDOWS_BASH`、`HOST_TOOLS_DIR`、可选 `DLL_DIR`。实际无 Python 四应用构建及独立四应用功能测试已通过；最终 Python 四应用构建与完整回归也全部通过，两条构建路径的证据分别保留，不互相替代。四个模块各自遵守 4 MiB 线性内存预算，不能据此推断同时驻留只需 4 MiB。宿主 Clang 构建 Wasm 不等于 xhcc 生成 Wasm 或完成自举；未来闭环参见 [Wasm 自举计划](../../wasm-bootstrap-plan.md)。
 
 ## 6. 用真实执行和阴性用例验收
 
@@ -123,7 +125,9 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 输出与构建流程也要有真实失败注入和独立 oracle。[原子输出测试](../../../tests/test_atomic_output.py) 已在实际 WASI 故障用例中验证普通文件采用临时写入再 replace，写入/提交失败保留旧文件；stdout 不具备此原子替换语义，也不承诺 fsync、崩溃持久性或 I/O 安全隔离。当前 916162 字节构建的主 platform 7 项、make 35 项和 RV system 17 项已通过，完整回归仍按实际 runner 状态报告。[make 合同](../../make-subset.md) 的 `$+` 必须保留重复普通依赖、排除 order-only，重复声明以 recipe 声明依赖优先的 GNU 顺序输出；该行为已用 GNU 对照验证，不能以 `$^` 的去重输出冒充。RV ECALL/EBREAK/FENCE/FENCE.I 四个无操作数映射来自外表，额外操作数拒绝；不变主模块新增零参数 `systemnop` alias 已实际执行返回 42。trap 拼写只检查字节不执行，pseudo lowering 仍保留 native，不能扩大为 CSR、完整 FENCE grammar 或任意 ISA。后续进展按 [进度与路线图](../../progress-and-roadmap.md) 对照当前证据。
 
-未来标准 ELF 链接接入按 [首阶段合同](../../elf-linker-first-stage.md) 验收：[借用式 ELF reader](../../../include/xh_elf_read.h) 的输入缓冲必须在视图生命周期内保持有效且不变，按真实对象与坏表/索引/边界验证；[reader 测试](../../../tests/test_elf_reader.py) 已有 4950 个独立 Wasm 检查。[ARM ELF REL 测试](../../../tests/test_arm_elf_reloc.py) 的四项 GNU as/ld、双布局对照验证首批六类 REL 的隐式 addend 解码和补丁，不能套用私有对象的分支偏移或相邻 MOVW/MOVT 公式。这些组件目前没有生产驱动消费者，未使用代码还可能被 GC；它们不代表现代驱动已经能链接标准 ELF 或输出固件，不新增 `requires` 能力。后续接入还须验证符号决议、节布局、PT_LOAD、两布局实际执行、总预算与失败保留旧输出，不能用独立 reader/补丁测试替代端到端 link。
+标准 ARM ELF 首版已有生产消费者：`xhcc`/`xhccm` 的显式 `.o` 链接路径和独立 `xhlinker` 调用同一 [有界 link core](../../../include/xh_elf_link.h) 与 [脚本解析合同](../../../include/xh_ld_script.h)，不再只是 reader/补丁基础组件。先读 [首阶段范围](../../elf-linker-first-stage.md) 并核对当前源码；若该早期计划仍有“尚未接驱动”的历史句，不可覆盖实际入口及测试证据。仅接受首版 ARM Thumb ELF32、little-endian、EABI5/base soft-float 显式对象；不支持 `.c` 自动编译链接/混合输入、archive 自动提取、完整 GNU ld script 或自动提供 runtime。支持六类 REL 的 ELF 隐式 addend，不能套用私有公式；受限 MEMORY/SECTIONS 脚本、ELF PT_LOAD 与按 Flash LMA 的 `.bin` 需要逐项验收，启动代码、data/BSS 初始化和 runtime 对象由调用者提供。
+
+[借用式 reader](../../../include/xh_elf_read.h) 要求缓冲在视图生命周期内有效且不变；[reader 测试](../../../tests/test_elf_reader.py) 的 4950 检查与 [ARM ELF REL 测试](../../../tests/test_arm_elf_reloc.py) 的四项 GNU 对照是底层证据。实际 core 七项测试已通过 GNU 双布局、startup 符号、重定位执行及 objcopy binary 对照，脚本 parser 六项通过；无 Python 四应用功能测试已验证脚本驱动 ELF/bin 一致及 xhccn 拒绝链接。后续改动仍须测符号决议、节布局、PT_LOAD、两布局执行、聚合内存预算和错误保留旧输出。本轮最终 Python 完整回归全部通过，包括 core 7 项、parser 6 项、driver 21 项、four-app 1 项，以及四应用 SD 脚本/bin 与六项资源审计。四产物 xhcc/xhccm/xhccn/xhlinker 分别为 943305/973598/886226/288576 字节，各自声明 4 MiB 上限；map 确认 xhccn 无 linker、xhlinker 无 frontend。它们是本轮快照而非固定规格，实际设备峰值仍待测量；这些首版功能不增加未定义的 target-independent `requires` 名称，也不宣称任意 GNU 工程链接兼容。
 
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
@@ -136,15 +140,19 @@ if ($LASTEXITCODE) { throw 'integration gates failed' }
 if ($LASTEXITCODE) { throw 'xhcc WASI audit failed' }
 & $Py tools/wasm_audit.py build/wasm/xhccm.wasm
 if ($LASTEXITCODE) { throw 'xhccm WASI audit failed' }
+& $Py tools/wasm_audit.py build/wasm/xhccn.wasm
+if ($LASTEXITCODE) { throw 'xhccn WASI audit failed' }
+& $Py tools/wasm_audit.py build/wasm/xhlinker.wasm
+if ($LASTEXITCODE) { throw 'xhlinker WASI audit failed' }
 & $Py tools/resource_report.py --self-test --json build/reports/resources.json --markdown build/reports/resources.md
 if ($LASTEXITCODE) { throw 'resource report failed' }
 ```
 
-[Wasm 审计](../../../tools/wasm_audit.py) 检查声明内存与导入/特性，构建脚本另用 WABT 做实际验证。记录两应用最终 SHA、线性内存和相关 map。审计不是 NuttX 实机运行证明；能力导入、指令支持与额外 runtime 内存需要目标环境验证。
+[Wasm 审计](../../../tools/wasm_audit.py) 检查声明内存与导入/特性，构建脚本另用 WABT 做实际验证。记录四应用最终 SHA、线性内存和相关 map。审计不是 NuttX 实机运行证明；能力导入、指令支持与额外 runtime 内存需要目标环境验证。
 
-## 7. 双应用 SD 部署和验收
+## 7. 四应用 SD 部署和验收
 
-选择可检查的安装目录，先构建再部署。不要在未确认路径时清空目录。部署脚本会写入两个应用和共享纯数据包，不安装忽略的子 Wasm：
+选择可检查的安装目录，先构建再部署。不要在未确认路径时清空目录。部署脚本会写入四个应用和共享纯数据包，不安装忽略的子 Wasm：
 
 ```powershell
 $Sd = 'D:\c_compiler_make_on_mcu\sd\xhcc'
@@ -154,10 +162,10 @@ if ($LASTEXITCODE) { throw 'SD deploy failed' }
 if ($LASTEXITCODE) { throw 'SD simulation failed' }
 ```
 
-也可使用根 Makefile 的 `deploy-sd`、`test-sd` 目标并覆盖 `SD_ROOT`。先确认部署目录有 sibling `xhcc.wasm`/`xhccm.wasm` 和唯一 `packages` 目录。保持 guest `XHCC_PACKAGE_ROOT` 与 preopen 一致，尤其 make 的 `-C` 后仍能发现包。
+也可使用根 Makefile 的 `deploy-sd`、`test-sd` 目标并覆盖 `SD_ROOT`。先确认部署目录有 sibling `xhcc.wasm`/`xhccm.wasm`/`xhccn.wasm`/`xhlinker.wasm` 和唯一 `packages` 目录。保持 guest `XHCC_PACKAGE_ROOT` 与 preopen 一致，尤其 make 的 `-C` 后仍能发现包。
 
 [SD 测试](../../../tests/test_sd.py) 在一个预打开目录中模拟直接编译、make、多源、增量与替换 CC；它是桌面模拟，不是实机支持声明。为新包增加同样的直接与 make 构建、输出格式、增量和失败传播测试。检查部署清单哈希，设备侧再测实际 WASI imports、文件系统、峰值 RAM 与重复命令缓存释放。
 
 ## 8. 交付证据
 
-最终报告给出：新增/修改文件；包与引擎/ISA/ABI 边界；新增或升级的 schema/capability 及旧包兼容策略；仍在 C 的目标决定；same-SHA 差异；GNU/LLVM oracle、执行、错误/资源/WASI/双应用部署的实际结果；未覆盖项和实机状态。只交付实际完成的结论，不把建议、静态审计、模板数量或模拟 SD 测试写成已完成的全 ISA/硬件支持。
+最终报告给出：新增/修改文件；包与引擎/ISA/ABI 边界；新增或升级的 schema/capability 及旧包兼容策略；仍在 C 的目标决定；same-SHA 差异；GNU/LLVM oracle、执行、错误/资源/WASI/四应用部署的实际结果；未覆盖项和实机状态。只交付实际完成的结论，不把建议、静态审计、模板数量或模拟 SD 测试写成已完成的全 ISA/硬件支持。

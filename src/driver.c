@@ -12,10 +12,14 @@
 #include "xh_driver.h"
 #include "xh_package.h"
 #include "xh_package_options.h"
+#include "xh_elf_link.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef XH_WITH_LINKER
+#define XH_WITH_LINKER 1
+#endif
 #ifndef XH_MODULE_TARGET
 #define XH_MODULE_TARGET "arm"
 #endif
@@ -25,6 +29,8 @@ static struct {
   char *args[XH_DRIVER_MAX_ARGS];
   char response_paths[XH_DRIVER_RESPONSE_DEPTH][XH_DRIVER_PATH_BYTES];
   const char *sources[XH_DRIVER_MAX_SOURCES];
+  const char *objects[XH_ELF_LINK_MAX_OBJECTS];
+  int object_count;
   ArkOptions opts;
   size_t used;
   unsigned long response_bytes;
@@ -35,6 +41,22 @@ static struct {
 static int fail(const char *message, const char *arg) {
   diag_report_msg(DIAG_SEV_ERROR, 0, message, arg, 0, 0);
   return 1;
+}
+
+static int address_value(const char *s, unsigned *out) {
+  unsigned n=0, base=10;
+  if (s[0]=='0' && (s[1]=='x'||s[1]=='X')) {base=16;s+=2;}
+  if (!*s) return fail("empty link address",0);
+  while (*s) {
+    unsigned digit;
+    if (*s>='0'&&*s<='9') digit=(unsigned)(*s-'0');
+    else if (*s>='a'&&*s<='f') digit=(unsigned)(*s-'a'+10);
+    else if (*s>='A'&&*s<='F') digit=(unsigned)(*s-'A'+10);
+    else return fail("invalid link address: %s",s);
+    if (digit>=base || n>(0xffffffffu-digit)/base) return fail("link address exceeds uint32 or has invalid digits",0);
+    n=n*base+digit;s++;
+  }
+  *out=n;return 0;
 }
 
 static int append_byte(size_t *end, int c) {
@@ -422,7 +444,11 @@ static void usage(void) {
        "  Limits: 512 arguments, 64 sources, 32 KiB storage, 64 KiB response\n"
        "          input, 8 response levels, 511-byte derived output paths.\n"
        "  Multiple sources compile sequentially; explicit -o/-MF/-MT require\n"
-       "  one source. Modern linking and unsupported options are rejected.");
+       "  one source. ARM link subset: explicit .o files -o FILE (max 32);\n"
+       "  --entry NAME (default _start), --text-address NUM (0x08000000),\n"
+       "  --data-address NUM (0x20000000), --data-load-address NUM\n"
+       "  (default contiguous Flash); -T/--script FILE, --oformat=elf|binary\n"
+       "  Libraries, archives, -r and automatic .c compile/link are unsupported.");
 }
 
 static int same_path(const char *a, const char *b) {
@@ -459,6 +485,8 @@ int xh_driver_main(int argc, char **argv) {
   char package_dialect[16] = "gcc";
   const char *protocol_major = getenv("XHCC_PROTOCOL_MAJOR");
   const char *environment_root = getenv("XHCC_PACKAGE_ROOT");
+  XhElfLinkOptions link_request;
+  int layout_options = 0, compile_options = 0;
   int softfp = 0;
 #ifdef XH_ADAPTER
   int wrote_request = 0;
@@ -467,6 +495,7 @@ int xh_driver_main(int argc, char **argv) {
   int width = 0, query = 0;
   int seen_e = 0, seen_s = 0, seen_c = 0, arm_flags = 0;
   memset(&driver, 0, sizeof(driver));
+  memset(&link_request, 0, sizeof(link_request));
   config_init();
   /* Compiled capabilities are available but opt-in for modern ELF output. */
   g_config.enable_fpu_hw = 0;
@@ -505,7 +534,7 @@ int xh_driver_main(int argc, char **argv) {
     int count=0, mapped_count=0, skip=0, informational=0, package_args_started=0;
     xh_package_options_load(0);
     if (driver.argc && driver.args[0][0]!='-' &&
-        (strlen(driver.args[0])<3 || strcmp(driver.args[0]+strlen(driver.args[0])-2,".c"))) {
+        (strlen(driver.args[0])<3 || (strcmp(driver.args[0]+strlen(driver.args[0])-2,".c") && strcmp(driver.args[0]+strlen(driver.args[0])-2,".o")))) {
       tool=driver.args[0];skip=1;
     }
     for(i=skip;i<driver.argc;i++) {
@@ -548,7 +577,7 @@ int xh_driver_main(int argc, char **argv) {
       if (!fp) { result = fail("cannot open config file: %s", path); goto done; }
       fclose(fp);
       config_load_file(path);
-    } else if (!strcmp(driver.args[i], "-o") || !strcmp(driver.args[i], "-I") ||
+    } else if (xh_package_options_takes_value(driver.args[i]) || !strcmp(driver.args[i], "-o") || !strcmp(driver.args[i], "-I") ||
                !strcmp(driver.args[i], "-D") || !strcmp(driver.args[i], "-U") ||
                !strcmp(driver.args[i], "-include") || !strcmp(driver.args[i], "-MF") ||
                !strcmp(driver.args[i], "-MT") || !strcmp(driver.args[i], "-MQ") || !strcmp(driver.args[i], "--cpu") ||
@@ -563,12 +592,20 @@ int xh_driver_main(int argc, char **argv) {
   o->opt_level = g_config.opt_level;
   for (i = 0; i < driver.argc; i++) {
     const char *a = driver.args[i], *v = 0;
+    if (!literal && (!strncmp(a,"-std=",5) || !strcmp(a,"--c99") ||
+        !strncmp(a,"-O",2) || !strncmp(a,"-W",2) || !strcmp(a,"-w") ||
+        !strncmp(a,"-f",2) || !strcmp(a,"-config") || !strcmp(a,"-x") ||
+        !strncmp(a,"-xc",3) || !strncmp(a,"-I",2) || !strncmp(a,"-D",2) ||
+        !strncmp(a,"-U",2) || !strncmp(a,"-include",8) || !strncmp(a,"-M",2) ||
+        !strncmp(a,"-isystem",8) || !strncmp(a,"-iquote",7) ||
+        !strcmp(a,"-nostdinc") || !strcmp(a,"-undef") || !strcmp(a,"--private-object") ||
+        !strcmp(a,"--obj-ir") || config_flag(a))) compile_options=1;
     if (!literal && !strcmp(a, "--")) {
       literal = 1;
       continue;
     }
     if (!literal && i == 0 && a[0] != '-' &&
-        (strlen(a) < 3 || strcmp(a + strlen(a) - 2, ".c"))) {
+        (strlen(a) < 3 || (strcmp(a + strlen(a) - 2, ".c") && strcmp(a + strlen(a) - 2, ".o")))) {
       tool = a;
       continue;
     }
@@ -621,6 +658,35 @@ int xh_driver_main(int argc, char **argv) {
     }
     if (!literal && !strcmp(a, "-S")) {
       seen_s = 1;
+      continue;
+    }
+    if (!literal && (!strcmp(a,"-T") || !strncmp(a,"-T",2) ||
+        !strcmp(a,"--script") || !strncmp(a,"--script=",9))) {
+      v=value(&i,!strncmp(a,"--script=",9)?a+9:(a[1]=='T'&&a[2]?a+2:0));
+      if(!v){result=1;goto done;}
+      link_request.script_path=v;layout_options=1;continue;
+    }
+    if (!literal && (!strncmp(a,"--oformat=",10) || !strcmp(a,"--binary"))) {
+      v=!strcmp(a,"--binary")?"binary":a+10;
+      if(strcmp(v,"elf")&&strcmp(v,"binary")){result=fail("--oformat must be elf or binary",0);goto done;}
+      link_request.output_format=!strcmp(v,"binary")?1u:0u;layout_options=1;continue;
+    }
+    if (!literal && (!strcmp(a,"--entry") || !strncmp(a,"--entry=",8) ||
+        !strcmp(a,"--text-address") || !strncmp(a,"--text-address=",15) ||
+        !strcmp(a,"--data-address") || !strncmp(a,"--data-address=",15) ||
+        !strcmp(a,"--data-load-address") || !strncmp(a,"--data-load-address=",20))) {
+      const char *eq=strchr(a,'=');
+      unsigned number=0;
+      v=value(&i,eq?eq+1:0);if(!v){result=1;goto done;}
+      layout_options=1;
+      if(!strncmp(a,"--entry",7))link_request.entry_name=v;
+      else {
+        if(address_value(v,&number)){result=1;goto done;}
+        if(!number){result=fail("explicit zero link addresses are unsupported",0);goto done;}
+        if(!strncmp(a,"--text-address",14))link_request.text_addr=number;
+        else if(!strncmp(a,"--data-load-address",19))link_request.data_lma=number;
+        else link_request.data_addr=number;
+      }
       continue;
     }
     if (!literal && !strcmp(a, "-c")) {
@@ -846,8 +912,12 @@ int xh_driver_main(int argc, char **argv) {
       result = fail("unsupported option: %s", a);
       goto done;
     }
+    if (strlen(a)>=3 && !strcmp(a+strlen(a)-2,".o")) {
+      if(driver.object_count==(int)XH_ELF_LINK_MAX_OBJECTS){result=fail("ARM ELF link object limit is 32",0);goto done;}
+      driver.objects[driver.object_count++]=a;continue;
+    }
     if (strlen(a) < 3 || strcmp(a + strlen(a) - 2, ".c")) {
-      result = fail("only .c source inputs are supported: %s", a);
+      result = fail("only .c compilation or explicit .o ARM ELF linking inputs are supported: %s", a);
       goto done;
     }
     if (driver.source_count == XH_DRIVER_MAX_SOURCES) {
@@ -891,6 +961,28 @@ int xh_driver_main(int argc, char **argv) {
 #ifdef XH_ADAPTER
   o->memory_report = memory_report;
 #endif
+  if (driver.object_count) {
+    char error[512];
+    if(driver.source_count){result=fail("mixing .c and .o or automatic compile/link is unsupported",0);goto done;}
+    if(seen_c||seen_e||seen_s||compile_options||memory_report||o->syntax_only||o->gen_depend||o->private_object||o->obj_ir){result=fail("ARM ELF linking does not accept compilation/preprocessing options",0);goto done;}
+    if(!o->output_path||!strcmp(o->output_path,"-")){result=fail("ARM ELF linking requires -o FILE (stdout unsupported)",0);goto done;}
+    if(xh_package_apply(root,tool,o)){result=1;goto done;}
+    if(strcmp(o->target,"arm")){result=fail("modern ELF linking currently supports ARM only",0);goto done;}
+    if(explicit_cpu)o->cpu=explicit_cpu;
+    if(validate_cpu(o,arm_flags)){result=1;goto done;}
+    if((abi&&strcmp(abi,"aapcs"))||width||arch||softfp||(fpu&&strcmp(fpu,"SoftVFP"))){result=fail("ARM ELF link layout supports base soft-float ARM objects only; architecture overrides unsupported",0);goto done;}
+    for(i=0;i<driver.object_count;i++)if(same_path(o->output_path,driver.objects[i])){result=fail("link output would overwrite input: %s",driver.objects[i]);goto done;}
+    link_request.output_path=o->output_path;
+#if XH_WITH_LINKER && !defined(XH_ADAPTER)
+    mem_pool_reset();
+    result=xh_elf_link_arm(driver.objects,(unsigned)driver.object_count,&link_request,error,sizeof(error))!=0;
+    if(result)fail("ARM ELF link failed: %s",error);
+#else
+    result=fail("linking is unavailable in this application; use xhcc or xhlinker",0);
+#endif
+    goto done;
+  }
+  if(layout_options){result=fail("link layout options require explicit .o inputs",0);goto done;}
   if (!driver.source_count) {
     result = fail("no input source files", 0);
     goto done;

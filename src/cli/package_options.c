@@ -20,7 +20,7 @@ static int reserved_token(const char *p,size_t n) {
  int i;for(i=0;names[i];i++){size_t k=strlen(names[i]);if(n>=k&&!strncmp(p,names[i],k)&&(n==k||p[k]=='='))return 1;}return 0;
 }
 int xh_package_options_takes_value(const char *arg) {
- static const char *names[]={"-o","-I","-D","-U","-include","-MF","-MT","-MQ","--cpu","-mcpu","--fpu","-mfpu","-config","--package-root","-x","-target","--target","-march","-mabi","-isystem","-iquote","--diag_style","--errors",0};
+ static const char *names[]={"-o","-I","-D","-U","-include","-MF","-MT","-MQ","--cpu","-mcpu","--fpu","-mfpu","-config","--package-root","-x","-target","--target","-march","-mabi","-isystem","-iquote","--diag_style","--errors","--entry","--text-address","--data-address","--data-load-address","-T","--script",0};
  int i;for(i=0;names[i];i++)if(!strcmp(arg,names[i]))return 1;
  for(i=0;i<rule_count;i++)if(rules[i].mode==2&&!strcmp(arg,rules[i].match))return 1;
  return 0;

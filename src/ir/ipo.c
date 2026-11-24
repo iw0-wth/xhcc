@@ -500,7 +500,7 @@ int ark_ipo_compile(const ArkOptions *opts)
 /* Link-time code generation: -link --lto                              */
 /* ------------------------------------------------------------------ */
 
-#if ARKCC_FEATURE_OBJ_IR
+#if ARKCC_FEATURE_OBJ_IR && (!defined(XHCC) || XH_WITH_LINKER)
 
 /* Same shape as ipo_refuse(), different verb: the reader is running the
  * linker, not the whole-program compiler, and the message should say so. */
@@ -703,7 +703,7 @@ int ark_ipo_compile(const ArkOptions *opts)
 
 #endif /* ARKCC_FEATURE_IPO */
 
-#if !ARKCC_FEATURE_IPO || !ARKCC_FEATURE_OBJ_IR
+#if !ARKCC_FEATURE_IPO || !ARKCC_FEATURE_OBJ_IR || (defined(XHCC) && !XH_WITH_LINKER)
 
 /* -link --lto needs both halves: --ipo's merge machinery and the IR payload
  * reader/writer.  A build missing either still exports the symbol, so the
@@ -713,10 +713,16 @@ int ark_ipo_compile(const ArkOptions *opts)
 int ark_lto_link(const ArkOptions *opts)
 {
     (void)opts;
+#if defined(XHCC) && !XH_WITH_LINKER
+    diag_tool(DIAG_SEV_ERROR, "xhccn",
+              "object LTO linking is not compiled into this application",
+              0, 0, 0, 0, 0, 0);
+#else
     diag_tool(DIAG_SEV_ERROR, "arkcc",
               "--lto is not compiled into this build "
               "(rebuild with -DARKCC_FEATURE_IPO=1 -DARKCC_FEATURE_OBJ_IR=1)",
               0, 0, 0, 0, 0, 0);
+#endif
     return ARK_ERR_ARG;
 }
 

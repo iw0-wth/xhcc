@@ -1,6 +1,6 @@
 # 标准 ARM ELF 链接器首阶段
 
-本阶段先实现并独立验证有界 ELF32 ARM ET_REL 读取器与六类 ARM REL 加数/补丁适配。它们是链接器基础组件，尚不表示现代驱动已经能链接标准对象或输出固件。当前可用 legacy linker、标准对象和现代驱动范围见 [进度与规划](progress-and-roadmap.md)。
+首版已将有界 ELF32 ARM ET_REL 读取、六类 ARM REL 适配、节布局、符号决议和输出接入 `xhcc`、`xhccm` 与独立 `xhlinker`；`xhccn` 在编译期排除对象链接器。支持显式 ARM `.o` 列表、受检 MEMORY/SECTIONS `.ld` 子集、ET_EXEC 及按 LMA 排列的 binary。独立 GNU 对照与执行测试已通过；它不是完整 GNU ld，不自动提供启动代码、运行库或板级配置。完整应用验收和范围见 [进度与规划](progress-and-roadmap.md)。
 
 ## 首版输入合同
 
@@ -9,12 +9,12 @@
 - 不支持的 RELA、扩展节索引、group/COMDAT、TLS、未知 alloc 节语义和未实现 relocation 明确拒绝。非 alloc 调试内容不自动获得运行语义。
 - 首批 REL 为 ABS32、THM_CALL、THM_JUMP24、THM_JUMP19、独立 THM_MOVW_ABS_NC 和 THM_MOVT_ABS。解码输入指令中的隐式 addend 后使用 ELF 专用规则，符号地址与 Thumb 状态显式区分，不能把奇数数据地址误当成 Thumb 函数；不能套用私有 `S-P-4` 分支或相邻 MOVW/MOVT pair delta。
 
-## 下一步 link core
+## 已实现的 link core 结构
 
 1. 扫描、计数并校验输入，复制后续必需的元数据与名称，建立 section 布局和 global 符号决议。
 2. 逐个重新读取对象，通过借用视图获取 PROGBITS 与 REL；复制节内容、解析符号、应用重定位。所有输入及重定位成功后才原子写输出 ELF 或 binary。
 
-建议有界数据模型：
+有界实现按以下职责组织（具体结构以源码为准）：
 
 | 记录 | 必需信息 |
 | --- | --- |

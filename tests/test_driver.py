@@ -75,6 +75,36 @@ class DriverTests(unittest.TestCase):
         self.run_xhcc(self.path('one.c'), success=False)
         self.run_xhcc('-c', self.path('one.c'), '-MF', self.path('bad.d'), success=False)
 
+    def test_modern_arm_elf_link_and_rejections(self):
+        import struct
+        (self.dir / 'link-start.c').write_text('extern int answer(void); int _start(void) { return answer(); }\n')
+        (self.dir / 'link-answer.c').write_text('int answer(void) { return 42; }\n')
+        objects = [self.path('link-start.o'), self.path('link-answer.o')]
+        for source, output in zip(('link-start.c', 'link-answer.c'), objects):
+            self.run_xhcc('arm-none-eabi-gcc', '-c', '-o', output, self.path(source))
+        output = self.path('linked.elf')
+        self.run_xhcc('arm-none-eabi-gcc', *objects, '-o', output,
+                      '--entry', '_start', '--text-address=0x08004000', '--data-address', '0x20001000')
+        image = (self.dir / 'linked.elf').read_bytes()
+        self.assertEqual(image[:4], b'\x7fELF')
+        self.assertEqual(struct.unpack_from('<HH', image, 16), (2, 40))
+        entry = struct.unpack_from('<I', image, 24)[0]
+        self.assertTrue(entry & 1)
+        self.assertGreaterEqual(entry & ~1, 0x08004000)
+        (self.dir / 'linked.elf').write_bytes(b'previous valid output')
+        result = self.run_xhcc('arm-none-eabi-gcc', objects[0], '-o', output, success=False)
+        self.assertIn('link', result.stderr.lower())
+        self.assertEqual((self.dir / 'linked.elf').read_bytes(), b'previous valid output')
+        for args in ((objects[0],), ('-c', *objects), (self.path('one.c'), *objects),
+                     (*objects, '--text-address=0x100000000'), (*objects, '--text-address=-1'),
+                     (*objects, '-lfoo'), (*objects, '-Llibs'), (*objects, '-Wl,--gc-sections'),
+                     (*objects, '-r'), (*objects, '-DIGNORED=1')):
+            self.run_xhcc('arm-none-eabi-gcc', *args, '-o', self.path('rejected.elf'), success=False)
+        self.run_xhcc('arm-none-eabi-gcc', *objects, success=False)
+        for tool in ('x86_64-linux-gnu-gcc', 'i686-linux-gnu-gcc', 'riscv32-unknown-elf-gcc', 'xh-c-gcc'):
+            result = self.run_xhcc(tool, *objects, '-o', self.path('other.elf'), success=False)
+            self.assertIn('ARM only', result.stderr)
+
     def test_modern_private_object_ir_option(self):
         output = self.path('with-ir.ark_obj')
         self.run_xhcc('x86_64-linux-gnu-gcc', '-c', '--private-object', '--obj-ir',

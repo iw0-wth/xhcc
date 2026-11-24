@@ -5,6 +5,12 @@
 #include "common.h"
 #include "arkcc_config.h"   /* ARK_PP_MAX_INC_DIRS / ARK_LINK_MAX_OBJS */
 
+/* Compiler-only XHCC applications exclude object linking at compile time.
+ * Existing applications and non-XHCC embeddings keep the legacy pipeline. */
+#ifndef XH_WITH_LINKER
+#define XH_WITH_LINKER 1
+#endif
+
 typedef struct {
     const char *input_path;
     const char *output_path;  /* NULL = derive default */

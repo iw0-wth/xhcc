@@ -107,6 +107,7 @@ static int write_text(const char *path, const char *s) {
     return ARK_OK;
 }
 
+#if !defined(XHCC) || XH_WITH_LINKER
 /* Name the tool-stage diagnostics are anchored to. armlink reports against the
  * output image; we do the same, and fall back to a literal when no image name
  * is in scope yet. */
@@ -878,6 +879,8 @@ static int ld_init_trampoline(unsigned char *out_buf, int *out_len_p,
     return 0;
 }
 
+#endif /* !defined(XHCC) || XH_WITH_LINKER */
+
 /* Append one ARKOBJ2 symbol-table entry and return the new length:
  * name_len(4) + name(name_len) + offset(4) + type(1) + is_weak(1). */
 static int obj_put_sym(unsigned char *buf, int ol, const char *nm,
@@ -1247,7 +1250,7 @@ static int write_ark_obj(const ArkBackend *be, const ArkOptions *opts,
  * 只用整数算术，任何平台结果一致 —— 这正是可复现构建要的性质。
  * 注意 __DATE__ 的格式是 "Mmm dd yyyy"，日不足两位时用空格补（C99 6.10.8.1），
  * 所以 "Nov  6 2026" 里有两个空格。 */
-#if ARKCC_FEATURE_PARTIAL_LINK
+#if ARKCC_FEATURE_PARTIAL_LINK && (!defined(XHCC) || XH_WITH_LINKER)
 /* Append one little-endian 32-bit field to an object buffer, returning the
  * new length.  The object writer above inlines the same four stores; this one
  * is used by the -r emitter below, which builds a variable-length table. */
@@ -2322,7 +2325,7 @@ int ark_compile(const ArkOptions *opts) {
 #if defined(XHCC) && ARKCC_BACKEND_X86_64
     g_xhcc_use_sysv_abi_plan=opts->use_sysv_abi_plan;
 #endif
-#ifdef XHCC
+#if defined(XHCC) && XH_WITH_LINKER
     {const ArkBackend*relbe=opts->target?ark_backend_find(opts->target):ark_backend_default();g_relocation_target=relbe?relbe->name:"arm";}
 #endif
 #ifdef XHCC
@@ -2383,6 +2386,7 @@ int ark_compile(const ArkOptions *opts) {
      * symbol resolution with weak-symbol precedence + relocation patching).
      * Legacy text objects are concatenated (C backend). */
     if (opts->link_mode) {
+#if !defined(XHCC) || XH_WITH_LINKER
 #if ARKCC_FEATURE_OBJ_IR
         /* -link --lto: recompile the merged IR instead of concatenating code.
          * It is a different job with a different input contract (every object
@@ -3280,6 +3284,10 @@ int ark_compile(const ArkOptions *opts) {
             if (opts->verbose) ark_log("[arkcc] linked %d objects -> %s\n", opts->link_input_count, out_path);
             return ARK_OK;
         }
+#else
+        diag_tool(DIAG_SEV_ERROR, "xhccn", "object linking is not compiled into this application", 0,0,0,0,0,0);
+        return ARK_ERR_ARG;
+#endif /* !defined(XHCC) || XH_WITH_LINKER */
     }
 
     if (!opts->input_path) return ARK_ERR_ARG;
@@ -3588,7 +3596,7 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
 #endif
             code_len = be->assemble(g_asm, g_code, ARK_CODE_BUF_SIZE);
             if (code_len < 0) {
-                diag_tool(DIAG_SEV_ERROR, g_ld_image, "assembly failed", 0,0,0,0,0,0);
+                diag_tool(DIAG_SEV_ERROR, opts->input_path, "assembly failed", 0,0,0,0,0,0);
                 return ARK_ERR_ASM;
             }
         }
