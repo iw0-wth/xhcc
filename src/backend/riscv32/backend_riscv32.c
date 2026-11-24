@@ -12,6 +12,7 @@
 #include "backend.h"
 #include "xh_rules.h"
 #include "xh_rv_rules.h"
+#include "xh_ir_legacy_adapter.h"
 #include "xh_relocation.h"
 #include "codegen.h"
 #include "memory.h"
@@ -340,8 +341,39 @@ static void rv_put_hex32(AsmBuffer *b, unsigned int v) {
     asmbuf_puts(b, hex);
 }
 
+static int rv_scalar_binary(AsmBuffer*b,XhIrBinaryOp operation,int uns){
+ const char*key=0,*fallback=0;char selected[512];int match;
+ switch(operation){
+ case XH_IR_BIN_ADD:key="ADD";fallback="emit.fixed.0130";break;
+ case XH_IR_BIN_SUB:key="SUB";fallback="emit.fixed.0153";break;
+ case XH_IR_BIN_MUL:key="MUL";fallback="emit.fixed.0154";break;
+ case XH_IR_BIN_DIV:key=uns?"DIV_U":"DIV_S";fallback=uns?"emit.choice.0032":"emit.choice.0033";break;
+ case XH_IR_BIN_REM:key=uns?"MOD_U":"MOD_S";fallback=uns?"emit.choice.0034":"emit.choice.0035";break;
+ case XH_IR_BIN_AND:key="AND";fallback="emit.fixed.0157";break;
+ case XH_IR_BIN_OR:key="OR";fallback="emit.fixed.0158";break;
+ case XH_IR_BIN_XOR:key="XOR";fallback="emit.fixed.0159";break;
+ case XH_IR_BIN_SHL:key="SHL";fallback="emit.fixed.0160";break;
+ case XH_IR_BIN_SHR:key=uns?"SHR_U":"SHR_S";fallback=uns?"emit.choice.0022":"emit.choice.0023";break;
+ case XH_IR_BIN_EQ:key="EQ";fallback="emit.fixed.0161";break;
+ case XH_IR_BIN_NE:key="NE";fallback="emit.fixed.0162";break;
+ case XH_IR_BIN_LT:key=uns?"LT_U":"LT_S";fallback=uns?"emit.choice.0024":"emit.choice.0025";break;
+ case XH_IR_BIN_GT:key=uns?"GT_U":"GT_S";fallback=uns?"emit.choice.0026":"emit.choice.0027";break;
+ case XH_IR_BIN_LE:key=uns?"LE_U":"LE_S";fallback=uns?"emit.choice.0028":"emit.choice.0029";break;
+ case XH_IR_BIN_GE:key=uns?"GE_U":"GE_S";fallback=uns?"emit.choice.0030":"emit.choice.0031";break;
+ default:diag_tool(DIAG_SEV_ERROR,"riscv32","invalid neutral integer binary operation",0,0,0,0,0,0);return -1;
+ }
+ match=xh_rules_select_binary(key,selected,sizeof(selected));if(match<0)return -1;
+ xh_rv_rule(b,"emit.fixed.0151");if(match)asmbuf_puts(b,selected);else xh_rv_rule(b,fallback);xh_rv_rule(b,"emit.fixed.0152");return xh_rv_rules_failed()?-1:0;
+}
+
 static IrProgram *xh_rv_prog;
 static int rv_emit(IrProgram *prog, char *out, int cap) {
+    int check_function,check_instruction;
+    /* Reject malformed integer IR before any package file is consulted. */
+    for(check_function=0;check_function<prog->func_count;check_function++)for(check_instruction=0;check_instruction<prog->funcs[check_function]->code_count;check_instruction++){
+        IrInst*instruction=&prog->funcs[check_function]->code[check_instruction];
+        if(instruction->op==IR_BINARY&&(xh_ir_legacy_binary(instruction)==XH_IR_BIN_INVALID||(instruction->aux&IR_AUX_SLOT64))){diag_tool(DIAG_SEV_ERROR,"riscv32","invalid neutral integer binary operation or flags",0,0,0,0,0,0);return -1;}
+    }
     xh_rv_prog = prog;
     xh_rv_rules_reset();
     if(xh_rv_abi_load()||xh_rv_registers_load())return -1;
@@ -1126,60 +1158,8 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
                     break;
                 }
 
-                case IR_BINARY: {
-                    /* aux holds the operator, and bit 8 (0x100) means "the
-                     * operands are unsigned" -- irgen sets it for unsigned
-                     * comparisons and for >>.  Switching on aux directly made
-                     * every unsigned compare and every unsigned right shift
-                     * miss all the cases, land in the default arm and
-                     * disappear: both operands were popped and the left one
-                     * pushed back, so `u >> 4` silently returned `u` and
-                     * `a < b` on unsigned silently returned `a` (nonzero =
-                     * "true").  Mask the flag and pick the u-variants. */
-                    int is_uns = (I->aux & 0x100) != 0;
-                    xh_rv_rule(&buf,"emit.fixed.0151");
-                    {int op=I->aux&~0x100;const char*key=op==TOK_PLUS?"ADD":op==TOK_MINUS?"SUB":op==TOK_BAND?"AND":op==TOK_BOR?"OR":op==TOK_BXOR?"XOR":op==TOK_MUL?"MUL":op==TOK_SHL?"SHL":op==TOK_SHR?(is_uns?"SHR_U":"SHR_S"):op==TOK_EQ?"EQ":op==TOK_NE?"NE":op==TOK_LT?(is_uns?"LT_U":"LT_S"):op==TOK_GT?(is_uns?"GT_U":"GT_S"):op==TOK_LE?(is_uns?"LE_U":"LE_S"):op==TOK_GE?(is_uns?"GE_U":"GE_S"):op==TOK_DIV?(is_uns?"DIV_U":"DIV_S"):op==TOK_MOD?(is_uns?"MOD_U":"MOD_S"):0;
-                     if(key){char selected[512];int match=xh_rules_select_binary(key,selected,sizeof(selected));if(match<0)break;if(match>0){asmbuf_puts(&buf,selected);xh_rv_rule(&buf,"emit.fixed.0152");break;}}}
-                    switch (I->aux & ~0x100) {
-                        case (int)TOK_PLUS:  xh_rv_rule(&buf,"emit.fixed.0130"); break;
-                        case (int)TOK_MINUS: xh_rv_rule(&buf,"emit.fixed.0153"); break;
-                        case (int)TOK_MUL:   xh_rv_rule(&buf,"emit.fixed.0154"); break;
-                        case (int)TOK_DIV:   xh_rv_rule(&buf,"emit.fixed.0155"); break;
-                        case (int)TOK_MOD:   xh_rv_rule(&buf,"emit.fixed.0156"); break;
-                        case (int)TOK_BAND:  xh_rv_rule(&buf,"emit.fixed.0157"); break;
-                        case (int)TOK_BOR:   xh_rv_rule(&buf,"emit.fixed.0158");  break;
-                        case (int)TOK_BXOR:  xh_rv_rule(&buf,"emit.fixed.0159"); break;
-                        case (int)TOK_SHL:   xh_rv_rule(&buf,"emit.fixed.0160"); break;
-                        case (int)TOK_SHR:
-                            asmbuf_puts(&buf, is_uns ? xh_rv_rule_text("emit.choice.0022")
-                                                     : xh_rv_rule_text("emit.choice.0023"));
-                            break;
-                        case (int)TOK_EQ:    xh_rv_rule(&buf,"emit.fixed.0161"); break;
-                        case (int)TOK_NE:    xh_rv_rule(&buf,"emit.fixed.0162"); break;
-                        case (int)TOK_LT:    asmbuf_puts(&buf, is_uns ? xh_rv_rule_text("emit.choice.0024")
-                                                                     : xh_rv_rule_text("emit.choice.0025")); break;
-                        case (int)TOK_GT:    asmbuf_puts(&buf, is_uns ? xh_rv_rule_text("emit.choice.0026")
-                                                                     : xh_rv_rule_text("emit.choice.0027")); break;
-                        case (int)TOK_LE:    asmbuf_puts(&buf, is_uns ? xh_rv_rule_text("emit.choice.0028")
-                                                                     : xh_rv_rule_text("emit.choice.0029")); break;
-                        case (int)TOK_GE:    asmbuf_puts(&buf, is_uns ? xh_rv_rule_text("emit.choice.0030")
-                                                                     : xh_rv_rule_text("emit.choice.0031")); break;
-                        default: {
-                            /* Never fall through silently: an operator this
-                             * backend does not know must fail the build, not
-                             * quietly return the left operand. */
-                            char opbuf[12];
-                            diag_tool(DIAG_SEV_ERROR, "arkcc",
-                                      "the riscv32 backend does not implement binary "
-                                      "operator %s (function '%s')",
-                                      diag_num(opbuf, I->aux & ~0x100), f->name, 0, 0, 0, 0);
-                            break;
-                        }
-                    }
-                    xh_rv_rule(&buf,"emit.fixed.0152");
-                    break;
-                }
-                    xh_rv_rule(&buf,"emit.fixed.0152");
+                case IR_BINARY:
+                    if(rv_scalar_binary(&buf,xh_ir_legacy_binary(I),(I->aux&0x100)!=0))return -1;
                     break;
                 case IR_DIV:
                     /* Division and modulo are separate IR ops (irgen emits them

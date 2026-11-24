@@ -18,6 +18,7 @@
 #include "backend.h"
 #include "codegen.h"
 #include "xh_arm_rules.h"
+#include "xh_ir_legacy_adapter.h"
 #include "xh_rules.h"
 #include "xh_template.h"
 #include "xh_relocation.h"
@@ -355,8 +356,29 @@ static const char *arm_scalar_rule(int op) {
     default:return 0;
     }
 }
-static void emit_cmp_result(AsmBuffer *b,int base_op,int is_unsigned) {
-    const char *name=arm_scalar_rule(base_op|(is_unsigned?0x100:0));
+static const char *arm_integer_rule(XhIrBinaryOp op,int u) {
+    switch(op) {
+    case XH_IR_BIN_ADD: return "add";
+    case XH_IR_BIN_SUB: return "sub";
+    case XH_IR_BIN_MUL: return "mul";
+    case XH_IR_BIN_DIV: return u?"udiv":"div";
+    case XH_IR_BIN_REM: return u?"umod":"mod";
+    case XH_IR_BIN_AND: return "and";
+    case XH_IR_BIN_OR: return "or";
+    case XH_IR_BIN_XOR: return "xor";
+    case XH_IR_BIN_SHL: return "shl";
+    case XH_IR_BIN_SHR: return u?"ushr":"shr";
+    case XH_IR_BIN_EQ: return "eq";
+    case XH_IR_BIN_NE: return "ne";
+    case XH_IR_BIN_LT: return u?"ult":"lt";
+    case XH_IR_BIN_GT: return u?"ugt":"gt";
+    case XH_IR_BIN_LE: return u?"ule":"le";
+    case XH_IR_BIN_GE: return u?"uge":"ge";
+    default:return 0;
+    }
+}
+static void emit_cmp_result(AsmBuffer *b,XhIrBinaryOp base_op,int is_unsigned) {
+    const char *name=arm_integer_rule(base_op,is_unsigned);
     char key[48];if(!name)return;
     snprintf(key,sizeof key,"compare.%s",name);xh_arm_rule(b,key);
 }
@@ -375,30 +397,30 @@ static void emit_cmp_result(AsmBuffer *b,int base_op,int is_unsigned) {
  * "branch when it is false" (IR_JZ).  The six conditions are simply inverted
  * for the second case, with the unsigned forms LO/LS/HI/HS substituted for
  * LT/LE/GT/GE.  A non-comparison returns NULL and nothing changes. */
-static const char *cbranch_mnemonic(int base_op, int is_unsigned, int want_true) {
+static const char *cbranch_mnemonic(XhIrBinaryOp base_op, int is_unsigned, int want_true) {
     switch (base_op) {
-        case (int)TOK_EQ: return want_true ? "BEQ" : "BNE";
-        case (int)TOK_NE: return want_true ? "BNE" : "BEQ";
-        case (int)TOK_LT:
+        case XH_IR_BIN_EQ: return want_true ? "BEQ" : "BNE";
+        case XH_IR_BIN_NE: return want_true ? "BNE" : "BEQ";
+        case XH_IR_BIN_LT:
             return want_true ? (is_unsigned ? "BLO" : "BLT")
                              : (is_unsigned ? "BHS" : "BGE");
-        case (int)TOK_GT:
+        case XH_IR_BIN_GT:
             return want_true ? (is_unsigned ? "BHI" : "BGT")
                              : (is_unsigned ? "BLS" : "BLE");
-        case (int)TOK_LE:
+        case XH_IR_BIN_LE:
             return want_true ? (is_unsigned ? "BLS" : "BLE")
                              : (is_unsigned ? "BHI" : "BGT");
-        case (int)TOK_GE:
+        case XH_IR_BIN_GE:
             return want_true ? (is_unsigned ? "BHS" : "BGE")
                              : (is_unsigned ? "BLO" : "BLT");
+        default: return 0;
     }
-    return 0;
 }
 #endif
 
-static void emit_binary(AsmBuffer *b,int op) {
-    const char *name=arm_scalar_rule(op);char key[48];
-    if(!name){xh_arm_rule(b, "text.0045");return;}
+static void emit_binary(AsmBuffer *b,const IrInst *inst) {
+    const char *name=arm_integer_rule(xh_ir_legacy_binary(inst),(inst->aux&0x100)!=0);char key[48];
+    if(!name){diag_tool(DIAG_SEV_ERROR,"ARM IR","invalid integer binary operation",0,0,0,0,0,0);return;}
     snprintf(key,sizeof key,"binary.%s",name);xh_arm_rule(b,key);
 }
 
@@ -427,11 +449,9 @@ static int thumb_imm12_a(unsigned val, unsigned *out_i, unsigned *out_imm3,
  * Returns 1 when the op has a foldable immediate form.  With emit == 0 it only
  * decides; the caller uses that to decide whether to swallow the push, so the
  * decision and the emission cannot disagree. */
-static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
-    int is_unsigned = (op & 0x100) != 0;
-    int base_op = op & ~0x100;
+static int emit_binary_imm(AsmBuffer *b, XhIrBinaryOp base_op, int is_unsigned, int v, int left, int emit) {
     switch (base_op) {
-    case (int)TOK_PLUS:
+    case XH_IR_BIN_ADD:
         if (!left && v >= 0 && v <= 4095) {
             if (emit) { xh_arm_rule_ints(b,"immediate.add",v,0,0); }
             return 1;
@@ -443,7 +463,7 @@ static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
             return 1;
         }
         return 0;
-    case (int)TOK_MINUS:
+    case XH_IR_BIN_SUB:
         if (!left && v >= 0 && v <= 4095) {
             if (emit) { xh_arm_rule_ints(b,"immediate.sub",v,0,0); }
             return 1;
@@ -453,29 +473,29 @@ static int emit_binary_imm(AsmBuffer *b, int op, int v, int left, int emit) {
             return 1;
         }
         return 0;
-    case (int)TOK_BAND:
-    case (int)TOK_BOR:
-    case (int)TOK_BXOR:
+    case XH_IR_BIN_AND:
+    case XH_IR_BIN_OR:
+    case XH_IR_BIN_XOR:
         if (v < 0) return 0;
         {
             unsigned a, c, d;
             if (!thumb_imm12_a((unsigned)v, &a, &c, &d)) return 0;
         }
         if (emit) {
-            xh_arm_rule_ints(b,base_op==(int)TOK_BAND?"immediate.and":base_op==(int)TOK_BOR?"immediate.orr":"immediate.eor",v,0,0);
+            xh_arm_rule_ints(b,base_op==XH_IR_BIN_AND?"immediate.and":base_op==XH_IR_BIN_OR?"immediate.orr":"immediate.eor",v,0,0);
         }
         return 1;
-    case (int)TOK_SHL:
+    case XH_IR_BIN_SHL:
         if (v < 0 || v > 31) return 0;
         if (emit) { xh_arm_rule_ints(b,"immediate.lsl",v,0,0); }
         return 1;
-    case (int)TOK_SHR:
+    case XH_IR_BIN_SHR:
         if (v < 0 || v > 31) return 0;
         if (emit) { xh_arm_rule_ints(b,is_unsigned?"immediate.lsr":"immediate.asr",v,0,0); }
         return 1;
-    case (int)TOK_EQ: case (int)TOK_NE:
-    case (int)TOK_LT: case (int)TOK_GT:
-    case (int)TOK_LE: case (int)TOK_GE: {
+    case XH_IR_BIN_EQ: case XH_IR_BIN_NE:
+    case XH_IR_BIN_LT: case XH_IR_BIN_GT:
+    case XH_IR_BIN_LE: case XH_IR_BIN_GE: {
         unsigned a, c, d;
         if (left) return 0;                    /* not commutative */
         if (v < 0) return 0;
@@ -5199,7 +5219,7 @@ static int ark_top_try(AsmBuffer *b, IrInst *I, int *top, int *ret_in_r0) {
             emit_pop_r1(b);
             emit_pop_r0(b);
         }
-        emit_binary(b, I->aux);
+        emit_binary(b, I);
         *top = 1;
         return 1;
     case IR_UNARY:
@@ -6456,7 +6476,6 @@ static char *codegen_arm(IrProgram *prog) {
         int imm_live = 0;
         int imm_left = 0;
         int imm_val = 0;
-        int imm_op = 0;
 #endif
         for (i = 0; i < f->code_count; i++) {
             IrInst *I = &f->code[i];
@@ -6528,20 +6547,18 @@ static char *codegen_arm(IrProgram *prog) {
                 I->op == IR_PUSH_INT) {
                 IrInst *n1 = (i + 1 < f->code_count) ? &f->code[i + 1] : 0;
                 if (n1 && n1->op == IR_BINARY &&
-                    emit_binary_imm(&buf, n1->aux, (int)I->val, 0, 0)) {
+                    emit_binary_imm(&buf, xh_ir_legacy_binary(n1), (n1->aux&0x100)!=0, (int)I->val, 0, 0)) {
                     imm_live = 1;
                     imm_left = 0;
                     imm_val = (int)I->val;
-                    imm_op = n1->aux;
                     continue;
                 }
                 if (n1 && ir_pushes_one_word(n1) && i + 2 < f->code_count &&
                     f->code[i + 2].op == IR_BINARY &&
-                    emit_binary_imm(&buf, f->code[i + 2].aux, (int)I->val, 1, 0)) {
+                    emit_binary_imm(&buf, xh_ir_legacy_binary(&f->code[i+2]), (f->code[i+2].aux&0x100)!=0, (int)I->val, 1, 0)) {
                     imm_live = 1;
                     imm_left = 1;
                     imm_val = (int)I->val;
-                    imm_op = f->code[i + 2].aux;
                     continue;
                 }
             }
@@ -7316,7 +7333,7 @@ static char *codegen_arm(IrProgram *prog) {
                             (f->code[i + 1].op == IR_JZ ||
                              f->code[i + 1].op == IR_JNZ)) {
                             const char *mn = cbranch_mnemonic(
-                                imm_op & ~0x100, (imm_op & 0x100) != 0,
+                                xh_ir_legacy_binary(I), (I->aux & 0x100) != 0,
                                 f->code[i + 1].op == IR_JNZ);
                             if (mn) {
                                 unsigned d_i, d_imm3, d_imm8;
@@ -7341,7 +7358,7 @@ static char *codegen_arm(IrProgram *prog) {
                         }
 #endif
                         emit_pop_r0(&buf);
-                        if (!emit_binary_imm(&buf, imm_op, imm_val, imm_left, 1))
+                        if (!emit_binary_imm(&buf, xh_ir_legacy_binary(I), (I->aux&0x100)!=0, imm_val, imm_left, 1))
                             xh_arm_rule(&buf, "text.0234");
                         emit_push_r0(&buf);
                         break;
@@ -7357,7 +7374,7 @@ static char *codegen_arm(IrProgram *prog) {
                         (f->code[i + 1].op == IR_JZ ||
                          f->code[i + 1].op == IR_JNZ)) {
                         const char *mn = cbranch_mnemonic(
-                            (int)(I->aux & ~0x100), (I->aux & 0x100) != 0,
+                            xh_ir_legacy_binary(I), (I->aux & 0x100) != 0,
                             f->code[i + 1].op == IR_JNZ);
                         if (mn) {
                             emit_pop_r1(&buf);
@@ -7371,7 +7388,7 @@ static char *codegen_arm(IrProgram *prog) {
 #endif
                     emit_pop_r1(&buf);
                     emit_pop_r0(&buf);
-                    emit_binary(&buf, I->aux);
+                    emit_binary(&buf, I);
                     emit_push_r0(&buf);
                     break;
                 case IR_UNARY:
@@ -13088,7 +13105,15 @@ static void resolve_refs_a(ArmAsm *a) {
 
 static int arm_emit(IrProgram *m, char *out, int cap) {
     char *text;
+    int fi,ii;
     xh_arm_rules_reset();
+    for(fi=0;fi<m->func_count;fi++)for(ii=0;ii<m->funcs[fi]->code_count;ii++){
+        const IrInst*inst=&m->funcs[fi]->code[ii];
+        if(inst->op==IR_BINARY&&(xh_ir_legacy_binary(inst)==XH_IR_BIN_INVALID||(inst->aux&IR_AUX_SLOT64))){
+            diag_tool(DIAG_SEV_ERROR,"ARM IR","invalid flags or unsupported width for integer32 binary",0,0,0,0,0,0);
+            if(cap>0)out[0]=0;return -1;
+        }
+    }
     text = codegen_arm(m);
     if(xh_arm_feature_text(text))return -1;
     if(xh_arm_rules_failed()){if(cap>0)out[0]=0;return -1;}

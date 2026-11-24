@@ -24,6 +24,19 @@ helpers and preserves the stack contract. Binary scalar32 operation selection
 continues through the separate XHSELECT v2 sequence table, and instruction
 encoding/relocation formulas continue through their own external VMs.
 
+## Typed neutral scalar32 binary consumption
+
+Integer IR_BINARY is decoded through the explicit legacy compatibility accessor
+into `XhIrBinaryOp` before selection. The scalar consumer accepts only typed
+neutral ADD/SUB/MUL/DIV/REM, bitwise, shift and comparison operations; it no
+longer switches on C token values. Existing wire/operator fields remain stable
+at the adapter boundary. All binary instructions are prevalidated before any
+package resource access; unknown aux flags and unsupported slot64 claims fail
+instead of falling through to an accidental template key. The dedicated IR_DIV/
+IR_MOD, integer64, float and complex dispatch paths retain their separate
+representations this round. Sparse legacy selector tables keep a typed fallback,
+including correct unsigned DIV/REM instruction sequences.
+
 ## Finite ABI and frame policies
 
 The same package table now includes required numeric contracts: word size,

@@ -75,6 +75,12 @@ end
 rule binary.mod
 text     SDIV r2, r0, r1\n    MUL r2, r1\n    SUB r0, r0, r2\n
 end
+rule binary.udiv
+text     UDIV r0, r0, r1\n
+end
+rule binary.umod
+text     UDIV r2, r0, r1\n    MUL r2, r1\n    SUB r0, r0, r2\n
+end
 rule binary.and
 text     AND r0, r1\n
 end
