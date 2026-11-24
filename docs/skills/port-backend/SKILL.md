@@ -131,6 +131,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 后续脚本/预算验收以新增消费者的真实结果为准：本次四应用 945346/975635/886223/290669 字节快照已构建，ASSERT 消费七项与 parser 八项、SD 和七项资源测试已通过，最终完整 runner 也已全部通过。脚本支持有界最多 32 个 ASSERT；标准案例与 GNU 对照通过，但 `&&`/`||` 的短路求值是本子集明示合同，与 GNU ld 对未定义符号可能采用 eager 查找的行为有差异，不能宣称 drop-in/full GNU script。现代链接和独立链接入口的 `--memory-report` 仅统计 link-core 自有 requested heap：metadata、当前 input、script 和 output；不含 relocation VM/rules heap、runtime、stack、文件系统或 allocator 开销，非 MCU 总 RAM。实测 8 对象/64 globals 加 pointers，两入口峰值同为 58506/524288 bytes；1024-byte 小预算失败、旧输出保留且报告可读的测试已通过。每次扩展应重跑成功与故障报告，不用这一 fixture 推断其它输入峰值。
 
+新增后端消费者应先读 [中立 IR 合同](../../ir-core-v1.md)、[独立类型/操作接口](../../../include/xh_ir_contract.h) 与 [legacy adapter](../../../include/xh_ir_legacy_adapter.h)，把 C token/Type 知识限制在显式兼容边界，不在新消费者中复制 TOK 数值解释。当前首批生产迁移仅为 i386/AMD64 两处整数 `IR_BINARY`，经 `xh_ir_legacy_binary` 取得 16 个中立操作 ID，再以 typed neutral enum 发射；unknown token/aux 必须直接诊断拒绝，不能靠包定义 `scalar.invalid` 规则绕过。legacy aux 和 ARKIR 数值保持兼容、不静默重解释。中立 core 本体不依赖 C Type/TOK，但其余 wide/FP/其它 opcode、前端和优化器尚未全部迁移，不能据此宣称全 IR 已语言无关或已成为 SSA。实际 945523/975812/886394/290669 字节四应用 Python 完整回归全通过；core→legacy→真实 AMD64 路径的三个执行用例及非法 flag 拒绝也通过。无 Python 路径的四应用全量构建也已实际 exit 0，其产物通过四应用功能 1/1 和真实 x86 规则 15/15；tiny dependency 三项另行通过。两条构建路径的证据独立保留，恢复 Python 产物后的 maps/SD 审计仍按其本轮最终日志报告，不由先前构建结果代替。此迁移不增加 capability 或扩大 ABI 范围。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

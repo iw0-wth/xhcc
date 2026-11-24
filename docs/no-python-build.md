@@ -58,6 +58,37 @@ Outputs and maps are under `build/nopy/<app>/<app>.wasm` and
 Both paths retain WASI Preview 1 / lowered feature validation and the explicit
 4 MiB maximum linear memory budget.
 
+## Direct Make incremental dependency contract
+
+The direct path records compile and link profiles with GNU Make's own `file`
+functions. A profile is rewritten only when its complete configured text changes;
+an unchanged second invocation preserves stamp timestamps and performs no build
+actions. No Python or external generator creates these profiles.
+
+Object prerequisites include project `.h`/`.inc`/`.def` files, WASI sysroot and
+Clang resource headers of those formats, the compiler executable, and the
+compile profile. That profile includes the SDK/compiler paths, ordered CFLAGS,
+per-application macro contract and discovered header list. Adding/removing a
+header or changing compilation flags invalidates the objects. Link outputs
+additionally depend on the link profile, compiler, wasm-opt and wasm-validate
+files; changed link/lowering/validation flags or tool timestamps rerun the final
+link/lowering/validation boundary.
+
+These are classic GNU Make timestamp dependencies, not the Python cache's
+content hashes. Changing a dependency's contents while restoring its original
+mtime is outside this incremental contract; use a fresh OUT directory for a
+clean rebuild when needed. Header changes conservatively recompile all affected
+shared objects rather than attempting compiler-specific include dependency
+pruning. Ordinary command-line flags are supported; embedded-newline flag values
+are not a portable Make interface.
+
+A tiny actual GNU Make fixture checks compile/link call counts, unchanged-stamp
+zero actions, SDK `.def` changes, CFLAGS changes, compiler timestamp changes,
+link-only flag changes and optimizer timestamp changes. Separate real SDK
+object tests retain the Python cache invalidation and byte-identity gates.
+This verifies dependency decisions and does not substitute for the four-application
+runtime tests after an actual direct build.
+
 ## Application separation
 
 - xhcc: compiler and bounded standard/compatibility linking.
@@ -89,3 +120,13 @@ xhcc / xhccm / xhccn / xhlinker, all with a 4194304-byte declared memory maximum
 These sizes are snapshot evidence, not fixed future specifications. Different
 object ordering/output paths between build paths may change Wasm SHA while
 preserving tested behavior; reproducible binary identity is not claimed here.
+
+A later dependency-aware direct-build run rebuilt all four applications after
+neutral IR consumer changes using the same no-Python GNU Make command above.
+All compile/link/lower/validate stages completed successfully. Verification of
+those direct-built production files then passed `test_four_apps.py` (1 test)
+and `test_x86_rules.py` (15 tests), including the new x86 neutral consumer paths.
+This run occurred after compile/link profiles and SDK/tool dependencies were
+added; it is separate from the earlier size snapshot. Python was used only to
+execute the verification scripts after the build finished, not by the Makefile
+or any build recipe.

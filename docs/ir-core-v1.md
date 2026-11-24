@@ -1,9 +1,11 @@
 # IR core v1: executable language-neutral foundation
 
-Status: additive prototype with an executed legacy-backend bridge. Existing C
-frontend, optimizers, backends and default ARKIR serialization are unchanged.
-This is a stack-machine contract, not SSA and not a completed migration of the
-compiler to a language-independent IR.
+Status: executable core prototype plus the first production consumer migration.
+The i386 and AMD64 integer IR_BINARY dispatches now consume neutral operation IDs
+through the legacy adapter. The C frontend, optimizers and default ARKIR wire
+representation retain their existing contracts. This is a stack-machine
+contract, not SSA and not a completed migration of the compiler to a
+language-independent IR.
 
 ## Existing boundary
 
@@ -94,7 +96,10 @@ covers all 16 neutral binary IDs and refuses unknown IDs/tokens. The bridge
 validates core before allocating a legacy IrProgram, maps integer result types
 to type_int/type_uint, preserves signed raw constants, and maps unsigned
 operations to the legacy aux unsigned bit. Its caller supplies a trusted,
-backend-safe symbol name. No existing production consumer is rewired yet.
+backend-safe symbol name. The main C frontend does not call this core-to-legacy
+producer bridge; its direct caller remains the independent synthetic frontend
+test. Separately, the production x86 integer binary consumers now call the
+legacy-to-neutral operation accessor described below.
 
 `tests/test_ir_contract.py` builds an isolated WASI harness from the actual core,
 legacy IR/codec and AMD64 backend. Synthetic frontend code constructs neutral
@@ -110,17 +115,52 @@ unknown operators, codec capacity failure, truncation and unknown version.
 This closes a genuine non-C producer-to-existing-backend path. It does not remove
 legacy Type graph coupling or make every existing IR instruction neutral.
 
+## Legacy binary consumer boundary
+
+`xh_ir_legacy_binary(const IrInst *)` is the production consumer accessor for
+legacy IR_BINARY instructions. It checks the opcode, accepts only low-byte C
+token IDs with the unsigned bit (0x100) and IR_AUX_SLOT64 (0x2000), then returns
+the independent neutral operation. Null instructions, other opcodes, unknown
+tokens and any unknown aux flag return INVALID. It does not reinterpret
+IR_64BINARY, IR_64CMP, IR_FCMP, dedicated IR_DIV/IR_MOD or unary operations.
+Signedness and machine slot width remain explicit, separate legacy facts for
+the consuming backend; this accessor does not mutate the instruction or wire.
+
+The existing C producer sets unsigned for ordered comparisons/right shift and
+sets SLOT64 for AMD64 pointer arithmetic/comparisons. C logical AND/OR lower to
+branches and normalized NE values before IR_BINARY emission, and compound
+assignments map to their base operators. Dedicated DIV/MOD remain their own
+opcodes, while the neutral bridge can emit their binary equivalents. Therefore
+16 mapped binary operations cover this boundary without treating short-circuit
+logical operations as bitwise operations. Other opcode families need their own
+future accessors rather than bypassing opcode checks.
+
+The isolated test covers all 16 operations with all four legal flag combinations,
+rejects wrong opcodes and every undocumented high aux bit, and confirms the
+accessor returns the same operation after existing ARKIR serialization. Backend
+migration consumes neutral IDs while old ARKIR bytes remain unchanged.
+
+Both integer IR_BINARY dispatch sites in the shared x86 backend (i386 and
+AMD64) now use this accessor. The scalar rule selector switches on neutral enum
+IDs. Invalid operations must fail directly through the backend diagnostic path,
+without looking up a package-defined `scalar.invalid` template. Wide integer,
+floating-point and unary token dispatches, other targets, the C producer and
+optimizer raw-token consumers are outside this first migration. The unified
+four-application Python build and full integration suite passed after this
+migration, including the non-C synthetic CPU test and malformed integer-aux
+rejections. This is evidence for these consumers, not for whole-IR neutrality.
+
 ## Reviewable migration stages
 
-1. Land this additive API, codec, validator, adapter and synthetic CPU evidence.
-   Source discovery may compile new files on the next full build, but legacy
-   behavior remains unchanged because there are no production callers.
-2. After the coordinator's current full tests, change precise legacy consumers
-   in a coordinated patch: C irgen token-to-neutral at its boundary; optimizer
-   and backend operator dispatch through a neutral accessor. Keep ARKIR numeric
-   fields stable through explicit serialization adapters until a new format
-   version is deliberately introduced. Never reinterpret old raw aux values as
-   new enum IDs.
+1. Completed foundation: additive API, codec, validator, adapter and synthetic
+   CPU evidence. The core-to-legacy producer bridge remains outside the main C
+   frontend path.
+2. First consumer migration implemented: i386/AMD64 integer IR_BINARY dispatch
+   uses the strict neutral accessor. Continue with precise, coordinated changes
+   to C irgen boundaries, optimizer consumers, other targets and other operation
+   families. Keep ARKIR numeric fields stable through explicit serialization
+   adapters until a new format version is deliberately introduced. Never
+   reinterpret old raw aux values as new enum IDs.
 3. Extend executable profiles with explicit widths, memory/volatile effects,
    labels and typed stack joins, calls/signature/ABI plan references. Define
    target capability checks and trap policies; add non-C tests per capability.

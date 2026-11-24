@@ -25,6 +25,7 @@
 #include "platform.h"
 #include "common.h"
 #include "ir.h"
+#include "xh_ir_legacy_adapter.h"
 #include "diag.h"
 #include "agginit.h"
 #include "xh_x86_rules.h"
@@ -130,19 +131,20 @@ static const char *binop_x(int op) {
     }
 }
 
-static void x86_scalar_rule(AsmBuffer *b,int op,int uns,int width) {
+static int x86_scalar_rule(AsmBuffer *b,XhIrBinaryOp op,int uns,int width) {
  const char *name=0;char key[80];
  switch(op){
- case TOK_PLUS:name="add";break;case TOK_MINUS:name="sub";break;
- case TOK_MUL:name="mul";break;case TOK_DIV:name="div";break;case TOK_MOD:name="mod";break;
- case TOK_BAND:name="and";break;case TOK_BOR:name="or";break;case TOK_BXOR:name="xor";break;
- case TOK_SHL:name="shl";break;case TOK_SHR:name="shr";break;
- case TOK_EQ:name="eq";break;case TOK_NE:name="ne";break;
- case TOK_LT:name="lt";break;case TOK_GT:name="gt";break;case TOK_LE:name="le";break;case TOK_GE:name="ge";break;
- default:name="invalid";break;
+ case XH_IR_BIN_ADD:name="add";break;case XH_IR_BIN_SUB:name="sub";break;
+ case XH_IR_BIN_MUL:name="mul";break;case XH_IR_BIN_DIV:name="div";break;case XH_IR_BIN_REM:name="mod";break;
+ case XH_IR_BIN_AND:name="and";break;case XH_IR_BIN_OR:name="or";break;case XH_IR_BIN_XOR:name="xor";break;
+ case XH_IR_BIN_SHL:name="shl";break;case XH_IR_BIN_SHR:name="shr";break;
+ case XH_IR_BIN_EQ:name="eq";break;case XH_IR_BIN_NE:name="ne";break;
+ case XH_IR_BIN_LT:name="lt";break;case XH_IR_BIN_GT:name="gt";break;case XH_IR_BIN_LE:name="le";break;case XH_IR_BIN_GE:name="ge";break;
+ default:diag_tool(DIAG_SEV_ERROR,"x86","invalid neutral integer binary operation",0,0,0,0,0,0);return -1;
  }
  snprintf(key,sizeof(key),"scalar%d.%c.%s",width,uns?'u':'s',name);
  asmbuf_puts(b,xh_x86_rule(key));
+ return 0;
 }
 
 /* === Aggregate initialisers ==============================================
@@ -1012,7 +1014,7 @@ static int x86_emit_internal(IrProgram *prog, char *out, int cap, int abi) {
                     break;
                 }
                 case IR_BINARY: {
- x86_scalar_rule(&buf,I->aux & 0xFF,(I->aux & 0x100)!=0,32);
+ if(x86_scalar_rule(&buf,xh_ir_legacy_binary(I),(I->aux & 0x100)!=0,32))x86_emit_errors++;
  break;
  }
                 case IR_UNARY:
@@ -2607,7 +2609,7 @@ static int amd64_emit_internal(IrProgram *prog, char *out, int cap) {
                 }
 
                 case IR_BINARY: {
- x86_scalar_rule(&buf,I->aux & 0xFF,(I->aux & 0x100)!=0,(I->aux & IR_AUX_SLOT64)?64:32);
+ if(x86_scalar_rule(&buf,xh_ir_legacy_binary(I),(I->aux & 0x100)!=0,(I->aux & IR_AUX_SLOT64)?64:32))g_amd64_errors++;
  break;
  }
 

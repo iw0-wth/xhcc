@@ -59,6 +59,29 @@ int main(int argc,char**argv){
  for(k=1;k<=16;k++)CHECK(xh_ir_binary_from_c_token(xh_ir_binary_to_c_token((XhIrBinaryOp)k))==(XhIrBinaryOp)k);
  CHECK(xh_ir_binary_to_c_token((XhIrBinaryOp)999)==-1);
  CHECK(xh_ir_binary_from_c_token(-1)==XH_IR_BIN_INVALID);
+ /* The production consumer boundary accepts ONLY the documented wire bits. */
+ {IrInst inst={0};unsigned flags,bit;int op;inst.op=IR_BINARY;
+  CHECK(xh_ir_legacy_binary(0)==XH_IR_BIN_INVALID);
+  for(op=1;op<=16;op++)for(flags=0;flags<4;flags++){
+   inst.aux=xh_ir_binary_to_c_token((XhIrBinaryOp)op)|((flags&1)?0x100:0)|((flags&2)?IR_AUX_SLOT64:0);
+   CHECK(xh_ir_legacy_binary(&inst)==(XhIrBinaryOp)op);
+  }
+  inst.aux=TOK_PLUS;
+  inst.op=IR_64BINARY;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.op=IR_FADD;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.op=IR_PUSH_INT;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.op=IR_BINARY;
+  for(bit=9;bit<32;bit++)if((1u<<bit)!=(unsigned)IR_AUX_SLOT64){
+   inst.aux=(int)((unsigned)TOK_PLUS|(1u<<bit));
+   CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  }
+  inst.aux=-1;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.aux=255;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.aux=TOK_AND;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.aux=TOK_OR;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+  inst.aux=TOK_ADD_ASSIGN;CHECK(xh_ir_legacy_binary(&inst)==XH_IR_BIN_INVALID);
+ }
+
  /* Failures matter: reject typed stack mismatch, underflow and unsupported width. */
  code[1].type.signedness=mode?XH_IR_SIGN_SIGNED:XH_IR_SIGN_UNSIGNED;
  CHECK(xh_ir_core_validate(&p,&err)==XH_IR_CORE_TYPE_MISMATCH&&err.instruction==2);
@@ -76,9 +99,19 @@ int main(int argc,char**argv){
  CHECK(xh_ir_core_decode(wire,n,&copy,storage,128,&err)==XH_IR_CORE_OK);
  f=fopen("build/ir-contract-tests/core.bin","wb");CHECK(f);fwrite(wire,1,n,f);fclose(f);
  old=xh_ir_core_to_legacy(&copy,"entry",&err);CHECK(old);
+ CHECK(xh_ir_legacy_binary(&old->funcs[0]->code[2])==(XhIrBinaryOp)copy.code[2].binary_op);
  n=ir_serialize(old,legacy,sizeof(legacy),"synthetic");CHECK(n>0);
  back=ir_deserialize(legacy,n,"synthetic");CHECK(back);
+ CHECK(xh_ir_legacy_binary(&back->funcs[0]->code[2])==(XhIrBinaryOp)copy.code[2].binary_op);
  CHECK(xh_template_set_path("x86_64","packages/x86_64/x86.rules")==0);
+ /* Consumer integration must reject unknown flags instead of masking them. */
+ {int saved=back->funcs[0]->code[2].aux;unsigned bad;
+  for(bad=0x200;bad<=0x800;bad<<=2){
+   back->funcs[0]->code[2].aux=saved|(int)bad;
+   CHECK(ark_backend_amd64()->emit_asm(back,assembly,sizeof(assembly))<0);
+  }
+  back->funcs[0]->code[2].aux=saved;
+ }
  n=ark_backend_amd64()->emit_asm(back,assembly,sizeof(assembly));CHECK(n>0);
  f=fopen("build/ir-contract-tests/output.s","wb");CHECK(f);fwrite(assembly,1,n,f);fclose(f);
  puts("non-C frontend: core validate + canonical codec + legacy roundtrip + real AMD64 emission OK");return 0;

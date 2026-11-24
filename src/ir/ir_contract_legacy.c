@@ -20,6 +20,13 @@ int xh_ir_binary_to_c_token(XhIrBinaryOp op) {
     default:return -1;
     }
 }
+XhIrBinaryOp xh_ir_legacy_binary(const IrInst *instruction) {
+    unsigned aux;
+    if (!instruction || instruction->op!=IR_BINARY) return XH_IR_BIN_INVALID;
+    aux=(unsigned)instruction->aux;
+    if (aux & ~(0xffu | 0x100u | (unsigned)IR_AUX_SLOT64)) return XH_IR_BIN_INVALID;
+    return xh_ir_binary_from_c_token((int)(aux & 0xffu));
+}
 IrProgram *xh_ir_core_to_legacy(const XhIrCoreProgram *core,const char *name,XhIrCoreError *error) {
     IrProgram *p;IrFunc *f;uint32_t k;
     if(xh_ir_core_validate(core,error)!=XH_IR_CORE_OK)return 0;

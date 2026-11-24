@@ -15,18 +15,50 @@ endif
 WASI_CC ?= $(WASI_SDK_PATH)/bin/clang$(EXE)
 MEMORY_BYTES ?= 4194304
 ROOT := $(CURDIR)
-OUT := build/nopy
+OUT ?= build/nopy
 rwildcard = $(foreach p,$(wildcard $(1)*),$(if $(wildcard $(p)/.),$(call rwildcard,$(p)/,$(2)),$(filter $(subst *,%,$(2)),$(p))))
 ALL_SRC := $(call rwildcard,src/,*.c) $(wildcard object/*.c)
 COMMON_SRC := $(filter-out src/stages/% src/make/% src/link/main.c,$(ALL_SRC))
 MAKE_SRC := $(filter src/make/%,$(ALL_SRC))
 NO_LINK_SRC := $(filter-out src/link/%,$(COMMON_SRC))
 LINK_SRC := src/link/main.c src/link/elf_link.c src/link/elf_read.c src/link/arm_elf_reloc.c src/link/ld_script.c src/backend/rules/relocation.c src/platform/wasi/flash_fs_host.c
-HEADERS := $(call rwildcard,include/,*.h) $(call rwildcard,object/,*.inc) $(call rwildcard,src/,*.h) $(call rwildcard,src/,*.inc)
+HEADERS := $(foreach suffix,*.h *.inc *.def,$(call rwildcard,include/,$(suffix)) $(call rwildcard,object/,$(suffix)) $(call rwildcard,src/,$(suffix)))
+SDK_HEADERS := $(foreach suffix,*.h *.inc *.def,$(call rwildcard,$(WASI_SDK_PATH)/share/wasi-sysroot/include/,$(suffix)) $(call rwildcard,$(WASI_SDK_PATH)/lib/clang/,$(suffix)))
 CFLAGS := -std=c99 -Oz -g0 -ffunction-sections -fdata-sections -include $(ROOT)/include/xh_small.h -I$(ROOT)/include -I$(ROOT)/object -DXH_TARGET=0 '-DXH_MODULE_TARGET="all"' -Wno-unused-value -Wno-incompatible-pointer-types --target=wasm32-wasip1 -mno-bulk-memory -mno-sign-ext -mno-nontrapping-fptoint -mno-simd128 -mno-atomics
 LDFLAGS := --target=wasm32-wasip1 -Wl,--gc-sections -Wl,-z,stack-size=131072 -Wl,--initial-memory=$(MEMORY_BYTES) -Wl,--max-memory=$(MEMORY_BYTES)
 LOWER := -Oz --signext-lowering --llvm-nontrapping-fptoint-lowering --llvm-memory-copy-fill-lowering --disable-reference-types --disable-multivalue --disable-extended-const --disable-bulk-memory --disable-bulk-memory-opt --disable-sign-ext --disable-nontrapping-float-to-int
 VALIDATE := --disable-bulk-memory --disable-reference-types --disable-multi-value --disable-sign-extension --disable-saturating-float-to-int --disable-simd --disable-extended-const --disable-tail-call --disable-memory64 --disable-multi-memory
+# GNU Make itself records configuration; unchanged profiles keep their mtime.
+# No Python, external source-list generator, or always-touched stamp is used.
+PROFILE_DIR := $(OUT)/profiles
+COMPILE_PROFILE_FILE := $(PROFILE_DIR)/compile.profile
+LINK_PROFILE_FILE := $(PROFILE_DIR)/link.profile
+define COMPILE_PROFILE
+nopy.compile.v1
+cc=$(WASI_CC)
+sdk=$(WASI_SDK_PATH)
+flags=$(CFLAGS)
+make_driver_macro=XH_DRIVER_NO_MAIN=1
+no_link_macros=XH_WITH_LINKER=0:src/driver.c,src/core/compiler.c,src/ir/ipo.c
+headers=$(HEADERS) $(SDK_HEADERS)
+endef
+define LINK_PROFILE
+nopy.link.v1
+cc=$(WASI_CC)
+flags=$(LDFLAGS)
+wasm_opt=$(WASM_OPT)
+wasm_validate=$(WASM_VALIDATE)
+lowering=$(LOWER)
+validation=$(VALIDATE)
+endef
+ifneq ($(file <$(COMPILE_PROFILE_FILE)),$(COMPILE_PROFILE))
+$(shell mkdir -p "$(PROFILE_DIR)")
+$(file >$(COMPILE_PROFILE_FILE),$(COMPILE_PROFILE))
+endif
+ifneq ($(file <$(LINK_PROFILE_FILE)),$(LINK_PROFILE))
+$(shell mkdir -p "$(PROFILE_DIR)")
+$(file >$(LINK_PROFILE_FILE),$(LINK_PROFILE))
+endif
 obj = $(addprefix $(OUT)/common/,$(addsuffix .o,$(basename $(1))))
 COMMON_OBJ := $(call obj,$(COMMON_SRC))
 MAKE_OBJ := $(call obj,$(MAKE_SRC))
@@ -40,18 +72,18 @@ xhcc: build/wasm/xhcc.wasm
 xhccm: build/wasm/xhccm.wasm
 xhccn: build/wasm/xhccn.wasm
 xhlinker: build/wasm/xhlinker.wasm
-$(OUT)/common/%.o: %.c $(HEADERS) Makefile.nopy
+$(OUT)/common/%.o: %.c $(HEADERS) $(SDK_HEADERS) $(WASI_CC) $(COMPILE_PROFILE_FILE) Makefile.nopy
 	@mkdir -p "$(@D)"
 	"$(WASI_CC)" $(CFLAGS) -c "$(ROOT)/$<" -o "$@"
-$(OUT)/nolink/%.o: %.c $(HEADERS) Makefile.nopy
+$(OUT)/nolink/%.o: %.c $(HEADERS) $(SDK_HEADERS) $(WASI_CC) $(COMPILE_PROFILE_FILE) Makefile.nopy
 	@mkdir -p "$(@D)"
 	"$(WASI_CC)" $(CFLAGS) -DXH_WITH_LINKER=0 -c "$(ROOT)/$<" -o "$@"
-$(M_DRIVER): src/driver.c $(HEADERS) Makefile.nopy
+$(M_DRIVER): src/driver.c $(HEADERS) $(SDK_HEADERS) $(WASI_CC) $(COMPILE_PROFILE_FILE) Makefile.nopy
 	@mkdir -p "$(@D)"
 	"$(WASI_CC)" $(CFLAGS) -DXH_DRIVER_NO_MAIN=1 -c "$(ROOT)/$<" -o "$@"
 # App link rules share the same lowering and validation boundary as build.py.
 define APP
-$(OUT)/$(1)/$(1).wasm: $(2) Makefile.nopy
+$(OUT)/$(1)/$(1).wasm: $(2) $(WASI_CC) $(WASM_OPT) $(WASM_VALIDATE) $(LINK_PROFILE_FILE) Makefile.nopy
 	@mkdir -p "$$(@D)"
 	"$(WASI_CC)" $(2) -o "$$@" $(LDFLAGS) -Wl,-Map=$(OUT)/$(1)/$(1).map
 	"$(WASM_OPT)" "$$@" $(LOWER) -o "$$@.lowered"
