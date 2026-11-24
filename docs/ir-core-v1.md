@@ -1,8 +1,8 @@
 # IR core v1: executable language-neutral foundation
 
 Status: executable core prototype plus the first production consumer migration.
-The i386, AMD64, ARM and RV32 integer IR_BINARY dispatches now consume neutral
-operation IDs through the legacy adapter. The C frontend, optimizers and default ARKIR wire
+The i386, AMD64, ARM, RV32 and C-output integer IR_BINARY dispatches now consume
+neutral operation IDs through the legacy adapter. The C frontend, optimizers and default ARKIR wire
 representation retain their existing contracts. This is a stack-machine
 contract, not SSA and not a completed migration of the compiler to a
 language-independent IR.
@@ -98,23 +98,30 @@ to type_int/type_uint, preserves signed raw constants, and maps unsigned
 operations to the legacy aux unsigned bit. Its caller supplies a trusted,
 backend-safe symbol name. The main C frontend does not call this core-to-legacy
 producer bridge; its direct caller remains the independent synthetic frontend
-test. Separately, the production x86, ARM and RV32 integer binary consumers now
-call the legacy-to-neutral operation accessor described below.
+test. Separately, the production x86, ARM, RV32 and C-output integer binary
+consumers now call the legacy-to-neutral operation accessor described below.
 
-`tests/test_ir_contract.py` builds three isolated WASI harnesses from the actual
-core, legacy IR/codec and each of the AMD64, ARM and RV32 backends. Synthetic
+`tests/test_ir_contract.py` builds four isolated WASI harnesses from the actual
+core, legacy IR/codec and each of the AMD64, ARM, RV32 and C-output backends. Synthetic
 frontend code in a separate translation unit includes only the neutral header
 and constructs instruction arrays without parsing any C source or AST. Each
 program passes typed core validation, canonical encode/decode/re-encode equality,
-bridge, real ARKIR serialize/deserialize, actual backend assembly emission,
-full-target LLVM assembly and standard ELF link, then Unicorn CPU execution.
+bridge, real ARKIR serialize/deserialize, actual backend output and Unicorn CPU
+execution. Machine backends emit assembly consumed by full-target LLVM and a
+standard ELF linker. The C backend's actual generated text is compiled by GNU
+ARM GCC with unused runtime sections discarded, then executed at ark_entry in
+Unicorn Cortex-M4 Thumb/MCLASS mode; both producer and consumer use 32-bit
+pointers. This tests generated C rather than parsing a C frontend fixture.
 Each target runs the same cases: 6*7 -> 42, unsigned 0xffffffff/2 -> 2147483647
 and unsigned 0xffffffff>2 -> 1. ARM uses Cortex-M4 Thumb/MCLASS execution and RV32
-uses RV32IM. The unsigned cases would fail if the boundary silently interpreted
-them as signed. An additional RV32 run installs an empty XHSELECT 2 table and
+uses RV32IM. The machine-target unsigned cases would fail if their 32-bit
+boundary silently interpreted them as signed. The C backend uses 64-bit virtual
+slots, so these basic fixtures alone do not establish all unsigned carry/negative
+slot cases; its dedicated semantic rule tests cover those separately. An additional RV32 run installs an empty XHSELECT 2 table and
 executes the same unsigned division to establish the fallback remains unsigned.
-All ten CPU paths passed in the isolated matrix (26.576 seconds). This is
-independent of the coordinator's current unified application build.
+The complete four-target thirteen-path matrix passed in 32.003 seconds after
+per-process artifact isolation was added. These are independent of the
+coordinator's unified application build.
 
 The harness also rejects type mismatch, stack underflow, unsupported 8-byte
 executable values, unknown operators, codec capacity failure, truncation and
@@ -122,7 +129,12 @@ unknown version. Each backend rejects unknown integer aux flags 0x200 and 0x800
 before producing successful output. Its bounded test arena retains allocations
 until process exit; its free hook is a no-op consistent with that lifetime.
 Optional XH_IR_TEST_TARGETS selects a comma-separated subset for diagnosis;
-the default executes all three targets and the RV fallback case.
+the default executes all four targets and the RV fallback case. Each process
+creates a separate temporary artifact directory and passes it into the WASI
+harness as XH_IR_TEST_DIR; concurrent test processes cannot overwrite one
+another's generated assembly, C or objects. Class cleanup removes the directory
+even if class setup fails. The previous fixed shared directory caused observed
+assembly cross-target overwrites during concurrent runs and has been replaced.
 
 This closes a genuine non-C producer-to-existing-backend path. It does not remove
 legacy Type graph coupling or make every existing IR instruction neutral.
@@ -153,29 +165,37 @@ accessor returns the same operation after existing ARKIR serialization. Backend
 migration consumes neutral IDs while old ARKIR bytes remain unchanged.
 
 Both integer IR_BINARY dispatch sites in the shared x86 backend (i386 and
-AMD64), plus ARM and RV32 integer binary consumers, now use this accessor.
+AMD64), plus ARM, RV32 and C-output integer binary consumers, now use this
+accessor.
 Their scalar rule selectors switch on neutral enum IDs. Invalid operations fail
 directly through the backend diagnostic path; they cannot be redirected through
 a package-defined invalid-operation template. ARM/RV32 also reject SLOT64, which
 their 32-bit execution profiles cannot represent. ARM immediate/comparison
 consumer paths use the same neutral interpretation. Raw unsigned binary DIV/REM
-select unsigned sequences in ARM and in the RV32 fallback. Wide integer,
-floating-point and unary token dispatches, the C backend, the C producer and
+select unsigned sequences in ARM and in the RV32 fallback. The C integer
+consumer validates before CFG analysis and uses neutral IDs for semantic rule
+selection; its target descriptor permits SLOT64 only with an eight-byte IR word.
+Its unsigned 32-bit DIV/REM templates explicitly cast operands to uint32_t.
+Wide integer, floating-point and unary token dispatches, the C producer and
 optimizer raw-token consumers remain outside this migration.
 
 The unified four-application Python build and full integration suite passed
 after the x86 and subsequent ARM/RV migrations. The latter also passed the ten
-isolated CPU paths above and the four-application SD/resource gates. These are
-consumer-specific results, not evidence of whole-IR neutrality.
+isolated CPU paths at that stage and the four-application SD/resource gates.
+The subsequent C-output migration passed the thirteen-path isolated matrix,
+the complete unified integration suite and the four-application SD/resource
+gates. The generated-C raw -1 unsigned DIV/REM cases and valid SLOT64 case also
+passed separately. These are consumer-specific results, not evidence of whole-IR
+neutrality.
 
 ## Reviewable migration stages
 
 1. Completed foundation: additive API, codec, validator, adapter and synthetic
    CPU evidence. The core-to-legacy producer bridge remains outside the main C
    frontend path.
-2. Integer consumer migrations implemented: i386/AMD64, ARM and RV32 IR_BINARY
-   dispatch use the strict neutral accessor. Continue with precise, coordinated
-   changes to C irgen boundaries, optimizer consumers, the C backend and other
+2. Integer consumer migrations implemented: i386/AMD64, ARM, RV32 and C-output
+   IR_BINARY dispatch use the strict neutral accessor. Continue with precise,
+   coordinated changes to C irgen boundaries, optimizer consumers and other
    operation families. Keep ARKIR numeric fields stable through explicit serialization
    adapters until a new format version is deliberately introduced. Never
    reinterpret old raw aux values as new enum IDs.

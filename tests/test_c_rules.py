@@ -375,6 +375,24 @@ int main(int argc,char**argv){
  IrProgram prog={0};IrFunc f={0};IrFunc*funcs[1]={&f};IrInst inst={0};static char out[100000];int n;
  prog.funcs=funcs;prog.func_count=1;f.name="entry";f.code=&inst;f.code_count=1;
  inst.op=IR_PUSH_INT;inst.val=7;
+ if(!strcmp(argv[1],"binary_slot64")){
+  IrInst code[4]={{0}};code[0].op=IR_PUSH_INT;code[0].val=4294967296LL;
+  code[1].op=IR_PUSH_INT;code[1].val=1;code[2].op=IR_BINARY;code[2].aux=TOK_SHR|0x100|IR_AUX_SLOT64;
+  code[3].op=IR_RETURN;f.name="main";f.code=code;f.code_count=4;
+  n=c_emit(&prog,out,sizeof out);if(n<0)return 1;fputs(out,stdout);return 0;
+ }
+ if(!strcmp(argv[1],"unreachable_flags")){
+  IrInst code[4]={{0}};code[0].op=IR_JMP;code[0].val=1;code[1].op=IR_BINARY;code[1].aux=TOK_PLUS|0x200;
+  code[2].op=IR_LABEL;code[2].val=1;code[3].op=IR_FUNC_END;f.code=code;f.code_count=4;
+  out[0]='X';n=c_emit(&prog,out,sizeof out);printf("%d %d\n",n,(int)out[0]);return n<0&&out[0]==0?0:1;
+ }
+ if(!strcmp(argv[1],"neutral_div")||!strcmp(argv[1],"neutral_rem")){
+  IrInst code[4]={{0}};code[0].op=IR_PUSH_INT;code[0].val=-1;
+  code[1].op=IR_PUSH_INT;code[1].val=2;code[2].op=IR_BINARY;
+  code[2].aux=(!strcmp(argv[1],"neutral_div")?TOK_DIV:TOK_MOD)|0x100;
+  code[3].op=IR_RETURN;f.name="main";f.code=code;f.code_count=4;
+  n=c_emit(&prog,out,sizeof out);if(n<0)return 1;fputs(out,stdout);return 0;
+ }
  if(!strcmp(argv[1],"manylabels")){
   IrInst *code=calloc(601,sizeof(*code));char names[300][16];int j,maxdepth;
   if(xh_c_rules_begin())return 2;
@@ -433,6 +451,8 @@ int main(int argc,char**argv){
  else if(!strcmp(argv[1],"bitflags")){inst.op=IR_LOAD_FLD;inst.val=0;inst.aux=0x401;}
  else if(!strcmp(argv[1],"simdflags")){inst.op=IR_SIMD_ADD8;inst.aux=1;}
  else if(!strcmp(argv[1],"binary")){inst.op=IR_BINARY;inst.aux=99999;}
+ else if(!strcmp(argv[1],"binary_floatflag")){inst.op=IR_BINARY;inst.aux=TOK_PLUS|0x200;}
+ else if(!strcmp(argv[1],"binary_complexflag")){inst.op=IR_BINARY;inst.aux=TOK_PLUS|0x800;}
  else if(!strcmp(argv[1],"unary")){inst.op=IR_UNARY;inst.aux=99999;}
  else if(!strcmp(argv[1],"compare")){inst.op=IR_FCMP;inst.aux=99999;}
  else if(!strcmp(argv[1],"compare64")){inst.op=IR_64CMP;inst.aux=99999;}
@@ -471,10 +491,22 @@ class CBackendRejections(unittest.TestCase):
         env['PATH'] = os.pathsep.join([str(python_dir), str(python_dir / 'Library/bin'), r'D:\miniconda3\Library\bin', env.get('PATH', '')])
         process = subprocess.run([str(sdk / 'bin/clang.exe'), '--target=wasm32-wasip1', '-O1',
                                   '-I.', '-Iinclude', '-Iconfig', '-include', 'include/xh_small.h', '-Wl,-z,stack-size=262144',
-                                  str(harness), 'src/backend/rules/c_rules.c', 'src/backend/rules/template.c', 'src/backend/rules/semantic.c',
+                                  str(harness), 'src/backend/rules/c_rules.c', 'src/backend/rules/template.c', 'src/backend/rules/semantic.c', 'src/backend/rules/target_rules.c',
+                                  'src/ir/ir_contract_legacy.c', 'src/ir/ir_contract.c', '-ffunction-sections', '-Wl,--gc-sections',
                                   '-o', str(cls.wasm)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
         if process.returncode:
             raise AssertionError(process.stderr)
+
+    def test_neutral_unsigned_division_remainder_mask_sign_extended_slots(self):
+        for mode, expected in [('neutral_div', 2147483647), ('neutral_rem', 1), ('binary_slot64', 2147483648)]:
+            with self.subTest(mode=mode):
+                result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
+                                        cwd=ROOT, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                source = self.out / (mode + '.c')
+                source.write_text(result.stdout, encoding='utf-8')
+                arm = Path(os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe'))
+                self.assertEqual(CRules.run_arm_generated_c(self, arm, source), expected)
 
     def test_trunc_and_selected_variant_stack_effects(self):
         result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), 'effects'],
@@ -501,7 +533,7 @@ class CBackendRejections(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), '-3 -2 0 -1 1 -15')
 
     def test_invalid_ir_operator_and_type_limits_reject_without_output(self):
-        for mode in ['ir', 'binary', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0', 'typecycle', 'typedepth', 'bitzero', 'bitwide', 'bitoffset', 'bitflags', 'simdflags']:
+        for mode in ['ir', 'binary', 'binary_floatflag', 'binary_complexflag', 'unreachable_flags', 'unary', 'compare', 'compare64', 'pointer', 'array', 'call17', 'callnull', 'indirect0', 'typecycle', 'typedepth', 'bitzero', 'bitwide', 'bitoffset', 'bitflags', 'simdflags']:
             with self.subTest(mode=mode):
                 result = subprocess.run([self.wasmtime, 'run', '--dir=.', str(self.wasm), mode],
                                         cwd=ROOT, capture_output=True, text=True, timeout=30)

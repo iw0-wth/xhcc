@@ -1451,10 +1451,10 @@ rule seq.binary.MUL.32.u
 text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} * ${1});
 end
 rule seq.binary.DIV.32.u
-text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} / ${1} : 0);
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = ((uint32_t)${1} ? (uint32_t)${0} / (uint32_t)${1} : 0);
 end
 rule seq.binary.MOD.32.u
-text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${1} ? ${0} % ${1} : 0);
+text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = ((uint32_t)${1} ? (uint32_t)${0} % (uint32_t)${1} : 0);
 end
 rule seq.binary.BAND.32.u
 text ${1} = stk[--sp].i; ${0} = stk[--sp].i; stk[sp++].i = (${0} & ${1});

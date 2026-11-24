@@ -13,7 +13,7 @@
 - make 支持工具/变量注入、目标与模式变量、依赖文件、增量构建等有界子集。具体语法见 [make 范围](make-subset.md)，不运行 shell，不是完整 GNU make。
 - 模拟 SD 部署、直接编译、make、增量重建、CC 切换与资源哈希验证已接入；四个 Wasm 线性内存上限均为 4 MiB。
 - 真实 IR 重载执行、计划布局/函数源签名检查、诊断 pragma 的 TU 隔离和 arena 峰值统计修复均有独立回归。
-- 新增[语言中立 IR core v1](ir-core-v1.md)：独立类型/操作码、校验与编码，非 C 合成程序经现有后端执行验证。当前只覆盖 straight-line i32/u32 子集；旧 IR 的 C Type/token 依赖尚未全部迁移。
+- 新增[语言中立 IR core v1](ir-core-v1.md)：独立类型/操作码、校验与编码，非 C 合成程序经现有后端执行验证。当前只覆盖 straight-line i32/u32 子集，五个现有引擎的整数 IR_BINARY 消费者已接入显式中立操作码边界；旧 IR 的 C Type/token 依赖尚未全部迁移。
 - 链接器新增受检 ASSERT 与 requested-heap 报告，类型范围不扩；[ARKOBJ 与旧链接器定位](arkobj-and-legacy-linker.md)区分格式、实现和内存实测。
 
 ## 链接器的准确状态

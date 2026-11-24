@@ -1,10 +1,11 @@
-"""Non-C frontend -> neutral/legacy codecs -> AMD64, ARM and RV32 CPUs.
+"""Non-C frontend -> neutral/legacy codecs -> machine and generated-C CPUs.
 Builds isolated target harnesses, never changes the unified compiler binary.
 """
 from pathlib import Path
-import os, struct, subprocess, sys, unittest
+import os, struct, subprocess, sys, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / 'build/ir-contract-tests'
+# Every process owns its artifacts, including paths embedded in the WASI VM.
+OUT = None
 SDK = Path(os.environ.get('WASI_SDK_PATH', r'D:\wasi-sdk-34.0-x86_64-windows')) / 'bin'
 RUNTIME = os.environ.get('WASMTIME', r'C:\Program Files\Wasmtime\bin\wasmtime.exe')
 sys.path.insert(0, str(ROOT / 'build/test-deps'))
@@ -36,6 +37,9 @@ HARNESS = r'''
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#ifndef XH_IR_TEST_DIR
+#error XH_IR_TEST_DIR must name this test process's artifact directory
+#endif
 ArkccConfig g_config;
 #ifndef TEST_ARM
 int g_xhcc_elf_mode=1;
@@ -44,6 +48,10 @@ int g_xhcc_elf_mode=1;
 #define TEST_BACKEND ark_backend_arm
 #define TEST_TARGET "arm"
 #define TEST_RULES "packages/arm/arm.rules"
+#elif defined(TEST_C)
+#define TEST_BACKEND ark_backend_c
+#define TEST_TARGET "c"
+#define TEST_RULES "packages/c/c.rules"
 #elif defined(TEST_RV)
 #define TEST_BACKEND ark_backend_riscv32
 #define TEST_TARGET "riscv32"
@@ -114,7 +122,7 @@ int main(int argc,char**argv){
  CHECK(xh_ir_core_decode(wire,n,&copy,storage,1,&err)==XH_IR_CORE_LIMIT);
  wire[8]=99;CHECK(xh_ir_core_decode(wire,n,&copy,storage,128,&err)==XH_IR_CORE_BAD_VERSION);wire[8]=1;
  CHECK(xh_ir_core_decode(wire,n,&copy,storage,128,&err)==XH_IR_CORE_OK);
- f=fopen("build/ir-contract-tests/core.bin","wb");CHECK(f);fwrite(wire,1,n,f);fclose(f);
+ f=fopen(XH_IR_TEST_DIR "/core.bin","wb");CHECK(f);fwrite(wire,1,n,f);fclose(f);
  old=xh_ir_core_to_legacy(&copy,"entry",&err);CHECK(old);
  CHECK(xh_ir_legacy_binary(&old->funcs[0]->code[2])==(XhIrBinaryOp)copy.code[2].binary_op);
  n=ir_serialize(old,legacy,sizeof(legacy),"synthetic");CHECK(n>0);
@@ -122,7 +130,7 @@ int main(int argc,char**argv){
  CHECK(xh_ir_legacy_binary(&back->funcs[0]->code[2])==(XhIrBinaryOp)copy.code[2].binary_op);
  CHECK(xh_template_set_path(TEST_TARGET,TEST_RULES)==0);
 #ifdef TEST_RV
- if(argc>2)CHECK(xh_rules_set_selection_path("build/ir-contract-tests/empty.selection")==0);
+ if(argc>2)CHECK(xh_rules_set_selection_path(XH_IR_TEST_DIR "/empty.selection")==0);
 #endif
  /* Consumer integration must reject unknown flags instead of masking them. */
  {int saved=back->funcs[0]->code[2].aux;unsigned bad;
@@ -133,7 +141,7 @@ int main(int argc,char**argv){
   back->funcs[0]->code[2].aux=saved;
  }
  n=TEST_BACKEND()->emit_asm(back,assembly,sizeof(assembly));CHECK(n>0);
- f=fopen("build/ir-contract-tests/output.s","wb");CHECK(f);fwrite(assembly,1,n,f);fclose(f);
+ f=fopen(XH_IR_TEST_DIR "/output.s","wb");CHECK(f);fwrite(assembly,1,n,f);fclose(f);
  puts("non-C frontend: core validate + canonical codec + legacy roundtrip + real " TEST_TARGET " emission OK");return 0;
 }
 '''
@@ -141,7 +149,12 @@ int main(int argc,char**argv){
 class IrContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        OUT.mkdir(parents=True, exist_ok=True)
+        global OUT
+        (ROOT / 'build').mkdir(parents=True, exist_ok=True)
+        cls.workspace = tempfile.TemporaryDirectory(prefix='ir-contract-', dir=ROOT / 'build')
+        cls.addClassCleanup(cls.workspace.cleanup)
+        OUT = Path(cls.workspace.name)
+        directory_define = '-DXH_IR_TEST_DIR="' + OUT.relative_to(ROOT).as_posix() + '"'
         (OUT / 'harness.c').write_text(HARNESS)
         (OUT / 'frontend.c').write_text(FRONTEND)
         (OUT / 'empty.selection').write_text('XHSELECT 2\n')
@@ -156,14 +169,15 @@ class IrContract(unittest.TestCase):
             'x86_64': ([], ['src/backend/x86_64/backend_x86_64.c', 'src/backend/rules/x86_rules.c',
                            'src/backend/rules/sysv_plan.c', 'src/backend/rules/abiplan.c', 'src/backend/rules/typeclass.c']),
             'arm': (['-DTEST_ARM'], ['src/backend/arm/backend_arm.c', 'src/backend/rules/arm_rules.c', 'src/core/scatter.c']),
-            'riscv32': (['-DTEST_RV'], ['src/backend/riscv32/backend_riscv32.c', 'src/backend/rules/rv_rules.c'])}
-        selected = os.environ.get('XH_IR_TEST_TARGETS', 'x86_64,arm,riscv32').split(',')
+            'riscv32': (['-DTEST_RV'], ['src/backend/riscv32/backend_riscv32.c', 'src/backend/rules/rv_rules.c']),
+            'c': (['-DTEST_C'], ['src/backend/c/backend_c.c', 'src/backend/rules/c_rules.c', 'src/backend/rules/target_rules.c'])}
+        selected = os.environ.get('XH_IR_TEST_TARGETS', 'x86_64,arm,riscv32,c').split(',')
         cls.selected_targets = selected
         for target, (defines, sources) in targets.items():
             if target not in selected:
                 continue
             args = [str(SDK / 'clang.exe'), '--target=wasm32-wasip1', '-O2', '-ffunction-sections',
-                    '-fdata-sections', '-Iinclude', '-Iconfig', '-Iobject', '-include', 'include/xh_small.h', *defines,
+                    '-fdata-sections', '-Iinclude', '-Iconfig', '-Iobject', '-include', 'include/xh_small.h', directory_define, *defines,
                     str(OUT / 'harness.c'), str(OUT / 'frontend.c'), *common, *sources,
                     '-Wl,--gc-sections', '-o', str(OUT / (target + '.wasm'))]
             p = subprocess.run(args, cwd=ROOT, env=cls.env, capture_output=True, text=True)
@@ -179,7 +193,8 @@ class IrContract(unittest.TestCase):
         targets = {
             'x86_64': ('x86_64-unknown-linux-gnu', [], 'elf_x86_64', UC_ARCH_X86, UC_MODE_64),
             'arm': ('thumbv7em-none-eabi', ['-mcpu=cortex-m4', '-mthumb'], 'armelf', UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS),
-            'riscv32': ('riscv32-unknown-elf', ['-march=rv32im', '-mabi=ilp32'], 'elf32lriscv', UC_ARCH_RISCV, UC_MODE_RISCV32)}
+            'riscv32': ('riscv32-unknown-elf', ['-march=rv32im', '-mabi=ilp32'], 'elf32lriscv', UC_ARCH_RISCV, UC_MODE_RISCV32),
+            'c': ('', [], '', UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)}
         clang = os.environ.get('XH_NATIVE_CLANG', r'D:\msys64\ucrt64\bin\clang.exe')
         for target, (triple, flags, emulation, arch, cpu_mode) in targets.items():
             if target not in self.selected_targets:
@@ -195,14 +210,26 @@ class IrContract(unittest.TestCase):
                     self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                     self.assertIn('real ' + target + ' emission OK', p.stdout)
                     self.assertEqual((OUT / 'core.bin').read_bytes()[:8], b'XHIRCORE')
-                    for args in [
-                        [clang, '--target=' + triple, *flags, '-c', str(OUT / 'output.s'), '-o', str(OUT / 'output.o')],
-                        [str(SDK / 'ld.lld.exe'), '-m', emulation, '--no-relax', '--image-base=0', '-Ttext=0x10000', '-e', 'entry', '-o', str(OUT / 'output.elf'), str(OUT / 'output.o')]]:
+                    if target == 'c':
+                        # Compile the actual emitted text; no replacement AST/C fixture.
+                        generated = OUT / 'generated.c'
+                        generated.write_bytes((OUT / 'output.s').read_bytes())
+                        arm_cc = os.environ.get('XH_C_ARM_CC', r'D:\arm-none-eabi\bin\arm-none-eabi-gcc.exe')
+                        commands = [[arm_cc, '-w', '-Wno-error=implicit-function-declaration', '-std=gnu99', '-O1',
+                                     '-mcpu=cortex-m4', '-mthumb', '-ffunction-sections', '-fdata-sections', '-nostdlib',
+                                     '-Wl,--gc-sections,-Ttext=0x10000,-e,ark_entry', str(generated), '-lc', '-lgcc',
+                                     '-o', str(OUT / 'output.elf')]]
+                    else:
+                        commands = [
+                            [clang, '--target=' + triple, *flags, '-c', str(OUT / 'output.s'), '-o', str(OUT / 'output.o')],
+                            [str(SDK / 'ld.lld.exe'), '-m', emulation, '--no-relax', '--image-base=0', '-Ttext=0x10000', '-e', 'entry', '-o', str(OUT / 'output.elf'), str(OUT / 'output.o')]]
+                    for args in commands:
                         p = subprocess.run(args, cwd=ROOT, env=self.env, capture_output=True, text=True)
                         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                     with (OUT / 'output.elf').open('rb') as f:
                         elf = ELFFile(f)
-                        entry = elf.get_section_by_name('.symtab').get_symbol_by_name('entry')[0]['st_value']
+                        entry_name = 'ark_entry' if target == 'c' else 'entry'
+                        entry = elf.get_section_by_name('.symtab').get_symbol_by_name(entry_name)[0]['st_value']
                         uc = Uc(arch, cpu_mode)
                         uc.mem_map(0x10000, 0x30000); uc.mem_map(0x700000, 0x20000)
                         for sec in elf.iter_sections():
@@ -212,7 +239,7 @@ class IrContract(unittest.TestCase):
                             uc.reg_write(UC_X86_REG_RSP, 0x71eff8)
                             uc.mem_write(0x71eff8, struct.pack('<Q', 0x3f000))
                             result_register = UC_X86_REG_RAX
-                        elif target == 'arm':
+                        elif target in ('arm', 'c'):
                             uc.reg_write(UC_ARM_REG_SP, 0x71f000)
                             uc.reg_write(UC_ARM_REG_LR, 0x3f001)
                             entry |= 1

@@ -23,6 +23,8 @@
 #include "config.h"
 #include "arkcc_config.h"
 #include "xh_c_rules.h"
+#include "xh_ir_legacy_adapter.h"
+#include "xh_target_rules.h"
 #include <stdio.h>   /* snprintf used for float constant formatting */
 #include <string.h>
 #include <stdlib.h>
@@ -93,11 +95,64 @@ static const char *c_operation(int token) {
         default: return 0;
     }
 }
+/* Integer BINARY enters through the explicit legacy compatibility boundary.
+ * Other legacy opcodes retain their own token/aux schemas below. */
+static const char *c_integer_operation(XhIrBinaryOp operation) {
+    switch(operation) {
+        case XH_IR_BIN_ADD:return "ADD";
+        case XH_IR_BIN_SUB:return "SUB";
+        case XH_IR_BIN_MUL:return "MUL";
+        case XH_IR_BIN_DIV:return "DIV";
+        case XH_IR_BIN_REM:return "MOD";
+        case XH_IR_BIN_AND:return "BAND";
+        case XH_IR_BIN_OR:return "BOR";
+        case XH_IR_BIN_XOR:return "BXOR";
+        case XH_IR_BIN_SHL:return "SHL";
+        case XH_IR_BIN_SHR:return "SHR";
+        case XH_IR_BIN_EQ:return "EQ";
+        case XH_IR_BIN_NE:return "NE";
+        case XH_IR_BIN_LT:return "LT";
+        case XH_IR_BIN_LE:return "LE";
+        case XH_IR_BIN_GT:return "GT";
+        case XH_IR_BIN_GE:return "GE";
+        default:return 0;
+    }
+}
+static const char *c_integer_binary(const IrInst *instruction,int *width) {
+    XhIrBinaryOp operation=xh_ir_legacy_binary(instruction);
+    if(operation==XH_IR_BIN_INVALID) {
+        xh_c_rules_error("invalid neutral integer binary operation or flags");return 0;
+    }
+    *width=32;
+    if(instruction->aux&IR_AUX_SLOT64) {
+        const XhTargetDescriptor *target=xh_target_rules_get("c");
+        if(!target || target->ir_word_bytes!=8) {
+            xh_c_rules_error("unsupported C integer binary slot width");return 0;
+        }
+        *width=64;
+    }
+    return c_integer_operation(operation);
+}
+static int c_validate_integer_binary(IrProgram *program) {
+    int fi,i,width;
+    for(fi=0;fi<program->func_count;fi++) {
+        IrFunc *function=program->funcs[fi];
+        for(i=0;i<function->code_count;i++) if(function->code[i].op==IR_BINARY &&
+            !c_integer_binary(&function->code[i],&width))return -1;
+    }
+    return 0;
+}
+
 static int c_semantic(IrInst *I, AsmBuffer *out, int *delta) {
     const char *family, *op = 0, *sign;
     int width;
     switch (I->op) {
-        case IR_BINARY: case IR_64BINARY:
+        case IR_BINARY:
+            family = "binary"; op = c_integer_binary(I,&width);
+            if (!op) return -1;
+            sign = I->aux & 0x100 ? "u" : "s";
+            break;
+        case IR_64BINARY:
             family = "binary"; op = c_operation(I->aux & ~0x100);
             width = I->op == IR_BINARY ? 32 : 64; sign = I->aux & 0x100 ? "u" : "s";
             break;
@@ -692,6 +747,7 @@ static int c_emit(IrProgram *prog, char *out, int cap) {
     AsmBuffer buf;
     int fi;
     int main_idx = -1;
+    if (c_validate_integer_binary(prog)) { if (cap > 0) out[0] = 0; return -1; }
     if (xh_c_rules_begin()) { if (cap > 0) out[0] = 0; return -1; }
     asmbuf_init(&buf);
 
