@@ -123,6 +123,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 输出与构建流程也要有真实失败注入和独立 oracle。[原子输出测试](../../../tests/test_atomic_output.py) 已在实际 WASI 故障用例中验证普通文件采用临时写入再 replace，写入/提交失败保留旧文件；stdout 不具备此原子替换语义，也不承诺 fsync、崩溃持久性或 I/O 安全隔离。当前 916162 字节构建的主 platform 7 项、make 35 项和 RV system 17 项已通过，完整回归仍按实际 runner 状态报告。[make 合同](../../make-subset.md) 的 `$+` 必须保留重复普通依赖、排除 order-only，重复声明以 recipe 声明依赖优先的 GNU 顺序输出；该行为已用 GNU 对照验证，不能以 `$^` 的去重输出冒充。RV ECALL/EBREAK/FENCE/FENCE.I 四个无操作数映射来自外表，额外操作数拒绝；不变主模块新增零参数 `systemnop` alias 已实际执行返回 42。trap 拼写只检查字节不执行，pseudo lowering 仍保留 native，不能扩大为 CSR、完整 FENCE grammar 或任意 ISA。后续进展按 [进度与路线图](../../progress-and-roadmap.md) 对照当前证据。
 
+未来标准 ELF 链接接入按 [首阶段合同](../../elf-linker-first-stage.md) 验收：[借用式 ELF reader](../../../include/xh_elf_read.h) 的输入缓冲必须在视图生命周期内保持有效且不变，按真实对象与坏表/索引/边界验证；[reader 测试](../../../tests/test_elf_reader.py) 已有 4950 个独立 Wasm 检查。[ARM ELF REL 测试](../../../tests/test_arm_elf_reloc.py) 的四项 GNU as/ld、双布局对照验证首批六类 REL 的隐式 addend 解码和补丁，不能套用私有对象的分支偏移或相邻 MOVW/MOVT 公式。这些组件目前没有生产驱动消费者，未使用代码还可能被 GC；它们不代表现代驱动已经能链接标准 ELF 或输出固件，不新增 `requires` 能力。后续接入还须验证符号决议、节布局、PT_LOAD、两布局实际执行、总预算与失败保留旧输出，不能用独立 reader/补丁测试替代端到端 link。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

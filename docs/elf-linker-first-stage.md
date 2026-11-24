@@ -1,0 +1,41 @@
+# 标准 ARM ELF 链接器首阶段
+
+本阶段先实现并独立验证有界 ELF32 ARM ET_REL 读取器与六类 ARM REL 加数/补丁适配。它们是链接器基础组件，尚不表示现代驱动已经能链接标准对象或输出固件。当前可用 legacy linker、标准对象和现代驱动范围见 [进度与规划](progress-and-roadmap.md)。
+
+## 首版输入合同
+
+- 显式列出的 ELF32、little-endian、ET_REL、EM_ARM、EABI5/base soft-float 对象，首版只面向 Thumb。核验 class、endianness、machine、ABI flags 和每个表的边界，不只检查 machine。
+- 读取器借用输入缓冲区，视图、字符串和节数据都不能越过该缓冲区的生命周期。不允许保存视图后覆盖共用输入缓冲区。
+- 不支持的 RELA、扩展节索引、group/COMDAT、TLS、未知 alloc 节语义和未实现 relocation 明确拒绝。非 alloc 调试内容不自动获得运行语义。
+- 首批 REL 为 ABS32、THM_CALL、THM_JUMP24、THM_JUMP19、独立 THM_MOVW_ABS_NC 和 THM_MOVT_ABS。解码输入指令中的隐式 addend 后使用 ELF 专用规则，符号地址与 Thumb 状态显式区分，不能把奇数数据地址误当成 Thumb 函数；不能套用私有 `S-P-4` 分支或相邻 MOVW/MOVT pair delta。
+
+## 下一步 link core
+
+1. 扫描、计数并校验输入，复制后续必需的元数据与名称，建立 section 布局和 global 符号决议。
+2. 逐个重新读取对象，通过借用视图获取 PROGBITS 与 REL；复制节内容、解析符号、应用重定位。所有输入及重定位成功后才原子写输出 ELF 或 binary。
+
+建议有界数据模型：
+
+| 记录 | 必需信息 |
+| --- | --- |
+| ObjPlan | 路径、section/symbol 区间 |
+| SecPlan | 对象和原始节索引、type/flags、size/alignment、VMA/LMA、输出偏移 |
+| SymPlan | 对象和原始 symbol 索引、名称池偏移、shndx/value/size/bind/type、决议引用 |
+| GlobalPlan | 名称、胜出定义、COMMON 大小/对齐、状态 |
+| LinkLimits | 对象、节、符号、名称、输入和镜像容量上限 |
+
+以原始 `(object, symtab-section, symbol-index)` 区分 local 和 section symbol（或首版明确每对象只接受一个 SYMTAB）；不能复用 legacy 仅名字与合并代码 offset 的表。global strong 优先于 COMMON 和 weak，重复 strong 报错；COMMON 按最大大小和对齐合并；ABS 不重定位；未定义 strong 报错。未定义 weak 数据可归零，未定义 weak 分支首版明确拒绝，不由只接收解析地址的补丁 API 猜测。
+
+section 按 flags/type 而非仅名称布局，分 RX/RO/RW/NOBITS，保留已支持的 custom PROGBITS 与 init/fini array 内容，但不自动调度其运行时。地址、大小、对齐和分配乘法均检查溢出；计数先过 limit 再分配。reader 的单表上限不能代替整个 link 的总符号、重定位与名称池预算；Thumb 策略检查也须由 link core 主动调用，不能把格式读取成功当作所有指令已获认证。
+
+## 输出与边界
+
+目标为 ET_EXEC，Flash RX 与 RAM RW 的 PT_LOAD 正确表达 `p_filesz/p_memsz`。data 的 Flash LMA 与 RAM VMA 分开，BSS 只增加内存大小。flat image 按 LMA 生成，不能填充 Flash 到 SRAM 的巨大地址空洞。entry 保留 Thumb 语义。
+
+启动代码、vector table、data copy/BSS zero、constructor 调度、libgcc/libc、归档自动提取和完整 GNU linker script 均须单独提供或实现；首版不宣称任意 GCC 工程链接兼容。
+
+## RAM 与验收
+
+现有 Wasm 线性内存上限 4 MiB，编译 arena 约 1 MiB。不得再添加 4 MiB 静态链接镜像缓冲。按实际数量分配元数据、逐对象读取、避免同时保留所有原文件和多份最终镜像；这仍需实际峰值验证，不能用静态 map extent 当作运行时余量。
+
+验收包括：xhcc/GNU 两方向对象混链；两个 Flash/SRAM 布局执行；local 同名、weak/strong/COMMON 与未定义符号；函数/数据指针及非零/负 addend；跨 64 KiB 的独立 MOVW/MOVT；逐 relocation 与 GNU ld 对照；ET_EXEC/PT_LOAD 和 flat bytes；坏输入、错误 target/ABI、未知 relocation 和溢出失败且旧输出保留。无 archive 提取前，soft-float 测试需显式提供所需 runtime `.o`，不能假装已经支持 `.a`。
