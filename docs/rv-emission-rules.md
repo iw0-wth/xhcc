@@ -192,8 +192,14 @@ resolution and range diagnostics, then uses the selected encoder. Upper
 instructions preserve the historical 32-bit input pattern/mask-to-high20
 semantics. Tests inspect four actual words, execute new upper/jump/return
 aliases together as 42, and reject missing labels/invalid immediates.
-Fixed pseudo lowering (call/la/j/jr/ret and similar forms) and system instruction
-constants remain native pending later migrations.
+ECALL/EBREAK and fixed no-operand FENCE/FENCE.I now come from
+`isa.mnemonics.system` descriptor rows with zero-argument external constant
+encoders. Extra operands are rejected; pred/succ FENCE syntax, CSR operations
+and full Zifencei extension compliance are not claimed. Tests inspect all four
+words and a new `stop` spelling without executing its trap, then add a zero-arg
+NOP encoding and execute its `systemnop` spelling as part of a function returning
+42 with unchanged compiler SHA. Fixed pseudo lowering (call/la/j/jr/ret and
+similar forms) remains native pending later migrations.
 
 This is not an arbitrary new-ISA or new-ABI loader. Incorrect rule modifications
 can deliberately generate invalid machine code; packages must be validated for

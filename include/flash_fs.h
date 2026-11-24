@@ -20,6 +20,11 @@ int fs_file_size(const char *path);
 
 /* Write binary data to output file/Flash. Returns bytes written; -1 on failure.
  * path "-" means stdout (host) or callback (STM32).
+ * WASI/host files use a same-directory exclusive temporary, then replacement
+ * only after write/flush/close succeeds. Failure preserves an existing output;
+ * atomic visibility depends on filesystem rename support, not crash durability.
+ * Replacement creates a new file with 0666 filtered by umask; existing mode,
+ * ownership and hard-link identity are not preserved. stdout cannot roll back.
  */
 int fs_write_file(const char *path, const unsigned char *data, int len);
 

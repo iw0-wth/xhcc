@@ -141,8 +141,13 @@ Supported syntax and behavior:
   the target is missing. This includes coarse-timestamp rebuild propagation.
   `$|` lists order-only prerequisites once. Additional temporary list storage
   is allocated according to the actual dependency text length, shares the 64 KiB
-  budget, and is freed with the traversal frame. `$+` is explicitly unsupported:
-  dependency merging currently does not retain duplicate occurrences.
+  budget, and is freed with the traversal frame. `$+` preserves repeated normal
+  prerequisite occurrences and excludes order-only prerequisites. A separate
+  canonical quoted list retains raw order using actual-length budgeted storage.
+  For repeated explicit declarations, prerequisites on the recipe declaration
+  come first, followed by the other declarations in order (GNU make behavior).
+  A selected implicit pattern source precedes explicit supplemental dependencies.
+  `$^` deduplicates this ordering; graph node caching avoids repeated builds.
   `$*` is the pattern/suffix stem and is empty for ordinary explicit rules.
   `$(@D)`, `$(@F)`, `$(<D)` and `$(<F)` select the directory or filename of
   target/first normal prerequisite. Automatic directories omit the final `/`

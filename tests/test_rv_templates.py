@@ -241,6 +241,19 @@ unsigned keep{offset}(void){{struct F{offset} p;union D a,c;a.w[0]=0x3ff00000123
    for instruction in ['newjump t0,unknownlabel','newreturn t0,2048(t1)','newupper t0,4294967296']:
     path=OUT/'ujbad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'ujbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_external_fixed_system_descriptors(self):
+  import struct
+  exe=self.compile('int entry(void){asm("ecall\\n ebreak\\n fence\\n fence.i");return 1;}','system_oracle')
+  with exe.open('rb') as f:self.assertIn(struct.pack('<IIII',0x73,0x100073,0x0ff0000f,0x100f),ELFFile(f).get_section_by_name('.text').data())
+  compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
+  with tempfile.TemporaryDirectory(prefix='xh-rv-system-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/riscv32',pkg);manifest=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if x.startswith('id=') else 'tools=variant-gcc' if x.startswith('tools=') else x for x in manifest.splitlines())+'\n');rules=pkg/'rv.rules';original=rules.read_text();rules.write_text(original.replace('ebreak R_EBREAK none\\n','ebreak R_EBREAK none\\nstop R_EBREAK none\\nsystemnop R_SYSTEMNOP none\\n'));encoding=pkg/'encoding.rules';encoding.write_text(encoding.read_text()+'rule R_SYSTEMNOP 0 0x00000013\nend\n')
+   trap=self.compile('int entry(void){asm("stop");return 1;}','stopbytes',root)
+   with trap.open('rb') as f:self.assertIn(struct.pack('<I',0x100073),ELFFile(f).get_section_by_name('.text').data())
+   changed=self.compile('int entry(void){asm("systemnop");return 42;}','systemnop42',root);self.assertEqual(self.execute(changed),42)
+   for instruction in ['fence rw,rw','fence.i 1','systemnop t0']:
+    path=OUT/'sysbad.c';path.write_text('int entry(void){asm("'+instruction+'");return 1;}');p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-c',str(path.relative_to(ROOT)),'-o',str((OUT/'sysbad.o').relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0);self.assertIn('no operands',p.stderr)
+  self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
  def test_external_unary_and_cast_variants(self):
   compiler=ROOT/'build/wasm/xhcc.wasm';digest=hashlib.sha256(compiler.read_bytes()).digest()
   with tempfile.TemporaryDirectory(prefix='xh-rv-template-') as tmp:

@@ -460,3 +460,11 @@ bits 0 0 5 7
 bits 1 0 5 15
 bits 2 0 12 20
 end
+rule R_ECALL 0 0x00000073
+end
+rule R_EBREAK 0 0x00100073
+end
+rule R_FENCE 0 0x0ff0000f
+end
+rule R_FENCE_I 0 0x0000100f
+end

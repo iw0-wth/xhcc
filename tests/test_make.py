@@ -546,10 +546,22 @@ class MakeTests(unittest.TestCase):
         future = (self.directory / 'two.o').stat().st_mtime_ns + 2_000_000_000
         os.utime(self.directory / 'header.h', ns=(future, future))
         self.assertIn('newer=header.h order=prepare', self.run_make().stdout)
-        self.makefile('all:\n\techo $+\n')
-        self.assertIn('automatic $+ is unsupported', self.run_make(success=False).stderr)
-        self.makefile('all:\n\techo $(+)\n')
-        self.assertIn('automatic $+ is unsupported', self.run_make(success=False).stderr)
+        self.makefile('all: one.c one.c two.c | prepare\n'
+                      '\t@echo plus=$+ unique=$^ parenthesized=$(+)\nprepare:\n')
+        self.assertIn('plus=one.c one.c two.c unique=one.c two.c parenthesized=one.c one.c two.c', self.run_make().stdout)
+
+    def test_duplicate_prerequisites_recipe_declaration_order(self):
+        # GNU make puts the recipe declaration's prerequisites first.
+        self.makefile('all: one.c one.c two.c | prepare\n'
+                      'all: two.c one.c\n\t@echo plus=$+ unique=$^ newer=$? order=$|\n'
+                      'prepare:\n')
+        result = self.run_make()
+        self.assertIn('plus=two.c one.c one.c one.c two.c unique=two.c one.c', result.stdout)
+        self.assertIn('order=prepare', result.stdout)
+        self.makefile('all: two.o\ntwo.o: two.c two.c\n'
+                      '%.o: %.c\n\t@echo implicit-plus=$+\n\t' + self.recipe('arm-none-eabi-gcc') + '\n')
+        self.assertIn('implicit-plus=two.c two.c two.c', self.run_make().stdout)
+        self.assertNotIn(' -c ', self.run_make().stdout)
 
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [

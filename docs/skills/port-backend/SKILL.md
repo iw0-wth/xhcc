@@ -121,6 +121,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 函数边界还必须在 native emission 前由持久化 source Type 重建 expected named-signature plan，使用共享 `plan_equal` 分别核对 parameter/result 引用。等价内容位于不同表索引应接受；独立布局合法但属于另一函数签名的计划应拒绝。实际 914446 字节根产物十三项 native codegen 与两项 IR 测试全通过：original 和 equivalent-different-index LTO 重发射后均执行 entry=1；单独替换 parameter 或 result 引用为 double 他函数计划，均得到精确 source signature mismatch 诊断。CALL 实参 Type 未持久化，调用点只能检查布局一致性，不能将函数重建检验扩张为全调用源类型认证或密码学安全。这不增加 schema/capability，也不扩大 ABI 类型范围。
 
+输出与构建流程也要有真实失败注入和独立 oracle。[原子输出测试](../../../tests/test_atomic_output.py) 已在实际 WASI 故障用例中验证普通文件采用临时写入再 replace，写入/提交失败保留旧文件；stdout 不具备此原子替换语义，也不承诺 fsync、崩溃持久性或 I/O 安全隔离。当前 916162 字节构建的主 platform 7 项、make 35 项和 RV system 17 项已通过，完整回归仍按实际 runner 状态报告。[make 合同](../../make-subset.md) 的 `$+` 必须保留重复普通依赖、排除 order-only，重复声明以 recipe 声明依赖优先的 GNU 顺序输出；该行为已用 GNU 对照验证，不能以 `$^` 的去重输出冒充。RV ECALL/EBREAK/FENCE/FENCE.I 四个无操作数映射来自外表，额外操作数拒绝；不变主模块新增零参数 `systemnop` alias 已实际执行返回 42。trap 拼写只检查字节不执行，pseudo lowering 仍保留 native，不能扩大为 CSR、完整 FENCE grammar 或任意 ISA。后续进展按 [进度与路线图](../../progress-and-roadmap.md) 对照当前证据。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

@@ -1,6 +1,6 @@
 """WASI/package/capacity regressions; stdlib only."""
 from pathlib import Path
-import importlib.util, shutil, subprocess, tempfile, unittest, sys
+import importlib.util, shutil, subprocess, tempfile, unittest, sys, hashlib, struct
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
 from wasm_audit import audit
@@ -33,6 +33,34 @@ class PlatformTests(unittest.TestCase):
         source.write_text('int f( { return; }\n');self.run_cc('-c','-o',out,self.rel+'/large.c',ok=False);self.assertFalse((ROOT/out).exists())
         for i in range(10):(self.dir/f'h{i}.h').write_text(f'#include "h{i+1}.h"\n' if i<9 else '#define END 1\n')
         source.write_text('#include "h0.h"\nint f(void){return END;}\n');self.run_cc('-c','-o',out,self.rel+'/large.c',ok=False)
+    def test_existing_object_is_preserved_on_error_and_replaced_on_success(self):
+        source=self.dir/'replace.c';output=self.dir/'replace.o'
+        args=['arm-none-eabi-gcc','-O0','-c',self.rel+'/replace.c','-o',self.rel+'/replace.o']
+        source.write_text('int preserved(void){return 17;}\n')
+        self.run_cc(*args)
+        original=output.read_bytes();original_hash=hashlib.sha256(original).digest();original_mtime=output.stat().st_mtime_ns
+        self.assertEqual(original[:4],b'\x7fELF')
+        source.write_text('int broken( { return; }\n')
+        self.run_cc(*args,ok=False)
+        self.assertEqual(hashlib.sha256(output.read_bytes()).digest(),original_hash)
+        self.assertEqual(output.stat().st_mtime_ns,original_mtime)
+        source.write_text('int replacement(void){return 29;}\nint second(void){return 31;}\n')
+        self.run_cc(*args)
+        replaced=output.read_bytes()
+        self.assertNotEqual(hashlib.sha256(replaced).digest(),original_hash)
+        self.assertEqual(replaced[:4],b'\x7fELF')
+        self.assertIn(b'replacement\x00',replaced);self.assertIn(b'second\x00',replaced)
+        self.assertNotIn(b'preserved\x00',replaced)
+        # ELF32 section-table and every file-backed section must fit in the
+        # complete replacement, detecting a truncated successful overwrite.
+        self.assertEqual(replaced[4:6],b'\x01\x01')
+        section_offset=struct.unpack_from('<I',replaced,32)[0]
+        entry_size,count=struct.unpack_from('<HH',replaced,46)
+        self.assertGreater(count,0);self.assertGreaterEqual(entry_size,40)
+        self.assertLessEqual(section_offset+entry_size*count,len(replaced))
+        for i in range(count):
+            kind,offset,size=struct.unpack_from('<I8xII',replaced,section_offset+i*entry_size+4)
+            if kind!=8:self.assertLessEqual(offset+size,len(replaced))
     def test_arena_exhaustion_and_io_failure(self):
         source=self.dir/'arena.c';source.write_text('int f(void){int x=0;\n'+('x=x+1;\n'*3000)+'return x;}\n')
         r=self.run_cc('-c',self.rel+'/arena.c','-o',self.rel+'/arena.o',ok=False)

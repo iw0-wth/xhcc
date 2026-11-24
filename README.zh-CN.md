@@ -59,7 +59,7 @@ wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C exa
 
 使用 make 的 `-C` 时，`XHCC_PACKAGE_ROOT` 应保持为 guest 中的绝对路径。`xhccm make [TOOL] ...` 可通过开头工具名注入默认 `CC`；命令行 `CC=...` 优先于普通 makefile 赋值，显式 `override` 赋值则优先于命令行。配方中明确写出的编译器名直接选择对应工具。[SD 测试](tests/test_sd.py) 通过桌面 WASI 预开放目录验证直接编译、make、多源、增量和切换 `CC`，属于部署模拟，不是 NuttX/WAMR 真机验证。
 
-make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、include、有界条件语句、二十四个文本/控制/诊断函数（含惰性求值的 `if`、局部作用域的 `foreach`、`value`、`flavor`、`findstring`、`join`、`wildcard`、`origin`、`error`、`warning`）、显式/模式/后缀规则、order-only 依赖、自动变量（含列出较新普通前置依赖的 `$?` 和列出 order-only 依赖的 `$|`，明确不支持 `$+`）、依赖文件、增量/强制构建以及少量字面文件命令。显式目标与模式专属变量可向前置依赖继承，退出作用域恢复绑定。匹配模式按由宽到窄的特异性应用（stem 由长到短），显式目标变量最后应用；命令行值仍优先，使用 `override` 时除外。普通多个显式目标可共享配方文本，各目标独立检查 mtime，并使用各自的 `$@` 与局部变量。grouped `&:` 目标、多目标变量声明和多个模式目标共享配方仍不支持。`-j1` 为串行执行，其他并行数明确拒绝。不支持 shell、递归 make、环境变量导入/export、通用链接或完整 GNU make。准确语法、命令与限制见 [make 子集文档](docs/make-subset.md)。
+make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、include、有界条件语句、二十四个文本/控制/诊断函数（含惰性求值的 `if`、局部作用域的 `foreach`、`value`、`flavor`、`findstring`、`join`、`wildcard`、`origin`、`error`、`warning`）、显式/模式/后缀规则、order-only 依赖、自动变量（含列出较新普通前置依赖的 `$?`、列出 order-only 依赖的 `$|`，以及按 GNU 声明顺序保留普通依赖重复项的 `$+`，其中带配方的声明优先）、依赖文件、增量/强制构建以及少量字面文件命令。显式目标与模式专属变量可向前置依赖继承，退出作用域恢复绑定。匹配模式按由宽到窄的特异性应用（stem 由长到短），显式目标变量最后应用；命令行值仍优先，使用 `override` 时除外。普通多个显式目标可共享配方文本，各目标独立检查 mtime，并使用各自的 `$@` 与局部变量。grouped `&:` 目标、多目标变量声明和多个模式目标共享配方仍不支持。`-j1` 为串行执行，其他并行数明确拒绝。不支持 shell、递归 make、环境变量导入/export、通用链接或完整 GNU make。准确语法、命令与限制见 [make 子集文档](docs/make-subset.md)。
 
 显式声明 `.DELETE_ON_ERROR:` 后，未忽略的配方失败会删除新建或 mtime 改变的普通目标文件。默认行为、忽略的失败、未变化文件、目录及 `.PRECIOUS` 精确/`%` 匹配均保留目标；变化检测使用 mtime 快照，不比较内容哈希。
 
@@ -89,7 +89,11 @@ make 子集支持变量赋值、`override`/`undefine` 指令与替换引用、in
 
 现代驱动支持 `-E/-S/-c`、仅语法检查、C 语言/标准选择、O0/O1/O2、目标/CPU/ISA/ABI 选项、include 路径与宏、依赖生成、诊断、有界 response 文件和多源顺序编译。未知或语义未实现的参数明确报错。
 
-`arm-none-eabi-gcc`、`x86_64-linux-gnu-gcc`、`armcc` 等工具别名选择参数接口，不代表完整实现 GNU GCC 或商用 ARM 编译器。尚不支持通用链接、DWARF ELF 输出和全部 GCC 参数。`--ark-compat` 保留历史私有对象、IR/LTO、IPO、partial link、scatter、MDK 导入等接口；这些不表示 GNU linker 或 GCC LTO 兼容。
+`arm-none-eabi-gcc`、`x86_64-linux-gnu-gcc`、`armcc` 等工具别名选择参数接口，不代表完整实现 GNU GCC 或商用 ARM 编译器。尚不支持 DWARF ELF 输出和全部 GCC 参数。
+
+xhcc 保留 arkcc 的链接器，通过历史私有 ARKOBJ 链接、私有 IR/LTO 及部分镜像输出路径使用。现代 GCC 兼容驱动尚不支持通用标准 ELF 链接；标准 `.o` 目前交外部 GNU ld 或 LLVM lld 链接验证。`--ark-compat` 还保留 IPO、partial link、scatter、MDK 导入等接口。这些不代表 GNU linker/GCC LTO 兼容或完整独立固件工作流。详见 [进度、链接器状态与规划](docs/progress-and-roadmap.md)。
+
+文件输出先写目标目录内的临时文件，成功后在支持的文件系统上替换目标，提供替换可见性保证，不承诺 fsync 或崩溃持久性；stdout 输出不具原子性。
 
 ```sh
 wasmtime run --dir=. build/wasm/xhcc.wasm --ark-compat --help

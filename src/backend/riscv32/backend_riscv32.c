@@ -2329,15 +2329,10 @@ static void rv_insn(RvAsm *a, const char **pp) {
         *pp = p;
         return;
     }
-    if (rv_streq_(mn, "ecall") || rv_streq_(mn, "ebreak")) {
-        /* System instructions: the encoding is a fixed 32-bit word, `ecall`
-         * 0x00000073 and `ebreak` 0x00100073.  The riscv32 code generator
-         * emits ecall on the __svc/__smc path, so the assembler has to accept
-         * both without operands. */
-        rv_ins(a, rv_streq_(mn, "ecall") ? 0x00000073u : 0x00100073u);
-        *pp = p;
-        return;
-    }
+    {const char*encoding=xh_rv_encoding_shape(mn,"none");if(encoding){
+        rv_skip_ws(&p);if(*p&&*p!='\n'&&*p!='\r'&&*p!='#'){rv_error(a,"line %s: fixed system instruction takes no operands","","");return;}
+        rv_ins(a,rv_rule(encoding,0,0));*pp=p;return;
+    }}
     if (rv_streq_(mn, "jr")) {
         int rs = rv_read_reg(&p);
         if (rs < 0) { rv_error(a, "line %s: 'jr' needs a register", "", ""); return; }
