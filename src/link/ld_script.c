@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <limits.h>
 
-typedef struct { const char *s; size_t n,p,start; int tok,failed; uint32_t num; char word[XH_LD_NAME]; XhLdScript *ir; char *err; size_t cap; } Parser;
-enum { NAME=256, NUMBER };
+typedef struct { const char *s; size_t n,p,start; int tok,failed; uint32_t num; char word[XH_LD_MESSAGE]; XhLdScript *ir; char *err; size_t cap; } Parser;
+enum { NAME=256, NUMBER, STRING, EQ, NE, LE, GE, AND, OR };
 static int fail(Parser *p,const char *s) { if(!p->failed && p->cap) snprintf(p->err,p->cap,"ld script byte %lu: %s",(unsigned long)p->start,s); p->failed=1; return -1; }
 static int alpha(int c) { return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_'||c=='.'||c=='$'; }
 static int digit(int c) { return c>='0'&&c<='9'; }
@@ -21,9 +21,30 @@ static void next(Parser *p) {
     }
     p->start=p->p; if(p->p==p->n) {p->tok=0;return;} c=(unsigned char)p->s[p->p++];
     if(!c) {fail(p,"embedded NUL");p->tok=0;return;}
+    if(c=='"') {
+        k=0;
+        while(p->p<p->n && p->s[p->p]!='"') {
+            c=(unsigned char)p->s[p->p++];
+            if(c=='\\') {
+                if(p->p==p->n) {fail(p,"unterminated string escape");return;}
+                c=(unsigned char)p->s[p->p++];
+                if(c=='n')c='\n';else if(c=='r')c='\r';else if(c=='t')c='\t';
+                else if(c!='"'&&c!='\\') {fail(p,"unsupported string escape");return;}
+            } else if(c<32||c>126) {fail(p,"invalid string character");return;}
+            if(k+1>=sizeof(p->word)) {fail(p,"assertion message too long");return;}p->word[k++]=(char)c;
+        }
+        if(p->p==p->n) {fail(p,"unterminated string");return;}
+        p->p++;p->word[k]=0;p->tok=STRING;return;
+    }
+    if(p->p<p->n) {
+        int t=p->s[p->p],op=0;
+        if(t=='=')op=c=='='?EQ:c=='!'?NE:c=='<'?LE:c=='>'?GE:0;
+        else if(c=='&'&&t=='&')op=AND;else if(c=='|'&&t=='|')op=OR;
+        if(op) {p->p++;p->tok=op;return;}
+    }
     if(alpha(c)) {
         a=p->p-1; while(p->p<p->n && (alpha((unsigned char)p->s[p->p])||digit(p->s[p->p]))) p->p++;
-        k=p->p-a; if(k>=sizeof(p->word)) {fail(p,"name too long");p->tok=0;return;}
+        k=p->p-a; if(k>=XH_LD_NAME) {fail(p,"name too long");p->tok=0;return;}
         memcpy(p->word,p->s+a,k);p->word[k]=0;p->tok=NAME;return;
     }
     if(digit(c)) {
@@ -47,7 +68,7 @@ static int primary(Parser *p,int depth) {
     if(depth>16) return fail(p,"expression nesting limit");
     if(p->tok==NUMBER) {uint32_t v=p->num;next(p);return node(p,XH_LD_VALUE,-1,-1,v,0);}
     if(p->tok=='(') {next(p);n=expr(p,depth+1,0);if(take(p,')'))return -1;return n;}
-    if(p->tok=='+'||p->tok=='-') {k=p->tok;next(p);n=primary(p,depth+1);return k=='+'?n:node(p,XH_LD_NEG,n,-1,0,0);}
+    if(p->tok=='+'||p->tok=='-'||p->tok=='!') {k=p->tok;next(p);n=primary(p,depth+1);return k=='+'?n:node(p,k=='!'?XH_LD_NOT:XH_LD_NEG,n,-1,0,0);}
     if(p->tok!=NAME) return fail(p,"expected expression");
     strcpy(s,p->word);next(p);
     if(!strcmp(s,".")) return node(p,XH_LD_DOT,-1,-1,0,0);
@@ -61,8 +82,13 @@ static int primary(Parser *p,int depth) {
     return node(p,XH_LD_SYMBOL,-1,-1,0,s);
 }
 static int expr(Parser *p,int depth,int min) {
-    int l=primary(p,depth),r,op,prec;
-    while(!p->failed) {op=p->tok;prec=op=='+'||op=='-'?1:op=='*'||op=='/'?2:0;if(!prec||prec<min)break;next(p);r=expr(p,depth+1,prec+1);l=node(p,op=='+'?XH_LD_ADD:op=='-'?XH_LD_SUB:op=='*'?XH_LD_MUL:XH_LD_DIV,l,r,0,0);}
+    int l=primary(p,depth),r,op,prec,kind;
+    while(!p->failed) {
+        op=p->tok;prec=op==OR?1:op==AND?2:op==EQ||op==NE?3:op=='<'||op=='>'||op==LE||op==GE?4:op=='+'||op=='-'?5:op=='*'||op=='/'?6:0;
+        if(!prec||prec<min)break;
+        kind=op==OR?XH_LD_OR:op==AND?XH_LD_AND:op==EQ?XH_LD_EQ:op==NE?XH_LD_NE:op=='<'?XH_LD_LT:op=='>'?XH_LD_GT:op==LE?XH_LD_LE:op==GE?XH_LD_GE:op=='+'?XH_LD_ADD:op=='-'?XH_LD_SUB:op=='*'?XH_LD_MUL:XH_LD_DIV;
+        next(p);r=expr(p,depth+1,prec+1);l=node(p,kind,l,r,0,0);
+    }
     return l;
 }
 static int eval(const XhLdScript *s,int id,uint32_t dot,XhLdLookup lookup,void *user,uint32_t *out,unsigned depth) {
@@ -77,11 +103,17 @@ static int eval(const XhLdScript *s,int id,uint32_t dot,XhLdLookup lookup,void *
     default:break;
     }
     if(eval(s,e->left,dot,lookup,user,&a,depth+1))return -1;
+    if(e->kind==XH_LD_NOT) {*out=!a;return 0;}
+    if((e->kind==XH_LD_AND&&!a)||(e->kind==XH_LD_OR&&a)) {*out=e->kind==XH_LD_OR;return 0;}
     if(e->kind==XH_LD_NEG) {if(a)return -1;*out=0;return 0;}
     if(e->kind==XH_LD_ALIGN) {if(!a||(a&(a-1)))return -1;v=((uint64_t)dot+a-1)&~((uint64_t)a-1);}
     else {
         if(eval(s,e->right,dot,lookup,user,&b,depth+1))return -1;
-        switch(e->kind) {case XH_LD_ADD:v=(uint64_t)a+b;break;case XH_LD_SUB:if(a<b)return -1;v=a-b;break;case XH_LD_MUL:v=(uint64_t)a*b;break;case XH_LD_DIV:if(!b)return -1;v=a/b;break;default:return -1;}
+        switch(e->kind) {case XH_LD_ADD:v=(uint64_t)a+b;break;case XH_LD_SUB:if(a<b)return -1;v=a-b;break;case XH_LD_MUL:v=(uint64_t)a*b;break;case XH_LD_DIV:if(!b)return -1;v=a/b;break;
+        case XH_LD_EQ:v=a==b;break;case XH_LD_NE:v=a!=b;break;
+        case XH_LD_LT:v=a<b;break;case XH_LD_LE:v=a<=b;break;
+        case XH_LD_GT:v=a>b;break;case XH_LD_GE:v=a>=b;break;
+        case XH_LD_AND:v=!!b;break;case XH_LD_OR:v=!!b;break;default:return -1;}
     }
     if(v>UINT32_MAX)return -1;*out=(uint32_t)v;return 0;
 }
@@ -97,6 +129,14 @@ static int assignment(Parser *p,int sec) {
     if(p->ir->symbol_count==XH_LD_MAX_SYMBOLS)return fail(p,"symbol limit");
     for(i=0;i<p->ir->symbol_count;i++)if(!strcmp(s,p->ir->symbols[i].name))return fail(p,"duplicate symbol assignment");
     i=p->ir->symbol_count++;sym=&p->ir->symbols[i];strcpy(sym->name,s);sym->expr=id;sym->section=sec;sym->event=p->ir->event_count;return event(p,XH_LD_DEFINE,(int)i,sec);
+}
+static int assertion(Parser *p,int sec) {
+    XhLdAssertion *a;unsigned i;int id;
+    if(p->ir->assertion_count==XH_LD_MAX_ASSERTIONS)return fail(p,"assertion limit");
+    next(p);if(take(p,'('))return -1;id=expr(p,0,0);if(take(p,','))return -1;
+    if(p->tok!=STRING)return fail(p,"ASSERT requires quoted message");
+    i=p->ir->assertion_count++;a=&p->ir->assertions[i];a->expr=id;a->section=sec;a->event=p->ir->event_count;strcpy(a->message,p->word);
+    next(p);if(take(p,')'))return -1;if(p->tok==';')next(p);return event(p,XH_LD_ASSERT,(int)i,sec);
 }
 static int memory(Parser *p) {
     XhLdRegion *r;char s[XH_LD_NAME];unsigned i,j;int id;uint32_t v;
@@ -131,6 +171,7 @@ static int sections(Parser *p) {
     next(p);if(take(p,'{'))return -1;
     while(p->tok!='}'&&!p->failed) {
         if(p->tok==';') {next(p);continue;}
+        if(is(p,"ASSERT")) {if(assertion(p,-1))return -1;continue;}
         /* A name followed by '=' is an assignment, including location counter. */
         {Parser saved=*p; if(name(p,n))return -1;if(p->tok=='='){*p=saved;if(assignment(p,-1))return -1;continue;}*p=saved;}
         if(name(p,n))return -1;if(n[0]!='.'||!strcmp(n,"."))return fail(p,"unsupported output section");
@@ -146,6 +187,7 @@ static int sections(Parser *p) {
         while(p->tok!='}'&&!p->failed) {
             if(p->tok=='*') {if(patterns(p,sec,0))return -1;}
             else if(is(p,"KEEP")) {next(p);if(take(p,'(')||patterns(p,sec,1)||take(p,')'))return -1;}
+            else if(is(p,"ASSERT")) {if(assertion(p,sec))return -1;}
             else if(p->tok==NAME) {if(assignment(p,sec))return -1;}
             else return fail(p,"unsupported section statement");
         }
@@ -165,6 +207,7 @@ int xh_ld_script_parse(const char *text,size_t len,XhLdScript *out,char *err,siz
         else if(is(&p,"ENTRY")) {if(out->entry[0])return fail(&p,"duplicate ENTRY");next(&p);if(take(&p,'(')||name(&p,out->entry)||take(&p,')'))return -1;}
         else if(is(&p,"MEMORY")) {if(seen_memory++)return fail(&p,"duplicate MEMORY");if(memory(&p))return -1;}
         else if(is(&p,"SECTIONS")) {if(seen_sections++)return fail(&p,"duplicate SECTIONS");if(sections(&p))return -1;}
+        else if(is(&p,"ASSERT")) {if(assertion(&p,-1))return -1;}
         else if(p.tok==NAME) {if(assignment(&p,-1))return -1;}
         else return fail(&p,"unsupported top-level statement");
     }

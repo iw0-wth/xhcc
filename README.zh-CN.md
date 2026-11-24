@@ -117,7 +117,7 @@ make 子集支持 24 个文本/控制/诊断函数、变量与替换引用、`ov
 
 ## 外部后端、内存与自举
 
-[包协议](docs/package-protocol.md) 注册工具别名、CPU、ABI 合同、头文件、选项与规则。五个引擎均实际消费外部规则，主模块哈希不变的规则变体可改变真实生成/执行行为。复杂 lowering、优化及布局政策仍有部分 C 实现。详见 [外置化状态](docs/backend-externalization.md) 与 [后端移植指南](docs/skills/port-backend/SKILL.md)。
+[包协议](docs/package-protocol.md) 注册工具别名、CPU、ABI 合同、头文件、选项与规则。五个引擎均实际消费外部规则，主模块哈希不变的规则变体可改变真实生成/执行行为。第三方可独立开发、分发后端包：基于现有引擎复制包，再调整受支持的模板、指令编码、ABI 描述和重定位规则。全新 ISA 需要引擎支持，不能仅靠 INI 配置实现任意目标。复杂 lowering、优化及布局政策仍有部分 C 实现。详见 [外置化状态](docs/backend-externalization.md) 与 [后端移植指南](docs/skills/port-backend/SKILL.md)。
 
 每个默认模块声明一个非共享 wasm32 线性内存，initial = maximum = 4 MiB，包含静态数据、C 栈、arena 与 libc 堆。运行时结构、字节码、宿主栈、WASI 和文件系统缓冲增加完整任务 RAM。该上限和桌面 RSS 均不能证明 MCU 可行性，详见 [资源测量](docs/resource-budget.md)。
 
@@ -134,4 +134,4 @@ python tools/resource_report.py --self-test --json build/reports/resources.json 
 
 执行测试前构建，SD 测试前部署。相关检查需要 GNU ARM 工具、Unicorn、pyelftools 和合适的 Clang/LLVM；缺少参考工具时可能跳过，跳过不构成互操作证据。报告描述实测产物快照，不是固定体积规格。
 
-初始前端、IR 与 ARM 发射器源自 MIT 授权的 arkcc，见 [来源](NOTICE.md) 和 [MIT 许可](LICENSE)。目标扩展依据公开 ISA/ABI/对象规范独立实现，通过外部编译器验证，不将 GPL 编译器实现代码复制混入本项目。
+xhcc 自有新增内容采用根目录的 [MIT 许可](LICENSE)，版权声明为 `Copyright (c) 2026 Taohan Wang <tianqi2021_001@163.com>`。初始前端、IR 与 ARM 发射器源自 MIT 授权的 arkcc；其原始版权声明与完整许可原文保存在 [LICENSES/arkcc/LICENSE](LICENSES/arkcc/LICENSE)，分发该软件或其重要部分时须一并保留。详见 [来源与许可范围](NOTICE.md) 和 [许可目录](LICENSES/README.md)。独立第三方后端包可使用自身许可证；核心单纯读取包的数据或规则，不会因此当然改变核心的 MIT 许可。具体组合的义务取决于代码复制、实际链接、分发关系及适用许可证。目标扩展依据公开 ISA/ABI/对象规范独立实现，通过外部编译器验证，不将 GPL 编译器实现代码复制混入本项目。

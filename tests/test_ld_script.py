@@ -44,12 +44,22 @@ HARNESS = r'''
 static XhLdScript ir;
 static uint32_t addr[16],lma[16],size[16],values[64];
 static unsigned known[64];
+static uint32_t assert_dot[XH_LD_MAX_ASSERTIONS];
+static int check_assertions(void);
 static int lookup(void *unused,int kind,const char *name,uint32_t *out) {
  unsigned i;(void)unused;
  if(kind==XH_LD_SYMBOL) {for(i=0;i<ir.symbol_count;i++)if(known[i]&&!strcmp(name,ir.symbols[i].name)){*out=values[i];return 0;}return -1;}
  for(i=0;i<ir.section_count;i++)if(!strcmp(name,ir.sections[i].name)) {*out=kind==XH_LD_ADDR?addr[i]:kind==XH_LD_LOADADDR?lma[i]:size[i];return 0;}return -1;
 }
 static int ev(int id,uint32_t dot,uint32_t *out) {char err[256];int rc=xh_ld_script_eval(&ir,id,dot,lookup,0,out,err,sizeof(err));if(rc)fprintf(stderr,"%s\n",err);return rc;}
+static int check_assertions(void) {
+ unsigned i;uint32_t v;
+ for(i=0;i<ir.assertion_count;i++) {
+  if(ev(ir.assertions[i].expr,assert_dot[i],&v))return 1;
+  if(!v) {fprintf(stderr,"ld script ASSERT: %s\n",ir.assertions[i].message);return 1;}
+  printf("A %u %d %u %s\n",i,ir.assertions[i].section,ir.assertions[i].event,ir.assertions[i].message);
+ }return 0;
+}
 int main(int argc,char **argv) {
  FILE *f;static char text[65538];char err[256];size_t n;unsigned i,j;uint32_t cursor[8],dot,v;int rc;
  if(argc<2)return 2;f=fopen(argv[1],"rb");if(!f)return 2;n=fread(text,1,sizeof(text),f);fclose(f);
@@ -58,7 +68,7 @@ int main(int argc,char **argv) {
  for(i=0;i<ir.region_count;i++)printf("R %s %lu %lu\n",ir.regions[i].name,(unsigned long)ir.regions[i].origin,(unsigned long)ir.regions[i].length);
  if(argc<3)return 0;
  if(!strcmp(argv[2],"eval")) {
-   for(i=0;i<ir.symbol_count;i++){if(ev(ir.symbols[i].expr,3,&v))return 1;printf("S %s %lu\n",ir.symbols[i].name,(unsigned long)v);}return 0;
+   for(i=0;i<ir.symbol_count;i++){if(ev(ir.symbols[i].expr,3,&v))return 1;printf("S %s %lu\n",ir.symbols[i].name,(unsigned long)v);}return check_assertions();
  }
  /* Fixed input sections also emitted by the GNU oracle fixture below. */
  for(i=0;i<ir.region_count;i++)cursor[i]=ir.regions[i].origin;
@@ -74,6 +84,7 @@ int main(int argc,char **argv) {
        static const unsigned sizes[]={8,12,4,8,12,4};unsigned k;
        for(k=0;k<6;k++)if(xh_ld_script_match(&ir.patterns[e->index],names[k],k==5))dot+=sizes[k];
      } else if(e->kind==XH_LD_SET_DOT) {if(ev(e->index,dot,&dot))return 1;}
+     else if(e->kind==XH_LD_ASSERT)assert_dot[e->index]=dot;
      else {if(ev(ir.symbols[e->index].expr,dot,&values[e->index]))return 1;known[e->index]=1;}
    }
    size[i]=dot-addr[i];cursor[s->region]=dot;
@@ -81,7 +92,7 @@ int main(int argc,char **argv) {
    printf("O %s %lu %lu %lu\n",s->name,(unsigned long)addr[i],(unsigned long)lma[i],(unsigned long)size[i]);
  }
  for(i=0;i<ir.symbol_count;i++) {if(!known[i]&&ev(ir.symbols[i].expr,0,&values[i]))return 1;printf("S %s %lu\n",ir.symbols[i].name,(unsigned long)values[i]);}
- return 0;
+ return check_assertions();
 }
 '''
 
@@ -139,7 +150,7 @@ class ScriptTests(unittest.TestCase):
         self.parse(FIXTURE.replace('0x20000000', 'ORIGIN(FLASH) + LENGTH(FLASH)'))
 
     def test_unknown_syntax_rejected(self):
-        for extra in ['INCLUDE other.ld', 'ASSERT(1,"ok")', 'PHDRS {}', 'OVERLAY {}',
+        for extra in ['INCLUDE other.ld', 'ASSERTION(1,"ok")', 'PHDRS {}', 'OVERLAY {}',
                       'PROVIDE(x=1);', 'OUTPUT_FORMAT(elf32-littlearm)', '// comment\n']:
             with self.subTest(extra=extra):
                 self.parse(FIXTURE + extra, ok=False)
@@ -181,6 +192,40 @@ class ScriptTests(unittest.TestCase):
             with self.subTest(expression=expression):
                 self.parse(FIXTURE + 'a=' + expression + ';', 'eval', ok=False)
         self.parse(FIXTURE + 'a=b; b=a;', 'eval', ok=False)
+
+    def test_assertions_comparison_and_short_circuit(self):
+        expressions = ['1 == 1', '1 != 2', '2 < 3', '2 <= 2', '3 > 2',
+                       '3 >= 3', '!0', '!!7', '2 + 3 * 4 == 14',
+                       '1 < 2 == 1', '0 || 2 && 3', '1 || missing',
+                       '1 || (1 / 0)', '!(0 && missing)', '!(0 && (1 / 0))']
+        for expression in expressions:
+            with self.subTest(expression=expression):
+                self.parse(FIXTURE + 'ASSERT(' + expression + ', "valid")', 'layout')
+        text = FIXTURE.replace(' _sdata = .;', ' ASSERT(. == ORIGIN(RAM), "body start"); _sdata = .;')
+        text = text.replace(' _sidata =', ' ASSERT(SIZEOF(.text) == 24, "sections")\n _sidata =')
+        text += 'ASSERT(LOADADDR(.data) == 0x08000018, "outside");'
+        result = self.parse(text, 'layout')
+        self.assertIn('A 0 1 ', result.stdout)
+        self.assertIn('A 1 -1 ', result.stdout)
+        self.assertIn('A 2 -1 ', result.stdout)
+        for expression in ['0', '2 < 1', '1 && missing', '0 || missing', '1 && (1 / 0)']:
+            with self.subTest(expression=expression):
+                result = self.parse(FIXTURE + 'ASSERT(' + expression + ', "RAM overflow")', 'layout', ok=False)
+                if expression in ['0', '2 < 1']:
+                    self.assertIn('RAM overflow', result.stderr)
+
+    def test_assertion_message_and_limits(self):
+        self.parse(FIXTURE + 'ASSERT(1,"' + 'x' * 127 + '")')
+        self.parse(FIXTURE + 'ASSERT(1,"' + 'x' * 128 + '")', ok=False)
+        result = self.parse(FIXTURE + r'ASSERT(0,"quote\" slash\\ newline\n tab\t")', 'layout', ok=False)
+        self.assertIn('quote" slash\\ newline\n tab\t', result.stderr)
+        for text in ['ASSERT(1,unquoted)', 'ASSERT(1,"unterminated)',
+                     'ASSERT(1,"bad\\q")', 'ASSERT(1,"bad\nline")',
+                     'ASSERT(1,"x",2)', 'ASSERT(1 & 1,"x")', 'ASSERT(1 | 1,"x")']:
+            with self.subTest(text=text):
+                self.parse(FIXTURE + text, ok=False)
+        self.parse(FIXTURE + 'ASSERT(1,"ok")' * 32)
+        self.parse(FIXTURE + 'ASSERT(1,"ok")' * 33, ok=False)
 
     def test_gnu_simple_layout_oracle(self):
         assembler = GNU / ('arm-none-eabi-as' + EXE)

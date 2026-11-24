@@ -51,6 +51,23 @@ class ResourceBudget(unittest.TestCase):
   deployed_files={p.relative_to(SD/'packages').as_posix():p for p in (SD/'packages').rglob('*') if p.is_file()}
   self.assertEqual(source_files.keys(),deployed_files.keys(),'SD package file set differs')
   for name,path in source_files.items():self.assertEqual(hashlib.sha256(path.read_bytes()).digest(),hashlib.sha256(deployed_files[name].read_bytes()).digest(),f'stale SD package resource: {name}')
+ def test_actual_multi_object_link_requested_heap_budget(self):
+  with tempfile.TemporaryDirectory(prefix='link-resources-',dir=ROOT/'build') as temp:
+   work=Path(temp);rel=lambda path:path.relative_to(ROOT).as_posix();objects=[]
+   def invoke(app,args,ok=True):
+    p=subprocess.run([RUNTIME,'run','--dir=.','--env','XHCC_PACKAGE_ROOT=packages',str(ROOT/'build/wasm'/f'{app}.wasm'),*args],cwd=ROOT,capture_output=True,text=True,timeout=60);self.assertEqual(p.returncode==0,ok,p.stdout+p.stderr);return p
+   # Eight independent translation units retain 64 definitions plus addresses
+   # in actual ELF objects. No fabricated table statistics stand in for linking.
+   for index in range(8):
+    source=work/f'unit{index}.c';output=work/f'unit{index}.o';text=''.join(f'int data_{index}_{j}={index+j+1}; int *ptr_{index}_{j}=&data_{index}_{j};\n' for j in range(8));text+=f'int function_{index}(void){{return *ptr_{index}_0;}}\n'
+    if index==0:text+='extern int function_7(void); int entry(void){return function_7()+*ptr_0_0;}\n'
+    source.write_text(text);invoke('xhccn',['arm-none-eabi-gcc','-O0','-c',rel(source),'-o',rel(output)]);objects.append(rel(output))
+   script=work/'memory.ld';script.write_text('ENTRY(entry)\nMEMORY { FLASH(rx) : ORIGIN = 0x08004000, LENGTH = 256K RAM(rw) : ORIGIN = 0x20002000, LENGTH = 64K }\nSECTIONS { .text : { *(.text*) *(.rodata*) } > FLASH .data : { *(.data*) } > RAM AT> FLASH .bss (NOLOAD) : { *(.bss*) *(COMMON) } > RAM }\n')
+   measures={}
+   for app in ['xhcc','xhlinker']:
+    output=work/(app+'.elf');args=(['arm-none-eabi-gcc'] if app=='xhcc' else [])+['-T',rel(script),*objects,'-o',rel(output),'--memory-report'];p=invoke(app,args);self.assertEqual(output.read_bytes()[:4],b'\x7fELF');reports=re.findall(r'link requested heap peak\s+(\d+)/(\d+)\s+B',p.stderr);self.assertEqual(len(reports),1,p.stderr);peak,limit=map(int,reports[0]);self.assertGreater(peak,0);self.assertLessEqual(peak,limit);self.assertEqual(limit,524288);counts=re.findall(r'objects=(\d+) sections=(\d+) symbols=(\d+) output=(\d+) B',p.stderr);self.assertEqual(len(counts),1,p.stderr);object_count,section_count,symbol_count,output_bytes=map(int,counts[0]);self.assertEqual(object_count,8);self.assertGreater(section_count,0);self.assertGreaterEqual(symbol_count,64);self.assertEqual(output_bytes,output.stat().st_size);measures[app]={'requested_peak_bytes':peak,'limit_bytes':limit}
+   preserved=work/'preserved.elf';preserved.write_bytes(b'preserve existing output');p=invoke('xhlinker',['-T',rel(script),*objects,'-o',rel(preserved),'--max-memory','1024','--memory-report'],ok=False);self.assertEqual(preserved.read_bytes(),b'preserve existing output');self.assertRegex(p.stderr.lower(),r'memory|budget');reports=re.findall(r'link requested heap peak\s+(\d+)/(\d+)\s+B',p.stderr);self.assertEqual(len(reports),1,p.stderr);failed_peak,failed_limit=map(int,reports[0]);self.assertEqual(failed_limit,1024);self.assertLessEqual(failed_peak,failed_limit)
+  print('MEASURED linker requested allocation bytes only (excludes allocator overhead, parsed rule heaps, runtime/JIT, WASI and total RSS): '+str(measures))
  def test_representative_runtime_arena_peak_below_one_mib(self):
   cases=[('arm-none-eabi-gcc','-c','probe.o'),('riscv32-unknown-elf-gcc','-c','probe.o'),('xh-c-gcc','-S','probe.c.out')]
   source='int add(int a,int b){return a+b;} int entry(void){int a[8];int i,total=0;for(i=0;i<8;i++){a[i]=add(i,3);total+=a[i];}return total;}\n'

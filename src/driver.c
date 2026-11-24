@@ -964,7 +964,7 @@ int xh_driver_main(int argc, char **argv) {
   if (driver.object_count) {
     char error[512];
     if(driver.source_count){result=fail("mixing .c and .o or automatic compile/link is unsupported",0);goto done;}
-    if(seen_c||seen_e||seen_s||compile_options||memory_report||o->syntax_only||o->gen_depend||o->private_object||o->obj_ir){result=fail("ARM ELF linking does not accept compilation/preprocessing options",0);goto done;}
+    if(seen_c||seen_e||seen_s||compile_options||o->syntax_only||o->gen_depend||o->private_object||o->obj_ir){result=fail("ARM ELF linking does not accept compilation/preprocessing options",0);goto done;}
     if(!o->output_path||!strcmp(o->output_path,"-")){result=fail("ARM ELF linking requires -o FILE (stdout unsupported)",0);goto done;}
     if(xh_package_apply(root,tool,o)){result=1;goto done;}
     if(strcmp(o->target,"arm")){result=fail("modern ELF linking currently supports ARM only",0);goto done;}
@@ -975,8 +975,14 @@ int xh_driver_main(int argc, char **argv) {
     link_request.output_path=o->output_path;
 #if XH_WITH_LINKER && !defined(XH_ADAPTER)
     mem_pool_reset();
-    result=xh_elf_link_arm(driver.objects,(unsigned)driver.object_count,&link_request,error,sizeof(error))!=0;
-    if(result)fail("ARM ELF link failed: %s",error);
+    {
+      XhElfLinkReport report;
+      result=xh_elf_link_arm_report(driver.objects,(unsigned)driver.object_count,&link_request,error,sizeof(error),&report)!=0;
+      if(memory_report)fprintf(stderr,"[xhcc] link requested heap peak %lu/%lu B (excludes allocator overhead, runtime, stack and filesystem caches); objects=%u sections=%u symbols=%u output=%lu B\n",
+        (unsigned long)report.peak_requested_bytes,(unsigned long)XH_ELF_LINK_MAX_MEMORY,
+        report.objects,report.sections,report.symbols,(unsigned long)report.output_bytes);
+      if(result)fail("ARM ELF link failed: %s",error);
+    }
 #else
     result=fail("linking is unavailable in this application; use xhcc or xhlinker",0);
 #endif

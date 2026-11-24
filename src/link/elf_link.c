@@ -34,6 +34,7 @@ typedef struct {
     XhLdScript ir;
     Group groups[XH_LD_MAX_SECTIONS];
     uint32_t dot[XH_LD_MAX_SYMBOLS],value[XH_LD_MAX_SYMBOLS];
+    uint32_t assert_dot[XH_LD_MAX_ASSERTIONS];
     unsigned char state[XH_LD_MAX_SYMBOLS],ready[XH_LD_MAX_SECTIONS];
     unsigned char common_seen[XH_ELF_LINK_MAX_SYMBOLS];
     uint32_t common_start,common_end;
@@ -43,7 +44,8 @@ typedef struct {
     Obj obj[XH_ELF_LINK_MAX_OBJECTS];
     Script *script;
 
-    size_t used,limit;
+    size_t used,limit,peak;
+    unsigned objects;
     char *err; size_t errcap;
     unsigned total_symbols,total_sections;
 } Link;
@@ -58,7 +60,7 @@ static void *take(Link *l,size_t n) {
     if(l->used>l->limit || n>l->limit-l->used) { fail(l,"ELF link memory budget exceeded"); return NULL; }
     p=malloc(n);
     if(!p) { fail(l,"ELF link allocation failed"); return NULL; }
-    l->used+=n?n:1; return p;
+    l->used+=n;if(l->used>l->peak)l->peak=l->used;return p;
 }
 static void drop(Link *l,void *p,size_t n) { if(p) { free(p); l->used-=n?n:1; } }
 static int plus(uint32_t a,uint32_t b,uint32_t *v) { if(b>UINT32_MAX-a)return -1;*v=a+b;return 0; }
@@ -208,6 +210,7 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
         while(e<sec->first_event) {
             XhLdEvent *ev=&s->ir.events[e++];
             if(ev->kind==XH_LD_DEFINE){s->dot[ev->index]=dot;s->state[ev->index]=0;}
+            else if(ev->kind==XH_LD_ASSERT)s->assert_dot[ev->index]=dot;
             else if(ev->kind==XH_LD_SET_DOT){uint32_t next;if(script_expr(l,ev->index,dot,&next))return -1;if(next<dot)return fail(l,"script location counter moves backwards");dot=next;}
         }
         /* Precompute group alignment so both VMA and AT> LMA honor inputs. */
@@ -229,6 +232,7 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
         while(e<end) {
             XhLdEvent *ev=&s->ir.events[e++];
             if(ev->kind==XH_LD_DEFINE){s->dot[ev->index]=dot;s->state[ev->index]=0;continue;}
+            if(ev->kind==XH_LD_ASSERT){s->assert_dot[ev->index]=dot;continue;}
             if(ev->kind==XH_LD_SET_DOT){uint32_t next;if(script_expr(l,ev->index,dot,&next))return -1;if(next<dot)return fail(l,"script location counter moves backwards");dot=next;continue;}
             if(s->ir.patterns[ev->index].common) {
                 for(i=0;i<l->total_symbols;i++) {
@@ -259,7 +263,7 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
         if(sec->load_region!=sec->region && loadend>cursor[sec->load_region])cursor[sec->load_region]=loadend;
         s->ready[k]=1;
     }
-    while(e<s->ir.event_count){XhLdEvent *ev=&s->ir.events[e++];if(ev->kind==XH_LD_DEFINE){s->dot[ev->index]=dot;s->state[ev->index]=0;}else if(ev->kind==XH_LD_SET_DOT && script_expr(l,ev->index,dot,&dot))return -1;}
+    while(e<s->ir.event_count){XhLdEvent *ev=&s->ir.events[e++];if(ev->kind==XH_LD_DEFINE){s->dot[ev->index]=dot;s->state[ev->index]=0;}else if(ev->kind==XH_LD_ASSERT)s->assert_dot[ev->index]=dot;else if(ev->kind==XH_LD_SET_DOT && script_expr(l,ev->index,dot,&dot))return -1;}
     for(i=0;i<n;i++)for(j=1;j<l->obj[i].ns;j++)if((l->obj[i].sec[j].flags&2u) && l->obj[i].sec[j].size && !l->obj[i].sec[j].out)return fail(l,"unmatched alloc input section: %s",l->obj[i].names+l->obj[i].sec[j].name);
     for(i=0;i<l->total_symbols;i++){Sym *sym=symbol(l,i,NULL);if(sym->shndx==XH_ELF_SHN_COMMON && (sym->winner<0 || (unsigned)sym->winner==i) && !s->common_seen[i])return fail(l,"unmatched COMMON input");}
     for(i=0;i<s->ir.section_count;i++)for(j=0;j<i;j++) {
@@ -268,6 +272,11 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
         if(a->filesz && b->filesz && (uint64_t)a->lma<(uint64_t)b->lma+b->filesz && (uint64_t)b->lma<(uint64_t)a->lma+a->filesz)return fail(l,"overlapping script LMA sections");
     }
     for(i=0;i<s->ir.symbol_count;i++){uint32_t v;s->state[i]=0;if(script_lookup(l,XH_LD_SYMBOL,s->ir.symbols[i].name,&v))return fail(l,"unresolved script symbol: %s",s->ir.symbols[i].name);}
+    for(i=0;i<s->ir.assertion_count;i++) {
+        uint32_t v;
+        if(script_expr(l,s->ir.assertions[i].expr,s->assert_dot[i],&v))return fail(l,"linker ASSERT could not be evaluated: %s",s->ir.assertions[i].message);
+        if(!v)return fail(l,"linker ASSERT failed: %s",s->ir.assertions[i].message);
+    }
     return 0;
 }
 static void w16(unsigned char *p,unsigned v){p[0]=(unsigned char)v;p[1]=(unsigned char)(v>>8);}
@@ -278,20 +287,21 @@ static void shdr(unsigned char *p,uint32_t name,uint32_t type,uint32_t flags,uin
 static void phdr(unsigned char *p,uint32_t off,uint32_t vma,uint32_t lma,uint32_t filesz,uint32_t memsz,uint32_t flags) {
     w32(p,1);w32(p+4,off);w32(p+8,vma);w32(p+12,lma);w32(p+16,filesz);w32(p+20,memsz);w32(p+24,flags);w32(p+28,1);
 }
-int xh_elf_link_arm(const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap) {
+int xh_elf_link_arm_report(const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap,XhElfLinkReport *report) {
     Link l;unsigned i,j,pass,outsec=1,locals=1,nsym=1;int result=-1;
     uint32_t text,data,lma,flashend,dataend,bssend,ramalign=1,flashsize,datasize,memsize;
     uint32_t dataoff,stroff,strsize=1,symoff,shoff,total,entry=0,common_addr;
     uint32_t symtabidx,strtabidx,commonidx=0,flatlen=0,flatbase=0,headerbytes=116;unsigned char *image=NULL;size_t imagebytes=0;
     const char *entryname;
     memset(&l,0,sizeof(l));l.err=err;l.errcap=errcap;l.limit=XH_ELF_LINK_MAX_MEMORY;
+    if(report)memset(report,0,sizeof(*report));
     if(err && errcap)err[0]=0;
     if(!inputs || !n || n>XH_ELF_LINK_MAX_OBJECTS || !opt || !opt->output_path || !opt->output_path[0] || !strcmp(opt->output_path,"-"))return fail(&l,"invalid ELF link arguments/output");
     if(opt->output_format>1u)return fail(&l,"unsupported output format");
     if(opt->max_memory){if(opt->max_memory>XH_ELF_LINK_MAX_MEMORY)return fail(&l,"ELF memory budget exceeds 512 KiB");l.limit=opt->max_memory;}
     text=opt->text_addr?opt->text_addr:0x08000000u;data=opt->data_addr?opt->data_addr:0x20000000u;
     entryname=opt->entry_name?opt->entry_name:"_start";
-    for(i=0;i<n;i++){if(!inputs[i] || scan(&l,inputs[i],&l.obj[i]))goto done;}
+    for(i=0;i<n;i++){if(!inputs[i] || scan(&l,inputs[i],&l.obj[i]))goto done;l.objects++;}
     if(globals(&l))goto done;
     if(opt->script_path) {
         if(script_load(&l,opt->script_path) || script_layout(&l,n,&outsec,&commonidx))goto done;
@@ -448,5 +458,9 @@ done:
     drop(&l,image,imagebytes);
     drop(&l,l.script,sizeof(Script));
     for(i=0;i<n;i++){Obj *o=&l.obj[i];drop(&l,o->sec,o->secbytes);drop(&l,o->sym,o->symbytes);drop(&l,o->names,o->namebytes);}
+    if(report){report->peak_requested_bytes=l.peak;report->objects=l.objects;report->sections=l.total_sections;report->symbols=l.total_symbols;report->output_bytes=result?0:total;}
     return result;
+}
+int xh_elf_link_arm(const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap) {
+    return xh_elf_link_arm_report(inputs,n,opt,err,errcap,NULL);
 }

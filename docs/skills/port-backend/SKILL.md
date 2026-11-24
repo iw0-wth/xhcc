@@ -129,6 +129,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 [借用式 reader](../../../include/xh_elf_read.h) 要求缓冲在视图生命周期内有效且不变；[reader 测试](../../../tests/test_elf_reader.py) 的 4950 检查与 [ARM ELF REL 测试](../../../tests/test_arm_elf_reloc.py) 的四项 GNU 对照是底层证据。实际 core 七项测试已通过 GNU 双布局、startup 符号、重定位执行及 objcopy binary 对照，脚本 parser 六项通过；无 Python 四应用功能测试已验证脚本驱动 ELF/bin 一致及 xhccn 拒绝链接。后续改动仍须测符号决议、节布局、PT_LOAD、两布局执行、聚合内存预算和错误保留旧输出。本轮最终 Python 完整回归全部通过，包括 core 7 项、parser 6 项、driver 21 项、four-app 1 项，以及四应用 SD 脚本/bin 与六项资源审计。四产物 xhcc/xhccm/xhccn/xhlinker 分别为 943305/973598/886226/288576 字节，各自声明 4 MiB 上限；map 确认 xhccn 无 linker、xhlinker 无 frontend。它们是本轮快照而非固定规格，实际设备峰值仍待测量；这些首版功能不增加未定义的 target-independent `requires` 名称，也不宣称任意 GNU 工程链接兼容。
 
+后续脚本/预算验收以新增消费者的真实结果为准：本次四应用 945346/975635/886223/290669 字节快照已构建，ASSERT 消费七项与 parser 八项、SD 和七项资源测试已通过，最终完整 runner 也已全部通过。脚本支持有界最多 32 个 ASSERT；标准案例与 GNU 对照通过，但 `&&`/`||` 的短路求值是本子集明示合同，与 GNU ld 对未定义符号可能采用 eager 查找的行为有差异，不能宣称 drop-in/full GNU script。现代链接和独立链接入口的 `--memory-report` 仅统计 link-core 自有 requested heap：metadata、当前 input、script 和 output；不含 relocation VM/rules heap、runtime、stack、文件系统或 allocator 开销，非 MCU 总 RAM。实测 8 对象/64 globals 加 pointers，两入口峰值同为 58506/524288 bytes；1024-byte 小预算失败、旧输出保留且报告可读的测试已通过。每次扩展应重跑成功与故障报告，不用这一 fixture 推断其它输入峰值。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

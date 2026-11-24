@@ -83,8 +83,11 @@ class DriverTests(unittest.TestCase):
         for source, output in zip(('link-start.c', 'link-answer.c'), objects):
             self.run_xhcc('arm-none-eabi-gcc', '-c', '-o', output, self.path(source))
         output = self.path('linked.elf')
-        self.run_xhcc('arm-none-eabi-gcc', *objects, '-o', output,
+        linked = self.run_xhcc('arm-none-eabi-gcc', *objects, '-o', output, '--memory-report',
                       '--entry', '_start', '--text-address=0x08004000', '--data-address', '0x20001000')
+        self.assertRegex(linked.stderr, r'link requested heap peak [1-9][0-9]*/524288 B')
+        self.assertIn('excludes allocator overhead, runtime, stack', linked.stderr)
+        self.assertIn('objects=2', linked.stderr)
         image = (self.dir / 'linked.elf').read_bytes()
         self.assertEqual(image[:4], b'\x7fELF')
         self.assertEqual(struct.unpack_from('<HH', image, 16), (2, 40))
@@ -92,8 +95,10 @@ class DriverTests(unittest.TestCase):
         self.assertTrue(entry & 1)
         self.assertGreaterEqual(entry & ~1, 0x08004000)
         (self.dir / 'linked.elf').write_bytes(b'previous valid output')
-        result = self.run_xhcc('arm-none-eabi-gcc', objects[0], '-o', output, success=False)
+        result = self.run_xhcc('arm-none-eabi-gcc', objects[0], '-o', output, '--memory-report', success=False)
         self.assertIn('link', result.stderr.lower())
+        self.assertIn('link requested heap peak', result.stderr)
+        self.assertIn('output=0 B', result.stderr)
         self.assertEqual((self.dir / 'linked.elf').read_bytes(), b'previous valid output')
         for args in ((objects[0],), ('-c', *objects), (self.path('one.c'), *objects),
                      (*objects, '--text-address=0x100000000'), (*objects, '--text-address=-1'),

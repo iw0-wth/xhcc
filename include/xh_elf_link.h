@@ -27,6 +27,18 @@ typedef struct {
  * Undefined strong symbols fail only when referenced by an alloc relocation or
  * selected as entry. Undefined weak data resolve to zero; weak branches fail.
  * Returns zero on success, -1 with a bounded diagnostic on failure. */
+typedef struct {
+    size_t peak_requested_bytes;
+    unsigned objects,sections,symbols;
+    size_t output_bytes;
+} XhElfLinkReport;
+/* Report is reset on entry and filled on success or failure. Peak counts the
+ * core's requested heap bytes, including input, metadata, script and output;
+ * it excludes allocator overhead, stack, filesystem internals and process RSS.
+ * Counts describe fully scanned inputs; output_bytes is zero on failure. */
+int xh_elf_link_arm_report(const char *const *inputs,unsigned n,
+                    const XhElfLinkOptions *options,char *err,size_t errcap,
+                    XhElfLinkReport *report);
 int xh_elf_link_arm(const char *const *inputs,unsigned n,
                     const XhElfLinkOptions *options,char *err,size_t errcap);
 #endif

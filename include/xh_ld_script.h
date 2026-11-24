@@ -8,28 +8,34 @@
 #define XH_LD_MAX_PATTERNS 64
 #define XH_LD_MAX_SYMBOLS 64
 #define XH_LD_MAX_EXPRS 128
-#define XH_LD_MAX_EVENTS 144
+#define XH_LD_MAX_EVENTS 176
+#define XH_LD_MAX_ASSERTIONS 32
+#define XH_LD_MESSAGE 128
 #define XH_LD_NAME 64
 #define XH_LD_NONE (-1)
 enum { XH_LD_VALUE, XH_LD_DOT, XH_LD_SYMBOL, XH_LD_ADD, XH_LD_SUB,
        XH_LD_MUL, XH_LD_DIV, XH_LD_NEG, XH_LD_ALIGN, XH_LD_ORIGIN,
-       XH_LD_LENGTH, XH_LD_ADDR, XH_LD_LOADADDR, XH_LD_SIZEOF };
-enum { XH_LD_PATTERN, XH_LD_DEFINE, XH_LD_SET_DOT };
+       XH_LD_LENGTH, XH_LD_ADDR, XH_LD_LOADADDR, XH_LD_SIZEOF,
+       XH_LD_EQ, XH_LD_NE, XH_LD_LT, XH_LD_LE, XH_LD_GT, XH_LD_GE,
+       XH_LD_AND, XH_LD_OR, XH_LD_NOT };
+enum { XH_LD_PATTERN, XH_LD_DEFINE, XH_LD_SET_DOT, XH_LD_ASSERT };
 typedef struct { char name[XH_LD_NAME]; uint32_t origin,length; unsigned attrs; int origin_expr,length_expr; } XhLdRegion;
 typedef struct { char name[XH_LD_NAME]; int region,load_region,noload,address_expr,align_expr; unsigned first_event,event_count; } XhLdSection;
 typedef struct { char name[XH_LD_NAME]; unsigned keep,common; } XhLdPattern;
 typedef struct { char name[XH_LD_NAME]; int expr,section; unsigned event; } XhLdSymbol;
 typedef struct { int kind,left,right; uint32_t value; char name[XH_LD_NAME]; } XhLdExpr;
 typedef struct { int kind,index,section; } XhLdEvent;
+typedef struct { int expr; char message[XH_LD_MESSAGE]; int section; unsigned event; } XhLdAssertion;
 typedef struct {
     char entry[XH_LD_NAME];
-    unsigned region_count,section_count,pattern_count,symbol_count,expr_count,event_count;
+    unsigned region_count,section_count,pattern_count,symbol_count,expr_count,event_count,assertion_count;
     XhLdRegion regions[XH_LD_MAX_REGIONS];
     XhLdSection sections[XH_LD_MAX_SECTIONS];
     XhLdPattern patterns[XH_LD_MAX_PATTERNS];
     XhLdSymbol symbols[XH_LD_MAX_SYMBOLS];
     XhLdExpr exprs[XH_LD_MAX_EXPRS];
     XhLdEvent events[XH_LD_MAX_EVENTS];
+    XhLdAssertion assertions[XH_LD_MAX_ASSERTIONS];
 } XhLdScript;
 /* Parse clears caller-owned out; no heap allocation or retained source pointers.
  * Returns 0 or -1 with a bounded diagnostic. All unknown syntax is rejected.
@@ -40,7 +46,11 @@ typedef struct {
  * Events retain script order. Match patterns in order, each input at most once;
  * KEEP is retained for consumers with GC. COMMON is a separate input class.
  * DEFINE evaluates at its event's dot; deferred address expressions may require
- * a second symbol pass after layout. Never silently discard unmatched inputs. */
+ * a second symbol pass after layout. ASSERT events capture their source dot;
+ * consumers MUST evaluate all assertions after layout/symbol resolution, rejecting
+ * false or unresolved expressions with the assertion message before output.
+ * Comparisons yield 0/1; &&/|| short-circuit. Message text <128 bytes, quoted
+ * with supported escapes \", \\, n, r, t. Never silently discard unmatched inputs. */
 int xh_ld_script_parse(const char *text,size_t length,XhLdScript *out,char *err,size_t errcap);
 /* lookup returns 0 on success, -1 for unresolved; kind is SYMBOL, ADDR,
  * LOADADDR or SIZEOF. It must not silently substitute zero. ALIGN(n) aligns dot.

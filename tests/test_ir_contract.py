@@ -1,0 +1,140 @@
+"""Non-C synthetic frontend -> neutral codec -> legacy codec -> AMD64 CPU.
+Builds only a tiny isolated harness, never changes the unified compiler binary.
+"""
+from pathlib import Path
+import os, struct, subprocess, sys, unittest
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / 'build/ir-contract-tests'
+SDK = Path(os.environ.get('WASI_SDK_PATH', r'D:\wasi-sdk-34.0-x86_64-windows')) / 'bin'
+RUNTIME = os.environ.get('WASMTIME', r'C:\Program Files\Wasmtime\bin\wasmtime.exe')
+sys.path.insert(0, str(ROOT / 'build/test-deps'))
+# This producer translation unit cannot see legacy IR, C Type or token headers.
+FRONTEND = r'''
+#include "xh_ir_contract.h"
+void synthetic_frontend(XhIrCoreProgram *p, XhIrCoreInst *code, int mode) {
+    XhIrValueType t={XH_IR_VALUE_INTEGER,4,mode?XH_IR_SIGN_UNSIGNED:XH_IR_SIGN_SIGNED,0,0};
+    unsigned k;
+    for(k=0;k<4;k++){code[k].opcode=0;code[k].binary_op=0;code[k].type=t;code[k].bits=0;}
+    p->version=XH_IR_CORE_VERSION;p->result=t;p->code=code;p->code_count=4;
+    code[0].opcode=code[1].opcode=XH_IR_CORE_CONST;
+    code[0].bits=mode?0xffffffffu:6;code[1].bits=mode?2:7;
+    code[2].opcode=XH_IR_CORE_BINARY;
+    code[2].binary_op=mode==2?XH_IR_BIN_GT:mode?XH_IR_BIN_DIV:XH_IR_BIN_MUL;
+    code[3].opcode=XH_IR_CORE_RETURN;
+}
+'''
+HARNESS = r'''
+#include "xh_ir_contract.h"
+#include "xh_ir_legacy_adapter.h"
+#include "irser.h"
+#include "backend.h"
+#include "memory.h"
+#include "config.h"
+#include "xh_template.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+ArkccConfig g_config;
+int g_xhcc_elf_mode=1;
+void diag_tool(int s,const char*w,const char*m,const char*a,const char*b,const char*c,const char*d,const char*e,const char*f){fprintf(stderr,"%s: %s\n",w,m);}
+int ark_strlen(const char*s){return(int)strlen(s);}int ark_streq(const char*a,const char*b){return a&&b&&!strcmp(a,b);}
+const char*diag_num(char*b,int n){sprintf(b,"%d",n);return b;}
+void ark_log(const char*fmt,...){(void)fmt;}
+static unsigned char arena[8*1024*1024];static unsigned used;
+void*mem_pool_alloc(int n){void*p;n=(n+7)&~7;if(n<0||used+(unsigned)n>sizeof(arena))exit(90);p=arena+used;used+=n;memset(p,0,n);return p;}
+void*mem_realloc(void*p,int old,int n){void*q=mem_pool_alloc(n);if(p)memcpy(q,p,old<n?old:n);return q;}
+char*mem_strdup(const char*s){int n=strlen(s)+1;char*p=mem_pool_alloc(n);memcpy(p,s,n);return p;}
+int fs_file_size(const char*p){FILE*f=fopen(p,"rb");long n;if(!f)return -1;fseek(f,0,SEEK_END);n=ftell(f);fclose(f);return(int)n;}
+int fs_read_file(const char*p,char*b,int c){FILE*f=fopen(p,"rb");int n;if(!f)return -1;n=fread(b,1,c-1,f);b[n]=0;fclose(f);return n;}
+static unsigned char wire[32768],legacy[32768];static char assembly[65536];
+#define CHECK(x) do{if(!(x)){fprintf(stderr,"check line %d\n",__LINE__);return 1;}}while(0)
+void synthetic_frontend(XhIrCoreProgram*,XhIrCoreInst*,int);
+int main(int argc,char**argv){
+ XhIrCoreInst code[6]={{0}},storage[128];XhIrCoreProgram p={1},copy;XhIrCoreError err;
+ IrProgram *old,*back;int n,k,mode=argc>1?atoi(argv[1]):0;FILE*f;
+ synthetic_frontend(&p,code,mode);
+ CHECK(xh_ir_core_validate(&p,&err)==XH_IR_CORE_OK);
+ CHECK(xh_ir_core_effects(&code[2])==(mode==1?XH_IR_EFFECT_MAY_TRAP:XH_IR_EFFECT_PURE));
+ for(k=1;k<=16;k++)CHECK(xh_ir_binary_from_c_token(xh_ir_binary_to_c_token((XhIrBinaryOp)k))==(XhIrBinaryOp)k);
+ CHECK(xh_ir_binary_to_c_token((XhIrBinaryOp)999)==-1);
+ CHECK(xh_ir_binary_from_c_token(-1)==XH_IR_BIN_INVALID);
+ /* Failures matter: reject typed stack mismatch, underflow and unsupported width. */
+ code[1].type.signedness=mode?XH_IR_SIGN_SIGNED:XH_IR_SIGN_UNSIGNED;
+ CHECK(xh_ir_core_validate(&p,&err)==XH_IR_CORE_TYPE_MISMATCH&&err.instruction==2);
+ code[1].type=code[0].type;code[0].opcode=XH_IR_CORE_BINARY;code[0].binary_op=XH_IR_BIN_ADD;code[0].bits=0;
+ CHECK(xh_ir_core_validate(&p,&err)==XH_IR_CORE_STACK_UNDERFLOW);
+ code[0].opcode=XH_IR_CORE_CONST;code[0].binary_op=0;code[0].bits=mode?0xffffffffu:6;code[0].type.byte_width=8;
+ CHECK(xh_ir_core_validate(&p,&err)==XH_IR_CORE_UNSUPPORTED_TYPE);code[0].type.byte_width=4;
+ code[2].binary_op=999;CHECK(xh_ir_core_validate(&p,&err)==XH_IR_CORE_BAD_OPERAND);code[2].binary_op=mode==2?XH_IR_BIN_GT:mode?XH_IR_BIN_DIV:XH_IR_BIN_MUL;
+ n=xh_ir_core_encode(&p,wire,sizeof(wire));CHECK(n==184);CHECK(!memcmp(wire,"XHIRCORE",8));
+ CHECK(xh_ir_core_decode(wire,n,&copy,storage,128,&err)==XH_IR_CORE_OK);
+ CHECK(xh_ir_core_encode(&copy,legacy,sizeof(legacy))==n&&!memcmp(wire,legacy,n));
+ CHECK(xh_ir_core_decode(wire,n-1,&copy,storage,128,&err)==XH_IR_CORE_BAD_WIRE&&!copy.code);
+ CHECK(xh_ir_core_decode(wire,n,&copy,storage,1,&err)==XH_IR_CORE_LIMIT);
+ wire[8]=99;CHECK(xh_ir_core_decode(wire,n,&copy,storage,128,&err)==XH_IR_CORE_BAD_VERSION);wire[8]=1;
+ CHECK(xh_ir_core_decode(wire,n,&copy,storage,128,&err)==XH_IR_CORE_OK);
+ f=fopen("build/ir-contract-tests/core.bin","wb");CHECK(f);fwrite(wire,1,n,f);fclose(f);
+ old=xh_ir_core_to_legacy(&copy,"entry",&err);CHECK(old);
+ n=ir_serialize(old,legacy,sizeof(legacy),"synthetic");CHECK(n>0);
+ back=ir_deserialize(legacy,n,"synthetic");CHECK(back);
+ CHECK(xh_template_set_path("x86_64","packages/x86_64/x86.rules")==0);
+ n=ark_backend_amd64()->emit_asm(back,assembly,sizeof(assembly));CHECK(n>0);
+ f=fopen("build/ir-contract-tests/output.s","wb");CHECK(f);fwrite(assembly,1,n,f);fclose(f);
+ puts("non-C frontend: core validate + canonical codec + legacy roundtrip + real AMD64 emission OK");return 0;
+}
+'''
+
+class IrContract(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        OUT.mkdir(parents=True, exist_ok=True)
+        (OUT / 'harness.c').write_text(HARNESS)
+        (OUT / 'frontend.c').write_text(FRONTEND)
+        cls.env = os.environ.copy()
+        pd = Path(sys.executable).parent
+        cls.env['PATH'] = os.pathsep.join([str(pd), str(pd / 'Library/bin'), cls.env.get('PATH', '')])
+        sources = ['src/ir/ir_contract.c', 'src/ir/ir_contract_legacy.c', 'src/ir/ir.c', 'src/ir/irser.c',
+                   'src/frontend/c/type.c', 'src/core/codegen_common.c', 'src/backend/x86_64/backend_x86_64.c',
+                   'src/backend/rules/abiplan_wire.c', 'src/backend/rules/x86_rules.c',
+                   'src/backend/rules/template.c', 'src/backend/rules/semantic.c', 'src/backend/rules/abi.c',
+                   'src/backend/rules/encoder.c', 'src/backend/rules/relocation.c', 'src/frontend/c/agginit.c',
+                   'src/backend/rules/sysv_plan.c', 'src/backend/rules/abiplan.c', 'src/backend/rules/typeclass.c']
+        args = [str(SDK / 'clang.exe'), '--target=wasm32-wasip1', '-O2', '-ffunction-sections',
+                '-fdata-sections', '-Iinclude', '-Iconfig', '-include', 'include/xh_small.h',
+                str(OUT / 'harness.c'), str(OUT / 'frontend.c'), *sources, '-Wl,--gc-sections', '-o', str(OUT / 'vm.wasm')]
+        p = subprocess.run(args, cwd=ROOT, env=cls.env, capture_output=True, text=True)
+        if p.returncode:
+            raise RuntimeError(p.stdout + p.stderr)
+
+    def test_synthetic_frontend_cpu_results(self):
+        from elftools.elf.elffile import ELFFile
+        from unicorn import Uc, UC_ARCH_X86, UC_MODE_64
+        from unicorn.x86_const import UC_X86_REG_RSP, UC_X86_REG_RAX
+        for mode, expected in [(0, 42), (1, 2147483647), (2, 1)]:
+            with self.subTest(mode=mode):
+                p = subprocess.run([RUNTIME, 'run', '--dir=.', str(OUT / 'vm.wasm'), str(mode)],
+                                   cwd=ROOT, env=self.env, capture_output=True, text=True)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn('real AMD64 emission OK', p.stdout)
+                self.assertEqual((OUT / 'core.bin').read_bytes()[:8], b'XHIRCORE')
+                for args in [
+                    [os.environ.get('XH_NATIVE_CLANG', r'D:\msys64\ucrt64\bin\clang.exe'), '--target=x86_64-unknown-linux-gnu', '-c', str(OUT / 'output.s'), '-o', str(OUT / 'output.o')],
+                    [str(SDK / 'ld.lld.exe'), '-m', 'elf_x86_64', '--image-base=0', '-Ttext=0x10000', '-e', 'entry', '-o', str(OUT / 'output.elf'), str(OUT / 'output.o')]]:
+                    p = subprocess.run(args, cwd=ROOT, env=self.env, capture_output=True, text=True)
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                with (OUT / 'output.elf').open('rb') as f:
+                    elf = ELFFile(f)
+                    entry = elf.get_section_by_name('.symtab').get_symbol_by_name('entry')[0]['st_value']
+                    uc = Uc(UC_ARCH_X86, UC_MODE_64)
+                    uc.mem_map(0x10000, 0x30000); uc.mem_map(0x700000, 0x20000)
+                    for sec in elf.iter_sections():
+                        if sec['sh_flags'] & 2 and sec['sh_type'] != 'SHT_NOBITS':
+                            uc.mem_write(sec['sh_addr'], sec.data())
+                    uc.reg_write(UC_X86_REG_RSP, 0x71eff8)
+                    uc.mem_write(0x71eff8, struct.pack('<Q', 0x3f000))
+                    uc.emu_start(entry, 0x3f000, count=200000)
+                    self.assertEqual(uc.reg_read(UC_X86_REG_RAX) & 0xffffffff, expected)
+
+if __name__ == '__main__':
+    unittest.main()

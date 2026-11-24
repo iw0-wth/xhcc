@@ -301,6 +301,7 @@ class ElfLinkTests(unittest.TestCase):
         _, result = self.link(objects, name, entry, ok=False, **options)
         self.assertEqual(output.read_bytes(), sentinel)
         self.assertTrue(result.stderr.strip(), 'failed links need a diagnostic')
+        return result
 
     def test_rejected_inputs_symbols_relocations_and_budget_preserve_output(self):
         unresolved = self.compile('undefined', 'extern int missing; int entry(void){return missing;}\n', 'xh')
@@ -358,6 +359,8 @@ SECTIONS {
  .data : { _sdata = .; *(.data*) . = ALIGN(4); _edata = .; } > RAM AT> FLASH
  .bss (NOLOAD) : { _sbss = .; *(.bss*) *(COMMON) . = ALIGN(4); _ebss = .; } > RAM
 }
+ASSERT(SIZEOF(.text) < LENGTH(FLASH), "FLASH text overflow");
+ASSERT(_ebss <= ORIGIN(RAM) + LENGTH(RAM), "RAM BSS overflow");
 '''.replace('TEXT',hex(text)).replace('DATA',hex(data))
             script.write_text(content, encoding='utf-8')
             if text == 0x08004000:
@@ -407,11 +410,32 @@ SECTIONS {
                         self.assertEqual(av[symbol], rv[symbol], (suffix, symbol))
             for label, bad in [('region-overflow', content.replace('LENGTH = 32K','LENGTH = 4')),
                                ('unmatched', content.replace('*(.text*)','*(.absent*)')),
-                               ('unsupported', content+'ASSERT(1, "unsupported");\n'),
+                               ('unsupported', content+'PROVIDE(unknown = 1);\n'),
                                ('symbol-collision', content+'initialized = 9;\n')]:
                 badscript = OUT / (name+'-'+label+'.ld')
                 badscript.write_text(bad, encoding='utf-8')
                 self.assert_failed_preserves_output([obj], name+'-'+label, '@script', script=badscript)
+            if text == 0x08004000:
+                # The bounded evaluator promises short circuit evaluation.
+                # GNU ld resolves missing_symbol eagerly, so this is a core
+                # contract check rather than part of the GNU layout oracle.
+                shortscript = OUT / (name+'-assert-short-circuit.ld')
+                shortscript.write_text(content+'ASSERT(1 || missing_symbol, "short circuit success");\n', encoding='utf-8')
+                shortout, _ = self.link([obj], name+'-assert-short-circuit', '@script', script=shortscript)
+                self.execute(shortout, expected)
+                for label, assertion, message in [
+                    ('false', 'ASSERT(0, "forced assertion failure");', 'forced assertion failure'),
+                    ('ram-bound', 'ASSERT(_ebss < ORIGIN(RAM), "RAM assertion boundary");', 'RAM assertion boundary'),
+                    ('undefined', 'ASSERT(unknown_assert_symbol, "undefined assertion");', 'undefined assertion'),
+                    ('cycle', 'cycle_a = cycle_b; cycle_b = cycle_a; ASSERT(cycle_a, "cycle assertion");', None),
+                    ('long-message', 'ASSERT(0, "' + 'x' * 256 + '");', None),
+                ]:
+                    badscript = OUT / (name+'-assert-'+label+'.ld')
+                    badscript.write_text(content+assertion+'\n', encoding='utf-8')
+                    failed = self.assert_failed_preserves_output([obj], name+'-assert-'+label,
+                                                                 '@script', script=badscript)
+                    if message:
+                        self.assertIn(message, failed.stderr)
 
     def test_flat_binary_lma_bytes_gap_bss_and_objcopy_oracle(self):
         obj = self.compile('flat-data', 'int initialized=37; int zeroes[32];\n'
