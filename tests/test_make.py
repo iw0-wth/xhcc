@@ -638,6 +638,12 @@ class MakeTests(unittest.TestCase):
         self.makefile('BUILD = generated\n$(BUILD)/bad:: one.c\n')
         self.assertIn('unsupported rule syntax', self.run_make(success=False).stderr)
 
+    def test_variable_reassignment_releases_previous_storage(self):
+        assignments = ['VALUE = ' + ('x' * 1000) for _ in range(100)]
+        assignments += ['APPEND =', *['APPEND += abcdefgh' for _ in range(110)]]
+        self.makefile('\n'.join(assignments) + '\nall:\n\t@echo $(words $(APPEND)) $(flavor VALUE)\n')
+        self.assertIn('110 recursive', self.run_make().stdout)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

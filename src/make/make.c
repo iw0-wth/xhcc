@@ -352,10 +352,14 @@ static int setvar(Make *m,char *name,const char *value,int op,int command) {
     if(!*name)return fail(m,"empty variable name",0);
     if(v&&(op=='?'||(!forced&&(v->overridden||(v->command&&!command)))))return 0;
     if(op==':'||(op=='+'&&v&&v->simple)) {if(expand(m,value,0,text,0))return -1;value=text;}
-    if(op=='+'&&v) {char joined[TEXT];joined[0]=0;if(put(m,joined,&n,v->value)||(*v->value&&put(m,joined,&n," "))||put(m,joined,&n,value))return -1;v->value=copy(m,joined);}
-    else {
-        if(!v){v=(Var *)alloc(m,sizeof(*v));if(!v)return -1;v->name=copy(m,name);v->next=m->vars;m->vars=v;}
-        v->value=copy(m,value);v->simple=op==':';
+    {char *next,*old=v?v->value:0;
+     if(op=='+'&&v) {char joined[TEXT];joined[0]=0;if(put(m,joined,&n,v->value)||(*v->value&&put(m,joined,&n," "))||put(m,joined,&n,value))return -1;next=copy(m,joined);}
+     else next=copy(m,value);
+     if(!next)return -1;
+     if(!v){v=(Var *)alloc(m,sizeof(*v));if(!v){release(m,next,strlen(next)+1);return -1;}
+        v->name=copy(m,name);if(!v->name){release(m,v,sizeof(*v));release(m,next,strlen(next)+1);return -1;}v->next=m->vars;m->vars=v;}
+     v->value=next;if(op!='+'||!old)v->simple=op==':';
+     if(old)release(m,old,strlen(old)+1);
     }
     v->command=command;v->is_default=0;v->overridden=forced;return v->value&&v->name?0:-1;
 }

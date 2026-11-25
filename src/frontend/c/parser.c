@@ -1375,6 +1375,198 @@ done:
     return base;
 }
 
+/* Bit-field widths are ICEs, not single numeric tokens. Keep their checked
+ * evaluation local: eval_const_expr is shared with enum/array folding and its
+ * unchecked signed arithmetic must not turn an overflowing width into zero.
+ * Values carry their C integer type so 32-bit overflow and casts are checked
+ * using the selected target ABI rather than the compiler host's long size. */
+typedef struct BitWidthValue {
+    unsigned long long bits;
+    Type *type;
+} BitWidthValue;
+
+static unsigned long long bitwidth_mask(Type *t) {
+    int bits = type_size(t) * 8;
+    return bits >= 64 ? ~0ULL : (1ULL << bits) - 1ULL;
+}
+
+static long long bitwidth_signed(BitWidthValue v) {
+    unsigned long long mask = bitwidth_mask(v.type);
+    unsigned long long sign = (mask >> 1) + 1ULL;
+    unsigned long long u = v.bits & mask;
+    if (!(u & sign)) return (long long)u;
+    /* Avoid converting an out-of-range unsigned value to signed. */
+    return -1LL - (long long)((~u) & mask);
+}
+
+static Type *bitwidth_promote(Type *t) {
+    return type_size(t) < 4 || t->kind == TYPE_BOOL || t->kind == TYPE_ENUM
+        ? type_int() : t;
+}
+
+static void bitwidth_convert(BitWidthValue *v, Type *t) {
+    if (!v->type->is_unsigned)
+        v->bits = (unsigned long long)bitwidth_signed(*v);
+    v->type = t;
+    v->bits &= bitwidth_mask(t);
+}
+
+/* Check the supported ICE grammar, including unselected branches, without
+ * evaluating arithmetic there. This rejects variables/calls and unsupported
+ * operators even behind a short circuit, but permits unevaluated division by
+ * zero. Infer ?: types from BOTH operands before evaluating the selected one. */
+static Type *bitwidth_expr_type(AstNode *n) {
+    Type *a, *b;
+    int op;
+    if (!n) return 0;
+    if (n->kind == AST_SIZEOF) {
+        if (n->sizeof_operand) return 0;
+        /* The parser's generic AST_SIZEOF currently has int type. size_t is
+         * unsigned and follows the selected package's pointer width. */
+        return type_ptr_size() == 8 ? type_ulong() : type_uint();
+    }
+    if (n->kind == AST_NUM)
+        return n->type && type_is_integer(n->type) ? n->type : 0;
+    if (n->kind == AST_CAST) {
+        if (!n->type || !type_is_integer(n->type)) return 0;
+        if (bitwidth_expr_type(n->u.unary.operand)) return n->type;
+#if ARKCC_FEATURE_FCONST_FOLD
+        {
+            AstNode *e = n->u.unary.operand;
+            if (e && e->kind == AST_NUM && e->type &&
+                (e->type->kind == TYPE_FLOAT || e->type->kind == TYPE_DOUBLE))
+                return n->type;
+        }
+#endif
+        return 0;
+    }
+    if (n->kind == AST_UNARY) {
+        a = bitwidth_expr_type(n->u.unary.operand);
+        if (!a) return 0;
+        op = n->u.unary.op;
+        if (op == TOK_NOT) return type_int();
+        if (op == TOK_PLUS || op == TOK_MINUS || op == TOK_BNOT)
+            return bitwidth_promote(a);
+        return 0;
+    }
+    if (n->kind == AST_TERNARY) {
+        if (!bitwidth_expr_type(n->u.ternary.cond)) return 0;
+        a = bitwidth_expr_type(n->u.ternary.true_expr);
+        b = bitwidth_expr_type(n->u.ternary.false_expr);
+        return a && b ? usual_arith_conv(a, b) : 0;
+    }
+    if (n->kind != AST_BINARY) return 0;
+    a = bitwidth_expr_type(n->u.binary.left);
+    b = bitwidth_expr_type(n->u.binary.right);
+    if (!a || !b) return 0;
+    op = n->u.binary.op;
+    if (op == TOK_AND || op == TOK_OR) return type_int();
+    if (op == TOK_PLUS || op == TOK_MINUS || op == TOK_MUL ||
+        op == TOK_DIV || op == TOK_MOD) return usual_arith_conv(a, b);
+    return 0;
+}
+
+static int eval_bitwidth(AstNode *n, BitWidthValue *out) {
+    BitWidthValue a, b;
+    Type *t;
+    unsigned long long mask, sign;
+    long long x, y, lo, hi, r;
+    int op;
+    if (!n) return 0;
+    if (n->kind == AST_NUM || n->kind == AST_SIZEOF) {
+        if (n->kind == AST_SIZEOF && n->sizeof_operand) return 0;
+        t = bitwidth_expr_type(n);
+        if (!t) return 0;
+        out->type = t;
+        out->bits = (unsigned long long)n->u.num_val & bitwidth_mask(t);
+        return 1;
+    }
+    if (n->kind == AST_CAST) {
+        if (!n->type || !type_is_integer(n->type)) return 0;
+        if (!eval_bitwidth(n->u.unary.operand, &a)) {
+#if ARKCC_FEATURE_FCONST_FOLD
+            /* C99 permits a floating constant immediately under an int cast. */
+            AstNode *e = n->u.unary.operand;
+            if (!e || e->kind != AST_NUM ||
+                !e->type || (e->type->kind != TYPE_FLOAT && e->type->kind != TYPE_DOUBLE) ||
+                !fconst_to_int(e->fval, n->type, &r)) return 0;
+            a.type = n->type; a.bits = (unsigned long long)r;
+#else
+            return 0;
+#endif
+        }
+        if (n->type->kind == TYPE_BOOL) {
+            a.bits = a.bits != 0; a.type = n->type;
+        } else bitwidth_convert(&a, n->type);
+        *out = a; return 1;
+    }
+    if (n->kind == AST_TERNARY) {
+        if (!eval_bitwidth(n->u.ternary.cond, &a)) return 0;
+        t = bitwidth_expr_type(n);
+        if (!t || !eval_bitwidth(a.bits ? n->u.ternary.true_expr :
+                                n->u.ternary.false_expr, &b)) return 0;
+        bitwidth_convert(&b, t);
+        *out = b; return 1;
+    }
+    if (n->kind == AST_UNARY) {
+        if (!eval_bitwidth(n->u.unary.operand, &a)) return 0;
+        bitwidth_convert(&a, bitwidth_promote(a.type));
+        op = n->u.unary.op;
+        if (op == TOK_NOT) { a.bits = !a.bits; a.type = type_int(); }
+        else if (op == TOK_BNOT) a.bits = ~a.bits & bitwidth_mask(a.type);
+        else if (op == TOK_MINUS) {
+            if (!a.type->is_unsigned && a.bits == ((bitwidth_mask(a.type) >> 1) + 1ULL)) return 0;
+            a.bits = (0ULL - a.bits) & bitwidth_mask(a.type);
+        } else if (op != TOK_PLUS) return 0;
+        *out = a; return 1;
+    }
+    if (n->kind != AST_BINARY) return 0;
+    op = n->u.binary.op;
+    if (!eval_bitwidth(n->u.binary.left, &a)) return 0;
+    if ((op == TOK_AND && !a.bits) || (op == TOK_OR && a.bits)) {
+        out->type = type_int(); out->bits = op == TOK_OR; return 1;
+    }
+    if (!eval_bitwidth(n->u.binary.right, &b)) return 0;
+    if (op == TOK_AND || op == TOK_OR) {
+        out->type = type_int(); out->bits = b.bits != 0; return 1;
+    }
+    t = usual_arith_conv(a.type, b.type);
+    bitwidth_convert(&a, t); bitwidth_convert(&b, t);
+    mask = bitwidth_mask(t); sign = (mask >> 1) + 1ULL;
+    if (t->is_unsigned) {
+        switch (op) {
+        case TOK_PLUS: a.bits += b.bits; break;
+        case TOK_MINUS: a.bits -= b.bits; break;
+        case TOK_MUL: a.bits *= b.bits; break;
+        case TOK_DIV: if (!b.bits) return 0; a.bits /= b.bits; break;
+        case TOK_MOD: if (!b.bits) return 0; a.bits %= b.bits; break;
+        default: return 0;
+        }
+        a.bits &= mask;
+    } else {
+        x = bitwidth_signed(a); y = bitwidth_signed(b);
+        hi = (long long)(sign - 1ULL); lo = -hi - 1LL;
+        switch (op) {
+        case TOK_PLUS:
+            if ((y > 0 && x > hi-y) || (y < 0 && x < lo-y)) return 0;
+            r = x+y; break;
+        case TOK_MINUS:
+            if ((y < 0 && x > hi+y) || (y > 0 && x < lo+y)) return 0;
+            r = x-y; break;
+        case TOK_MUL:
+            if (x > 0 ? (y > 0 ? x > hi/y : y < lo/x) :
+                (x < 0 && (y > 0 ? x < lo/y : y < 0 && x < hi/y))) return 0;
+            r = x*y; break;
+        case TOK_DIV: case TOK_MOD:
+            if (!y || (x == lo && y == -1)) return 0;
+            r = op == TOK_DIV ? x/y : x%y; break;
+        default: return 0;
+        }
+        a.bits = (unsigned long long)r & mask;
+    }
+    *out = a; return 1;
+}
+
 /* struct/union: parse definition or reference, register type in sym table tag namespace */
 static AstNode *parse_struct_or_union(Parser *p, int is_union) {
     char *tag = 0;
@@ -1461,46 +1653,45 @@ static AstNode *parse_struct_or_union(Parser *p, int is_union) {
                     if (g_alignas_bytes > nat) ft->align_override = g_alignas_bytes;
                 }
                 if (lexer_peek(p->lex).kind == TOK_COLON) {
-                    /* Bit-field: may have no field name */
+                    AstNode *width;
+                    BitWidthValue value;
+                    int valid = 1;
                     lexer_advance(p->lex);
-                    if (lexer_peek(p->lex).kind == TOK_NUM) {
-                        bit_w = lexer_peek(p->lex).value;
-                        lexer_advance(p->lex);
+                    width = parse_cond_expr(p);
+                    if (!bitwidth_expr_type(width) || !eval_bitwidth(width, &value)) {
+                        perror_at(p, "bit-field width is not a supported integer constant expression (or overflows)");
+                        valid = 0;
+                    } else if (!value.type->is_unsigned && bitwidth_signed(value) < 0) {
+                        perror_at(p, "bit-field width must not be negative");
+                        valid = 0;
                     }
+                    if (!ft || !type_is_integer(ft)) {
+                        perror_at(p, "bit-field must have integer type");
+                        valid = 0;
+                    } else if (type_size(ft) > 4) {
+                        perror_at(p, "bit-field base type exceeds supported 32-bit containers");
+                        valid = 0;
+                    }
+                    if (valid) {
+                        int ft_bits = ft->kind == TYPE_BOOL ? 1 : type_size(ft) * 8;
+                        if (value.bits > (unsigned long long)ft_bits) {
+                            perror_at(p, "bit-field width exceeds its type");
+                            valid = 0;
+                        } else if (!value.bits && fname) {
+                            perror_at(p, "named bit-field must not have zero width");
+                            valid = 0;
+                        }
+                    }
+                    /* -2 marks an invalid bit-field; do not silently clamp or
+                     * register it as an ordinary field during error recovery. */
+                    bit_w = valid ? (int)value.bits : -2;
                 }
                 /* Field trailing may have __attribute__((packed)) etc */
                 while (lexer_peek(p->lex).kind == TOK_ATTRIBUTE) parse_attribute(p, t);
                 if (bit_w >= 0) {
-                    /* C99 6.7.2.1p4: the width may not exceed the number of
-                     * bits in the declared type. Additionally every backend
-                     * extracts a bit-field from a 32-bit word, so widths above
-                     * 32 (legal only for long long containers) would silently
-                     * read back truncated. Report instead of clamping: a wrong
-                     * value with no diagnostic is worse than a hard error. */
-                    int ft_bits = (ft ? type_size(ft) : 4) * 8;
-                    if (bit_w > ft_bits || bit_w > 32) {
-                        /* arkc-specific condition (no measured armcc code), so
-                         * the wording is ours; the position is the token the
-                         * parser is looking at. */
-                        char nb[12], fb[12];
-                        DiagLoc loc;
-                        Token bt = lexer_peek(p->lex);
-                        loc.file = 0; loc.line = bt.line; loc.col = bt.col;
-                        if (bit_w > ft_bits) {
-                            diag_report_msg(DIAG_SEV_ERROR, &loc,
-                                            "bit-field width %d exceeds its type (%d bits)",
-                                            diag_num(nb, bit_w),
-                                            diag_num(fb, ft_bits), 0);
-                            bit_w = ft_bits;
-                        } else {
-                            diag_report_msg(DIAG_SEV_ERROR, &loc,
-                                            "bit-field width %d exceeds 32; only 32-bit containers are supported",
-                                            diag_num(nb, bit_w), 0, 0);
-                            bit_w = 32;
-                        }
-                        p->error_count++;
-                    }
                     type_struct_add_bitfield(t, fname ? fname : "", ft, bit_w);
+                } else if (bit_w == -2) {
+                    /* The diagnostic above already rejects this declaration. */
                 } else if (fname) {
                     type_struct_add_field(t, fname, ft);
                 } else if (ft && (ft->kind == TYPE_STRUCT || ft->kind == TYPE_UNION)) {
