@@ -383,7 +383,9 @@ static int count_insts_and_check_recursion(IrFunc *f, int *out_count) {
         IrOp op = f->code[i].op;
         /* Opaque user text may contain labels; duplicating it at inline sites
          * can collide labels and invalidate register/clobber assumptions. */
-        if (op == IR_ASM) recursive = 1;
+        /* Dynamic storage must be released at the callee's return.  Inlining
+         * it into a caller (especially a loop) would extend that lifetime. */
+        if (op == IR_ASM || op == IR_ALLOCA) recursive = 1;
         if (op == IR_FUNC_BEGIN || op == IR_FUNC_END ||
             op == IR_LABEL || op == IR_NOP) continue;
         if (op == IR_CALL && f->code[i].name &&

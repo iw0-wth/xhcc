@@ -157,6 +157,19 @@ static int wildcard(Make *m,char *patterns,char *out) {
     rc=0;
 done:release(m,matches,sizeof(*matches));return rc;
 }
+/* Lexical absolute paths: no filesystem existence or host-only path API. */
+static int absolute_path(Make *m,const char *path,char *out,char *scratch) {
+    size_t used=0;char *p,*parts[WORDS];int count=0,i;out[0]=0;
+    if(path[0]=='/') {if(strlen(path)>=TEXT)return fail(m,"absolute path exceeds limit",0);strcpy(scratch,path);}
+    else {if(!getcwd(scratch,TEXT))return fail(m,"cannot read current directory",0);used=strlen(scratch);
+        if(put(m,scratch,&used,"/")||put(m,scratch,&used,path))return -1;}
+    for(p=scratch;*p;p++)if(*p=='\\')*p='/';
+    p=scratch;while(*p){char *start;while(*p=='/')p++;if(!*p)break;start=p;while(*p&&*p!='/')p++;if(*p)*p++=0;
+        if(!strcmp(start,"."))continue;if(!strcmp(start,"..")){if(count)count--;continue;}
+        if(count==WORDS)return fail(m,"too many absolute path components",0);parts[count++]=start;}
+    used=0;if(put(m,out,&used,"/"))return -1;
+    for(i=0;i<count;i++){if(i&&put(m,out,&used,"/"))return -1;if(put(m,out,&used,parts[i]))return -1;}return 0;
+}
 static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,char values[3][TEXT]) {
     char *rest=expr,*raw[3],*p;int argc=1,i,kind;size_t used=0;
     while(*rest&&!isspace((unsigned char)*rest))rest++;
@@ -173,6 +186,8 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
     else if(!strcmp(expr,"if"))kind=19;else if(!strcmp(expr,"foreach"))kind=20;
     else if(!strcmp(expr,"findstring"))kind=21;else if(!strcmp(expr,"join"))kind=22;
     else if(!strcmp(expr,"value"))kind=23;else if(!strcmp(expr,"flavor"))kind=24;
+    else if(!strcmp(expr,"lastword"))kind=25;else if(!strcmp(expr,"abspath"))kind=26;
+    else if(!strcmp(expr,"info"))kind=27;
     else return fail(m,"unsupported make function",expr);
     raw[0]=rest;
     if(kind==2||kind==3||kind==6||kind==7||kind==8||kind==10||kind==17||(kind>=19&&kind<=22)) {
@@ -210,6 +225,10 @@ static int function_inner(Make *m,char *expr,const Auto *a,char *out,int depth,c
         if(nl<0||nr<0)return -1;count=nl>nr?nl:nr;
         for(i=0;i<count;i++){if(i&&put(m,out,&used," "))return -1;if(i<nl&&put(m,out,&used,left[i]))return -1;if(i<nr&&put(m,out,&used,right[i]))return -1;}return 1;
     }
+    if(kind==25||kind==26){char *items[WORDS];int count=wordlist(m,values[0],items);if(count<0)return -1;
+        if(kind==25){if(count&&put(m,out,&used,items[count-1]))return -1;}
+        else for(i=0;i<count;i++){if(absolute_path(m,items[i],values[1],values[2]))return -1;if(i&&put(m,out,&used," "))return -1;if(put(m,out,&used,values[1]))return -1;}return 1;}
+    if(kind==27){puts(values[0]);return 1;}
     if(kind==11)return wildcard(m,values[0],out)?-1:1;
     if(kind==12){char *name=trim(values[0]);Var *v=variable(m,name);const char *origin=!v?"undefined":v->local?"automatic":v->overridden?"override":v->command?"command line":v->is_default?"default":"file";
         if(a&&*name&&!name[1]&&strchr("@<^*?|",*name))origin="automatic";
@@ -393,19 +412,32 @@ static int condition(Make *m,char *s,Condition *stack,int *count,int *active) {
     else if(!strcmp(s,"else"))kind=5;else if(!strcmp(s,"endif"))kind=6;else return 0;
     if(kind>=5) {
         Condition *c;if(!*count)return fail(m,"unmatched conditional",s);
-        if(*arg)return fail(m,"unsupported conditional suffix",arg);
         c=&stack[*count-1];
-        if(kind==5){if(c->had_else)return fail(m,"duplicate else",0);c->had_else=1;*active=c->parent&&!c->match;}
-        else {*active=c->parent;(*count)--;}return 1;
+        if(kind==6){if(*arg)return fail(m,"unsupported conditional suffix",arg);*active=c->parent;(*count)--;return 1;}
+        if(c->had_else)return fail(m,"duplicate else",0);
+        if(!*arg){c->had_else=1;*active=c->parent&&!c->match;return 1;}
+        if((strncmp(arg,"ifeq",4)||!isspace((unsigned char)arg[4]))&&(strncmp(arg,"ifneq",5)||!isspace((unsigned char)arg[5])))return fail(m,"unsupported conditional suffix",arg);
+        {int eligible=c->parent&&!c->match,temporary=0,result=eligible;Condition single[8];
+         if(condition(m,arg,single,&temporary,&result)<0)return -1;
+         *active=result;if(result)c->match=1;}return 1;
     }
     if(*count==8)return fail(m,"conditional nesting limit",0);
     if(*active) {
         char expanded[TEXT];
         if(kind<=2) {
             char *comma,*end;char lhs[TEXT],rhs[TEXT];size_t len=strlen(arg);
-            if(len<3||*arg!='('||arg[len-1]!=')')return fail(m,"conditional expects (left,right)",s);
-            arg[len-1]=0;arg++;comma=separator(arg,',');if(!comma)return fail(m,"conditional missing comma",s);*comma++=0;
-            end=trim(arg);comma=trim(comma);
+            if(*arg=='\''||*arg=='"') {
+                char quote=*arg++;end=arg;while(*arg&&*arg!=quote)arg++;
+                if(!*arg)return fail(m,"unterminated quoted conditional",s);*arg++=0;arg=trim(arg);
+                if(*arg!='\''&&*arg!='"')return fail(m,"conditional expects two quoted arguments",s);
+                quote=*arg++;comma=arg;while(*arg&&*arg!=quote)arg++;
+                if(!*arg)return fail(m,"unterminated quoted conditional",s);*arg++=0;
+                if(*trim(arg))return fail(m,"extra quoted conditional arguments",s);
+            } else {
+                if(len<3||*arg!='('||arg[len-1]!=')')return fail(m,"conditional expects (left,right) or quoted arguments",s);
+                arg[len-1]=0;arg++;comma=separator(arg,',');if(!comma)return fail(m,"conditional missing comma",s);*comma++=0;
+                end=trim(arg);comma=trim(comma);
+            }
             if(expand(m,end,0,lhs,0)||expand(m,comma,0,rhs,0))return -1;
             match=!strcmp(lhs,rhs);if(kind==2)match=!match;
         } else {
@@ -484,6 +516,10 @@ static int parse(Make *m,const char *path,int optional,int depth) {
     FILE *f;char line[TEXT];int line_no=0,ncond=0,active=1,group_count=0;Condition conditions[8];Rule *group[WORDS];size_t group_raw_start[WORDS];int recipe_started=0;
     if(depth>8)return fail(m,"include nesting/cycle limit",path);
     f=fopen(path,"r");if(!f){if(optional&&errno==ENOENT)return 0;return fail(m,"cannot read makefile",path);}
+    {Var *v=variable(m,"MAKEFILE_LIST");char list[TEXT];size_t used=0;list[0]=0;
+     if((v&&put(m,list,&used,v->value))||(used&&put(m,list,&used," "))||put(m,list,&used,path)){fclose(f);return -1;}
+     if(setvar(m,"MAKEFILE_LIST",list,':',2)){fclose(f);return -1;}
+     v=variable(m,"MAKEFILE_LIST");v->overridden=0;v->command=0;}
     while(readline(line,sizeof(line),f)) {
         size_t len=strlen(line);char *s,*colon;int recipe=line[0]=='\t',ar;line_no++;
         if(len==TEXT-1&&line[len-1]!='\n'){fail(m,"makefile line too long",path);break;}
@@ -514,7 +550,7 @@ static int parse(Make *m,const char *path,int optional,int depth) {
         s=trim(line);if(!*s)continue;
         ar=condition(m,s,conditions,&ncond,&active);if(ar<0)break;if(ar)continue;
         if(!active)continue;
-        if(*s=='$'){char expanded[TEXT];if(expand(m,s,0,expanded,0))break;if(!*trim(expanded))continue;fail(m,"unsupported expanded makefile statement",expanded);break;}
+        if(*s=='$'&&!separator(s,':')&&!separator(s,'=')){char expanded[TEXT];if(expand(m,s,0,expanded,0))break;if(!*trim(expanded))continue;fail(m,"unsupported expanded makefile statement",expanded);break;}
         if(!strncmp(s,"override",8)&&(!s[8]||isspace((unsigned char)s[8]))) {
             s=trim(s+8);
             if(!strncmp(s,"undefine",8)&&(!s[8]||isspace((unsigned char)s[8]))) {if(undefine(m,s+8,1))break;}
@@ -529,7 +565,7 @@ static int parse(Make *m,const char *path,int optional,int depth) {
             for(i=0;i<n;i++)if(parse(m,args[i],opt,depth+1))break;
             if(m->error)break;m->current=0;continue;
         }
-        colon=strchr(s,':');if(!colon){fail(m,"unsupported makefile statement",s);break;}
+        colon=separator(s,':');if(!colon){fail(m,"unsupported makefile statement",s);break;}
         *colon++=0;
         {char target[TEXT],deps[TEXT],*ts[WORDS+1];int n,i;Rule *r;
             if(expand(m,trim(s),0,target,0))break;

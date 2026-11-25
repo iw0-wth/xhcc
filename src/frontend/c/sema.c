@@ -1193,6 +1193,34 @@ static Type *sema_expr(AstNode *node) {
         case AST_FUNC_CALL: {
             Symbol *s = sym_find(node->u.call.name);
             int i;
+            /* A reserved compiler intrinsic, independent of libc declarations
+             * and -fno-builtin.  Its result is always void *, never the implicit
+             * int result used for an undeclared ordinary function. */
+            if (!node->u.call.callee && node->u.call.name &&
+                ark_streq(node->u.call.name, "__builtin_alloca")) {
+                Type *size_type = type_size(type_pointer(type_void())) > 4
+                                ? type_ullong() : type_uint();
+                for (i = 0; i < node->u.call.arg_count; i++) {
+                    Type *at = sema_expr(node->u.call.args[i]);
+                    if (!type_is_integer(at)) {
+                        DiagLoc loc = loc_of(node->u.call.args[i]);
+                        diag_report_msg(DIAG_SEV_ERROR, &loc,
+                            "__builtin_alloca requires an integer byte count", 0, 0, 0);
+                        g_errors++;
+                    } else if (i == 0) {
+                        node->u.call.args[i] =
+                            sema_implicit_cast(node->u.call.args[i], size_type);
+                    }
+                }
+                if (node->u.call.arg_count != 1) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                        "__builtin_alloca requires exactly one argument", 0, 0, 0);
+                    g_errors++;
+                }
+                node->type = type_pointer(type_void());
+                return node->type;
+            }
             /* The parser only turns syntactic non-identifier callees into
              * indirect calls (name "?indirect"). `fp(x)` where fp is a
              * function pointer *variable* still arrives as a direct call

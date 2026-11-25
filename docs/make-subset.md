@@ -79,7 +79,11 @@ Supported syntax and behavior:
   `word n,text` selects a one-based word or empty text when out of range, and
   `words text` counts words. A zero, negative, malformed or overflowing word index
   fails. Paths use `/`; these functions share the normal text and word limits.
-  Unknown functions and malformed references fail.
+  `lastword text` selects the final word or empty text; `abspath paths` performs
+  lexical absolute-path normalization against the process cwd, collapsing `.`
+  and `..` without requiring paths to exist. WASI uses guest `/` paths and no
+  host-only path API. `info text` prints expanded text to stdout and yields empty
+  text. `realpath` remains unsupported. Unknown functions and malformed references fail.
 - `if condition,then[,else]` expands the condition, trims surrounding whitespace,
   and expands only the selected branch. Missing else yields empty text; errors
   or warnings in an unselected branch are not evaluated.
@@ -111,11 +115,21 @@ Supported syntax and behavior:
   and `endif`, up to eight nested blocks per file. Comparisons expand both sides;
   `ifdef` tests whether the named variable has a nonempty raw value. Inactive
   branches skip assignments, includes, rules, and recipes. Only parenthesized
-  comparisons are supported; quoted comparison syntax and `else ifeq` chains
-  are rejected. Each included file must balance its own conditions.
+  comparisons and two single/double-quoted arguments are supported, along with
+  `else ifeq`/`else ifneq` chains. Only the first matching branch executes;
+  comparisons in already-excluded branches are not expanded. A plain final else
+  cannot be followed by another branch. Each included file balances its own conditions.
 - Backslash/newline continuations, blank lines, `#` comments outside recipes,
   `include`, `-include`, and `sinclude`. Includes are only read; missing optional
   includes are ignored. Include paths follow the current working directory.
+  `MAKEFILE_LIST` appends each main/included filename immediately after it is
+  successfully opened and before its contents are parsed; missing optional
+  includes contribute nothing. Immediate `:=` can snapshot this reading order.
+- Target names may begin with variable references, for example
+  `$(BUILD)/stamp: source | directory`. Rule separators are found outside nested
+  make references, then target and prerequisite expressions expand once while
+  reading the rule. Recipe expansion stays deferred until execution. Standalone
+  diagnostic expressions can expand to empty; `eval` remains unsupported.
 - Explicit rules with whitespace-separated prerequisites, `.PHONY`,
   one-percent pattern targets/prerequisites, `.c.o` suffix recipes, and a built-in
   `.c` to `.o` compilation recipe using `CC`, `CPPFLAGS`, and `CFLAGS`.
@@ -198,7 +212,7 @@ operators (`;`, `&`, `|`, `<`, `>`, backticks) are explicitly rejected, includin
 inside quotes. Literal dollars can be printed with `$$`; command substitution
 is unsupported. An ignored command failure is reported, not silently swallowed.
 
-This does **not** implement full GNU make: functions beyond the twenty-four listed,
+This does **not** implement full GNU make: functions beyond the twenty-seven listed,
 conditionals beyond the listed forms, multiple-target variable declarations,
 export/environment variable import, grouped targets (`&:`), multiple pattern
 targets, double-colon/static pattern rules, inline recipes,

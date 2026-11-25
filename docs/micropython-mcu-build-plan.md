@@ -34,6 +34,16 @@
 7. **链接规模**：当前标准 linker 上限 32 个选中对象、512 sections、8192 symbols、512 KiB requested heap/output，尚不足覆盖原核心 132 个对象。需要逐对象/成员读取和受测的规模设计，而非一次读入全库。
 8. **脚本与打包**：已有受检 `-T`，应逐项验证原 F405 脚本；map/cref/GC、运行库、size/objcopy/DFU 等命令仍需明确接入范围。
 
+## 当前真实工程进展
+
+SD 副本新增可选 `XHCC_MCU_ONLY=1` profile 关闭冻结，默认 profile 不变；补丁、原文件摘要和生成命令保存在 SD 证据目录，不改原仓。经原 Makefile 的宿主 Python/GNU 工具生成了六个顶层头，219 个输入和 49 个生成 artifact 摘要可校验；版本信息固定到复制源提交。
+
+内置 make 已补 `MAKEFILE_LIST`、`lastword/abspath/info`、quoted conditionals/else chains、变量开头的目标规则；39 项回归通过。原 minimal 入口仍在完整 OBJ 列表展开处触发 2047 字节限制；`OBJ=` 仅用于定位后续 `vpath` 缺口，不是有效工程验收。
+
+实际非空 `py/obj.c` 在同一显式 `-O0` MCU profile 下由 GNU ARM 编译成功（该批 text=2864 字节）。xhcc 首次缺标准头和端序宏；补齐 assert/端序及 alloca 包含接口后，实际 `-E` 已成功输出 24961 行，随后 parser 在位域宽度 `8 * sizeof(size_t) - 1` 等表达式失败，尚未产生 xhcc 对象。`alloca` 的类型和参数识别已有测试，但执行保持明确拒绝，直到动态栈活跃值与 ABI 对齐验证完成。不能把头文件可包含等同 builtin 已可执行。
+
+下一步先实现并验证位域宽度常量表达式，同时推进 make 的流式长列表/大图，而不是继续提高容量常量。每次新 TU 尝试保存独立 artifact 和编译器摘要，不能覆盖旧失败证据。
+
 ## 下一批实施顺序
 
 - 完成默认流式前端的旧功能兼容回归与输出故障清理。

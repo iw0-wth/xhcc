@@ -3668,6 +3668,10 @@ static AstNode *parse_unary_expr(Parser *p) {
                      * default 4 was reported for every call, e.g.
                      * sizeof(gd()) with `double gd(void)` yielded 4 not 8. */
                     Symbol *fsym = sym_find(e->u.call.name);
+                    /* Keep the intrinsic operand until sema so its argument
+                     * constraints are checked even in this unevaluated context. */
+                    if (ark_streq(e->u.call.name, "__builtin_alloca"))
+                        return ast_sizeof_pending(e, line);
                     if (fsym && fsym->type) {
                         Type *ftype = fsym->type;
                         if (fsym->kind == SYM_FUNC) {

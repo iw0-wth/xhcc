@@ -175,7 +175,7 @@ class MakeTests(unittest.TestCase):
 
     def test_condition_and_function_errors(self):
         cases = ['else\n', 'ifeq (a,a)\nall:\n',
-                 'ifeq (a,a)\nelse ifeq (b,b)\nendif\n',
+                 'ifeq (a,a)\nelse invalid (b,b)\nendif\n',
                  'all:\n\techo $(unknown value)\n',
                  'all:\n\techo $(addprefix one)\n',
                  'all:\n\techo $(strip $(missing)\n',
@@ -594,6 +594,49 @@ class MakeTests(unittest.TestCase):
         self.assertFalse((self.directory / 'failed.elf').exists())
         self.makefile('LD = custom-unknown-ld\nall:\n\t$(LD) -o failed.elf missing.o\n')
         self.assertIn('unknown compiler/command', self.run_make(success=False).stderr)
+
+    def test_makefile_list_lastword_abspath_info_and_condition_chains(self):
+        (self.directory / 'first.mk').write_text(
+            'FIRST := $(lastword $(MAKEFILE_LIST))\ninclude second.mk\n'
+            'AFTER := $(lastword $(MAKEFILE_LIST))\n')
+        (self.directory / 'second.mk').write_text('SECOND := $(lastword $(MAKEFILE_LIST))\n')
+        self.makefile('MAIN := $(lastword $(MAKEFILE_LIST))\ninclude first.mk\n'
+                      '-include absent.mk\nMODE = two\n'
+                      'ifeq "$(MODE)" "one"\nSELECT = wrong\n'
+                      'else ifeq \'$(MODE)\' \'two\'\nSELECT = selected\n'
+                      'else ifneq "$(MODE)" "two"\nSELECT = wrong\n'
+                      'else\nSELECT = wrong\nendif\n'
+                      'ifeq (yes,yes)\nFIRST_BRANCH = kept\n'
+                      'else ifeq ($(error must-not-evaluate),bad)\nFIRST_BRANCH = wrong\nendif\n'
+                      '$(info files=$(MAKEFILE_LIST))\n'
+                      'all:\n\t@echo names=$(MAIN)/$(FIRST)/$(SECOND)/$(AFTER)\n'
+                      '\t@echo result=$(SELECT)/$(FIRST_BRANCH)\n'
+                      '\t@echo absolute=$(abspath . ../nonexistent/../lexical)\n')
+        result = self.run_make()
+        self.assertIn('files=Makefile first.mk second.mk', result.stdout)
+        self.assertNotIn('absent.mk', result.stdout)
+        self.assertIn('names=Makefile/first.mk/second.mk/second.mk', result.stdout)
+        self.assertIn('result=selected/kept', result.stdout)
+        self.assertIn('/' + self.relative + ' ', result.stdout)
+        self.assertIn('/lexical', result.stdout)
+        self.makefile('ifeq "a" "a" extra\nall:\nendif\n')
+        self.assertIn('extra quoted', self.run_make(success=False).stderr)
+
+    def test_variable_led_rules_expand_once_and_reject_eval(self):
+        self.makefile('BUILD = generated\nTARGET = two.o\n.PHONY: prepare\n'
+                      'all: $(TARGET) $(BUILD)/stamp\n'
+                      '$(TARGET): two.c | prepare\n\t' + self.recipe('arm-none-eabi-gcc') + '\n'
+                      '$(BUILD)/stamp: | prepare\n\tcp one.c "$@"\n'
+                      'prepare:\n\tmkdir -p $(BUILD)\n'
+                      'ifeq (no,yes)\n$(error inactive-must-not-run)\nendif\n')
+        self.run_make()
+        self.assertEqual((self.directory / 'two.o').read_bytes()[:4], b'\x7fELF')
+        self.assertTrue((self.directory / 'generated/stamp').exists())
+        self.assertNotIn(' -c ', self.run_make().stdout)
+        self.makefile('$(eval all: one.c)\nall:\n')
+        self.assertIn('unsupported make function: eval', self.run_make(success=False).stderr)
+        self.makefile('BUILD = generated\n$(BUILD)/bad:: one.c\n')
+        self.assertIn('unsupported rule syntax', self.run_make(success=False).stderr)
 
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [

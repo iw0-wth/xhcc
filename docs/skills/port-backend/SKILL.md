@@ -139,6 +139,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 该流式输入/输出前端必须有可写 SD/临时目录，磁盘需容纳完整展开 TU；spool 后才词法分析，不是无外存的在线 PP/lexer 管道。当前仍有 8190B 预处理单元、4096B token 和 65536B asm body 等显式上限，超限应诊断；AST/IR 与代码生成内存随程序复杂度增长，长文件测试不等于任意复杂 TU 可在固定 RAM 编译。`#line` 仍按既有行为忽略，不能声称精确 physical/expansion origin 映射。range API 不自动提供 `.a` 提取。MicroPython 原始 Makefile 的 MCU 工程尚未构建验收：宿主 Python/预生成工具可以使用，可选 freeze 可通过副本中的明确小补丁禁用；SD MicroPython 镜像的 62060 个文件、2078336738B 已逐文件 SHA/size 校验零差异，原仓 HEAD/status 未变；这只证明完整复制，原始 Makefile MCU 工程仍未构建，不能冒充编译链接成功。
 
+真实工程验收必须保留原入口和逐阶段证据。本轮 Python 四应用 970584/1005343/908589/295810 字节完整回归与 SD 七项通过，make 39/39 验证新增 `lastword`/`abspath`/`info`、`MAKEFILE_LIST`、quoted ifeq/else-chain 及变量开头规则一次展开；不能把它扩大为本轮无 Python 四应用重验。MicroPython 副本的显式 MCU-only profile 不启 freeze，原生成器预生成六个 headers，219 个输入/49 个 artifact 的摘要校验通过，宿主 Python/预生成工具允许使用。但原 minimal `-n` 入口仍在完整 OBJECT 展开时遇到 2047 text limit；`OBJ=` 只是定位后续 vpath 的诊断探针，不是原工程成功。真实 `obj.c` 在同 O0 下 GCC text=2864，新 xhcc `-E` 产生 24961 行，但 bitfield width constexpr 31/29/30 的 parser 错误仍阻止生成 xhcc `.o`；待构建补丁不是生产支持证据。assert/端序七项与 alloca guard 七项通过只证明各自合同，尤其 alloca 头识别/执行拒绝 guard 不等于支持其执行。保留失败位置和原输出，后续修复须重跑真实 TU/原 Makefile，不以删源清单、空 OBJ 或单项识别测试冒充整仓编译成功；本轮不改变 ABI。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

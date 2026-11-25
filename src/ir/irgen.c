@@ -5454,6 +5454,24 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                 g_irgen_errors++;
             }
 
+            /* The existing VLA lowering moves the physical value stack and
+             * cannot preserve live operands in general call expressions.  Keep
+             * this reserved intrinsic explicit until dynamic-stack lowering is
+             * verified; falling back to an external call would miscompile it. */
+            if (!is_indirect && !node->u.call.callee &&
+                ark_streq(node->u.call.name, "__builtin_alloca")) {
+                DiagLoc loc;
+                loc.file = 0;
+                loc.line = node->line;
+                loc.col = node->col;
+                diag_report_msg(DIAG_SEV_ERROR, &loc,
+                    "__builtin_alloca lowering requires verified dynamic-stack support",
+                    0, 0, 0);
+                g_irgen_errors++;
+                ir_emit(g->fn, IR_PUSH_INT, 0, 0, 0);
+                break;
+            }
+
             /* C99 complex builtins: lower the common ones to plain IR here. The
              * complex layout is 16 bytes (double re + double im) while IR_CALL passes
              * one long long (8 bytes) per argument, so special-case them up front. */

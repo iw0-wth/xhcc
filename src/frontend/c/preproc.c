@@ -2544,6 +2544,12 @@ static int pp_initialize(void) {
         const XhTargetDescriptor *td=xh_target_rules_get(engines[g_target_id>=0&&g_target_id<5?g_target_id:0]);
         int mi;
         if(!td)return -1;
+        /* GCC-compatible order constants; byte order follows the validated
+         * target descriptor. Ordered user -D/-U actions are applied below. */
+        preproc_define("__ORDER_LITTLE_ENDIAN__", "1234");
+        preproc_define("__ORDER_BIG_ENDIAN__", "4321");
+        preproc_define("__ORDER_PDP_ENDIAN__", "3412");
+        preproc_define("__BYTE_ORDER__", td->little_endian ? "__ORDER_LITTLE_ENDIAN__" : "__ORDER_BIG_ENDIAN__");
         {char identity[68];identity[0]='"';for(mi=0;td->id[mi]&&mi<64;mi++)identity[mi+1]=td->id[mi];identity[mi+1]='"';identity[mi+2]=0;preproc_define("__XHCC_TARGET_ID__",identity);}
         for(mi=0;mi<td->macro_count;mi++)preproc_define(td->macros[mi].name,td->macros[mi].value);
     }
