@@ -145,7 +145,11 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 后续成熟批次的默认四应用 974519/1009368/912526/296452 字节完整回归及 SD 七项均通过，默认仍为 4 MiB linear/1 MiB arena；language 24 项中的一个既有默认 skip 应如实保留，不写成无跳过。runtime typename/VLA sizeof 六项、MIR scope 回收四项、文件策略故障十二项和旧 atomic 七项均通过。RAM 改动释放不可达队列和整 CFG 标记的真实 pool 临时寿命，不转存新 heap/static；同 100-block CFG 重复十二次的 fixture 曾从 used/high=4800/4800 降到 0/400，不能把 fixture 数字当全部 TU 的峰值。driver 的阶段报告传递已通过真实 attempt7 snapshots 验证。文件输出 `no-replace` 对已存在目标明确拒绝、rename 次数为零，不隐式删除目标；stat 后 rename 不是原子 no-replace，需独占 namespace。默认 atomic 替换依赖已验证的文件系统，不能外推 NuttX 所有挂载或崩溃持久性。
 
-用户当前工程路线优先 host GNU make + host Python 预生成 + 直接 xhcc CC/LD；README 的相对路径命令已用 GNU make dry-run 验证，不依赖本机绝对工程目录。独立开发 profile 现已实际构建为 8 MiB linear/2 MiB arena，隔离默认产物/SD，非目标预算达标证明；真实 MicroPython attempt8 已完成 opt（used=2080792、high=2083344），随后申请 emit 16 KiB arena 失败，仍没有 `.o`，更没有完整固件。下一步 caller-output buffer 借用仅完成审计、未改生产源，不能写成已优化。保留阶段数据、原 TU 与失败产物状态，继续优化回用户目标预算；本批不改变 wire、capability 或 ABI。
+用户当前工程路线优先 host GNU make + host Python 预生成 + 直接 xhcc CC/LD；README 的相对路径命令已用 GNU make dry-run 验证，不依赖本机绝对工程目录。独立开发 profile 现已实际构建为 8 MiB linear/2 MiB arena，隔离默认产物/SD，非目标预算达标证明；真实 MicroPython attempt8 已完成 opt（used=2080792、high=2083344），随后申请 emit 16 KiB arena 失败，仍没有 `.o`，更没有完整固件。该 attempt8 阶段 caller-output buffer 仍只完成审计；后续生产实现与更大 profile 的结果见下段，不把后续成果回填为旧阶段通过。保留阶段数据、原 TU 与失败产物状态，继续优化回用户目标预算；本批不改变 wire、capability 或 ABI。
+
+本次成熟缓冲优化的默认四应用 974281/1009130/912288/296452 字节完整回归及 SD 七项通过，默认仍为 4 MiB linear/1 MiB arena，未新增本轮无 Python 重验。common fixed-output/ARM caller-owned Thumb2 主文本路径已由两项生产测试验证：O0/O2、dense 180 分支且 >4KiB 文本与原动态路径逐字节一致，canary、zero-allocation 和容量失败均通过，不用新 heap 副本挪账；Thumb1 主文本及局部 rewrite 仍有动态路径，固定缓冲容量还须容纳 O2 中间峰值。真实 attempt9 同 8 MiB linear/2 MiB arena 下 emit 首次通过，used 净增零、high=2083344 不增，随后 assemble 申请 1536B、used=2096936/剩余216B 时 OOM，无对象。
+
+随后独立开发 attempt10 采用 16 MiB linear/4 MiB arena，未改变默认或 SD 预算；同一 MicroPython `obj.c` exit=0，峰值 2154808B（超过 2 MiB 57656B），首次产生 25492B 对象。readelf/nm 均返回 0，确认 ELF32 little-endian ET_REL、EM_ARM=40、EABI5 flags=0x05000000，`.text`=9946B、`.data`=72B；六个核心真实 GLOBAL FUNC 位于 text 且带 Thumb bit，但符号 st_size=0 的限制需保留。192 条标准 ARM relocation 包括 76 CALL、51 MOVW、51 MOVT、14 ABS32。该结果只验对象结构，没有链接或运行，不是固件成功，也未达到原目标 RAM。下一阶段沿 host GNU make/host Python/直接 CC/LD 主线扩大真实 TU，继续记录资源与失败边界，不以开发 profile 成功代替默认预算优化。
 
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 

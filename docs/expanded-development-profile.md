@@ -61,6 +61,14 @@ requesting 16,384 bytes, with no object. The real stage progression confirms an
 optimization benefit without claiming complete compilation; see the detailed
 [resource measurements](resource-budget.md).
 
+Attempt-9 then removed the Thumb-2 main assembly-text arena duplicate and completed
+emit at the same budget, but assembly still exhausted the arena. Attempt-10 used
+a separate 4096 KiB arena / 16 MiB linear configuration with the same source and
+MCU profile and first produced an object (compile exit 0). Its arena peak was
+2,154,808 bytes, 57,656 above 2 MiB. ELF validation is recorded separately; object
+production alone is neither execution verification nor a complete firmware build.
+The 16 MiB declaration is a development budget, not measured total MCU RAM.
+
 A future reduction effort should retain the exact source/configuration and
 stage failure/peak records from the expanded attempt, then reduce live AST/IR,
 source buffering or rule heaps before lowering the arena again. A successful

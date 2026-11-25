@@ -11,9 +11,16 @@ typedef struct {
     char *buf;
     int   len;
     int   cap;
+    unsigned fixed;  /* 0: arena-owned dynamic storage; 1: borrowed, never realloc */
+    unsigned failed; /* sticky capacity/argument failure; existing text stays valid */
 } AsmBuffer;
 
 void asmbuf_init(AsmBuffer *b);
+void asmbuf_init_fixed(AsmBuffer *b, char *storage, int capacity);
+/* desired text length excludes NUL; exact fit requires desired < capacity.
+ * Returns 0 on success, -1 on sticky failure. Fixed storage never allocates. */
+int asmbuf_require(AsmBuffer *b, int desired);
+int asmbuf_failed(const AsmBuffer *b);
 void asmbuf_reserve(AsmBuffer *b, int total);
 void asmbuf_putc(AsmBuffer *b, char c);
 void asmbuf_puts(AsmBuffer *b, const char *s);

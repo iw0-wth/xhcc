@@ -543,6 +543,14 @@ static void emit_unary(AsmBuffer *b,int op) {
  *
  * This is a correctness pass, not an optimisation: it runs unconditionally and
  * only touches lines that would otherwise be refused by the encoder. */
+static int arm_text_splice(AsmBuffer*b,int from,const AsmBuffer*replacement){
+    int i,total;
+    if(asmbuf_failed(b)||asmbuf_failed(replacement)) {b->failed=1;return -1;}
+    if(from<0||from>b->len||replacement->len<0||from>2147483646-replacement->len){b->failed=1;return -1;}
+    total=from+replacement->len;if(asmbuf_require(b,total))return -1;
+    for(i=0;i<replacement->len;i++)b->buf[from+i]=replacement->buf[i];
+    b->buf[total]=0;b->len=total;return 0;
+}
 static void ark_fix_far_offset(AsmBuffer *b, int from) {
     AsmBuffer out;
     int pos = from;
@@ -644,13 +652,7 @@ static void ark_fix_far_offset(AsmBuffer *b, int from) {
     }
 
     if (changed) {
-        asmbuf_reserve(b, from + out.len);
-        if (from + out.len + 1 <= b->cap) {
-            int i;
-            for (i = 0; i < out.len; i++) b->buf[from + i] = out.buf[i];
-            b->buf[from + out.len] = 0;
-            b->len = from + out.len;
-        }
+        (void)arm_text_splice(b,from,&out);
     }
 }
 
@@ -775,13 +777,7 @@ static void pp_copy_line(AsmBuffer *out, const char *p, int len) {
     asmbuf_putc(out, '\n');
 }
 
-static void pp_splice(AsmBuffer *b, int from, AsmBuffer *out) {
-    int i;
-    asmbuf_reserve(b, from + out->len + 1);
-    for (i = 0; i < out->len; i++) b->buf[from + i] = out->buf[i];
-    b->buf[from + out->len] = 0;
-    b->len = from + out->len;
-}
+static void pp_splice(AsmBuffer*b,int from,AsmBuffer*out){(void)arm_text_splice(b,from,out);}
 
 static void pp_r1(AsmBuffer *b, int from) {
     static int ls[PP_MAX_LINES], ll[PP_MAX_LINES];
@@ -2221,22 +2217,14 @@ static void ark_regalloc_function(AsmBuffer *b, int from, IrFunc *f, int local_e
             asmbuf_putc(&shf, '\n');
             opos += len + 1;
         }
-        asmbuf_reserve(&out, shf.len + 1);
-        for (i = 0; i < shf.len; i++) out.buf[i] = shf.buf[i];
-        out.buf[shf.len] = 0;
-        out.len = shf.len;
+        if(arm_text_splice(&out,0,&shf))return;
     }
 
     /* Splice back.  In the default mode the selected slots pay for the wider
      * PUSH/POP, so the result is never longer; the guard is here so a future
      * change cannot silently overflow the buffer.  The reserve is not optional
      * now: stage 3 can lengthen a line by a digit or two. */
-    asmbuf_reserve(b, from + out.len + 1);
-    if (from + out.len + 1 <= b->cap) {
-        for (i = 0; i < out.len; i++) b->buf[from + i] = out.buf[i];
-        b->buf[from + out.len] = 0;
-        b->len = from + out.len;
-    }
+    (void)arm_text_splice(b,from,&out);
 }
 #endif /* ARKCC_FEATURE_OPT_REGALLOC */
 #if ARKCC_FEATURE_OPT_VSTACK
@@ -3414,11 +3402,7 @@ static void ark_vstack_function(AsmBuffer *b, int from)
         return;
     }
 
-    asmbuf_reserve(b, from + out.len + 1);
-    if (from + out.len + 1 > b->cap) return;
-    for (i = 0; i < out.len; i++) b->buf[from + i] = out.buf[i];
-    b->buf[from + out.len] = 0;
-    b->len = from + out.len;
+    (void)arm_text_splice(b,from,&out);
 }
 #endif /* ARKCC_FEATURE_OPT_VSTACK */
 
@@ -4166,11 +4150,7 @@ static void ark_addr_function(AsmBuffer *b, int from)
     if (out.len == b->len - from && memcmp(out.buf, b->buf + from, out.len) == 0) {
         return;
     }
-    asmbuf_reserve(b, from + out.len + 1);
-    if (from + out.len + 1 > b->cap) return;
-    for (i = 0; i < out.len; i++) b->buf[from + i] = out.buf[i];
-    b->buf[from + out.len] = 0;
-    b->len = from + out.len;
+    (void)arm_text_splice(b,from,&out);
 }
 #endif /* ARKCC_FEATURE_OPT_ADDR */
 
@@ -4555,11 +4535,7 @@ static void ark_cbz_function(AsmBuffer *b, int from)
     /* Nothing changed?  Then leave the buffer exactly as it was. */
     if (out.len == b->len - from &&
         memcmp(out.buf, b->buf + from, out.len) == 0) return;
-    asmbuf_reserve(b, from + out.len + 1);
-    if (from + out.len + 1 > b->cap) return;
-    for (i = 0; i < out.len; i++) b->buf[from + i] = out.buf[i];
-    b->buf[from + out.len] = 0;
-    b->len = from + out.len;
+    (void)arm_text_splice(b,from,&out);
 }
 #endif /* ARKCC_FEATURE_OPT_CBZ */
 
@@ -5904,7 +5880,7 @@ static const char *arm_fp_semantic_mode(int is_dbl){
     return "soft";
 }
 
-static char *codegen_arm(IrProgram *prog) {
+static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_failed) {
     const XhArmAbi *abi=xh_arm_abi();
     AsmBuffer buf;
     int fi;
@@ -5913,7 +5889,7 @@ static char *codegen_arm(IrProgram *prog) {
 #else
     int dbg = 0;
 #endif
-    asmbuf_init(&buf);
+    if(storage)asmbuf_init_fixed(&buf,storage,capacity);else asmbuf_init(&buf);
 
     /* Load the scatter description (if --scatter was given) so the base
      * addresses for Flash/.data/.bss come from the .sct layout. Must happen
@@ -9250,6 +9226,7 @@ static char *codegen_arm(IrProgram *prog) {
 #ifdef XHCC
     if (g_xhcc_elf_mode && g_xhcc_listing_mode) xh_listing_data(&buf, prog);
 #endif
+    *buffer_failed=asmbuf_failed(&buf);
     return buf.buf;
 }
 
@@ -13116,7 +13093,8 @@ static void resolve_refs_a(ArmAsm *a) {
 
 static int arm_emit(IrProgram *m, char *out, int cap) {
     char *text;
-    int fi,ii;
+    int fi,ii,buffer_failed=0;
+    if(!out||cap<1)return -1;
     xh_arm_rules_reset();
     if(xh_arm_thumb1_enabled()&&m->global_count){diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","global objects are outside initial scalar subset",0,0,0,0,0,0);if(cap>0)out[0]=0;return -1;}
     for(fi=0;fi<m->func_count;fi++)for(ii=0;ii<m->funcs[fi]->code_count;ii++){
@@ -13129,13 +13107,14 @@ static int arm_emit(IrProgram *m, char *out, int cap) {
             if(cap>0)out[0]=0;return -1;
         }
     }
-    text = codegen_arm(m);
+    text = codegen_arm(m,xh_arm_thumb1_enabled()?0:out,cap,&buffer_failed);
+    if(buffer_failed){out[0]=0;return -1;}
     if(xh_arm_thumb1_enabled()){
         AsmBuffer legalized;
         if(xh_arm_thumb1_legalize(text,&legalized)){if(cap>0)out[0]=0;return -1;}
         text=legalized.buf;
     }
-    if(xh_arm_feature_text(text))return -1;
+    if(xh_arm_feature_text(text)){out[0]=0;return -1;}
     if(xh_arm_rules_failed()){if(cap>0)out[0]=0;return -1;}
     int n = ark_strlen(text);
     int i;
@@ -13148,7 +13127,7 @@ static int arm_emit(IrProgram *m, char *out, int cap) {
         if (cap > 0) out[0] = 0;
         return -1;
     }
-    for (i = 0; i < n; i++) out[i] = text[i];
+    if(text!=out)for (i = 0; i < n; i++) out[i] = text[i];
     out[n] = 0;
     return n;
 }
