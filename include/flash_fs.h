@@ -30,7 +30,13 @@ int fs_file_size(const char *path);
  * path "-" means stdout (host) or callback (STM32).
  * WASI/host files use a same-directory exclusive temporary, then replacement
  * only after write/flush/close succeeds. Failure preserves an existing output;
- * atomic visibility depends on filesystem rename support, not crash durability.
+ * atomic visibility depends on verified filesystem rename support, not crash durability.
+ * XHCC_OUTPUT_POLICY unset or atomic-replace uses that platform replacement;
+ * no-replace refuses an existing target before rename (EEXIST). no-replace
+ * assumes one task exclusively owns output names: check+rename is NOT an atomic
+ * concurrent no-replace operation. Use versioned outputs or verified host
+ * publication on NuttX/FAT. Unknown/empty policy fails (EINVAL). This policy
+ * applies equally to fs_spool_publish; it does not change stdout semantics.
  * Replacement creates a new file with 0666 filtered by umask; existing mode,
  * ownership and hard-link identity are not preserved. stdout cannot roll back.
  */

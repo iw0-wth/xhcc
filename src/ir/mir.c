@@ -221,6 +221,7 @@ int mir_reachable(const MirFunc *m, unsigned char *reach) {
         }
     }
     for (b = 0; b < m->blk_count; b++) if (reach[b]) count++;
+    mem_pool_free(queue, m->blk_count * (int)sizeof(int));
     return count;
 }
 

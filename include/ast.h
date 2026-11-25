@@ -27,7 +27,8 @@ struct AstNode {
     /* 1 = the operand is a variable-length array, so the answer is a run-time
      * byte count that irgen reads from the slot the declaration filled.  The
      * parser used to fold it to the pointer size (8) -- a wrong answer with
-     * no diagnostic.  Only meaningful with sizeof_operand set. */
+     * no diagnostic.  Value 2 instead means a type-name with an evaluated
+     * bound in u.sizeof_expr; it needs no array allocation. */
     int         sizeof_is_vla;
     union {
         long long num_val;
@@ -97,6 +98,8 @@ struct AstNode {
         struct { char *name; AstNode **args; int arg_count; int arg_capacity; AstNode *callee; } call;
         struct { AstNode **decls; int decl_count; int decl_capacity; } program;
         struct { AstNode *obj; char *member; int is_arrow; int offset; } member;
+        /* AST_SIZEOF of an array type-name: evaluate bound once, no object. */
+        struct { AstNode *bound; int element_bytes; } sizeof_expr;
         struct { AstNode *expr; AstNode *body; AstNode **cases; int case_count; AstNode *default_case; } switch_stmt;
         struct { long long value; AstNode *stmt; int label_id; } case_stmt;
         struct { char *name; AstNode *stmt; } label_stmt;
@@ -137,6 +140,7 @@ AstNode *ast_func_call(char *name, AstNode **args, int arg_count, int line);
 AstNode *ast_array_access(AstNode *array, AstNode *index, int line);
 AstNode *ast_member(AstNode *obj, const char *member, int is_arrow, int line);
 AstNode *ast_cast(Type *target, AstNode *expr, int line);
+Type *ast_sizeof_type(void);
 AstNode *ast_sizeof_val(int bytes, int line);
 AstNode *ast_sizeof_pending(AstNode *operand, int line);
 

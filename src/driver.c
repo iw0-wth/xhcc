@@ -958,9 +958,7 @@ int xh_driver_main(int argc, char **argv) {
     }
     goto done;
   }
-#ifdef XH_ADAPTER
   o->memory_report = memory_report;
-#endif
   if (driver.object_count) {
     char error[512];
     if(driver.source_count){result=fail("mixing .c and .o or automatic compile/link is unsupported",0);goto done;}

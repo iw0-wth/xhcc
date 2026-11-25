@@ -91,6 +91,8 @@ def main(argv=None):
     environment = {'XHCC_PACKAGE_ROOT': '/xh-packages', 'XHCC_PACKAGE_DIR': '/xh-packages/' + data['id']}
     if 'XHCC_TMPDIR' in os.environ:
         environment['XHCC_TMPDIR'] = os.environ['XHCC_TMPDIR']
+    if 'XHCC_OUTPUT_POLICY' in os.environ:
+        environment['XHCC_OUTPUT_POLICY'] = os.environ['XHCC_OUTPUT_POLICY']
     command = [a.wasmtime, 'run', '--dir=.', '--dir=' + str(root) + '::/xh-packages']
     for key, value in environment.items():
         command += ['--env', key + '=' + value]

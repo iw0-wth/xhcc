@@ -172,10 +172,15 @@ AstNode *ast_cast(Type *target, AstNode *expr, int line) {
     return n;
 }
 
+Type *ast_sizeof_type(void) {
+    if (type_ptr_size() <= 4) return type_uint();
+    return type_long_size() == 8 ? type_ulong() : type_ullong();
+}
+
 AstNode *ast_sizeof_val(int bytes, int line) {
     AstNode *n = ast_new(AST_SIZEOF, line);
     n->u.num_val = bytes;
-    n->type = type_int();
+    n->type = ast_sizeof_type();
     return n;
 }
 
@@ -190,6 +195,6 @@ AstNode *ast_sizeof_pending(AstNode *operand, int line) {
     AstNode *n = ast_new(AST_SIZEOF, line);
     n->u.num_val = 0;
     n->sizeof_operand = operand;
-    n->type = type_int();
+    n->type = ast_sizeof_type();
     return n;
 }

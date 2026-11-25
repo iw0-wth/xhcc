@@ -143,6 +143,10 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 最新检查点的 Python 四应用 972625/1007543/910630/295810 字节完整回归与 SD 七项均通过。make A 40/40 已验证变量成功替换后释放旧值、失败保留旧值的 budget 行为；B–D 长列表流式表示尚未开始，完整 OBJECT 的 2047 限制尚未解决。位域 constexpr 六项通过真实 GNU ARM/CPU 返回 73：只支持明确整数表达式子集，base≤4B、32-bit container，目标宽度转换/unsigned wrap 和 `&&`/`||`/`?:` 短路有验证；binary shift/bitwise/compare/equality 尚不支持，非全 C99 ICE。MicroPython `obj.c` attempt3 预处理通过且原位域首错消失，但正常编译和 syntax-only 均在 IR 之前 arena OOM，没有 `.o`；未修改源 TU 或加大池来冒充通过。允许后续以独立开发 profile 尝试 8 MiB linear/2 MiB arena，再优化回目标预算，但该 profile 本轮未实施，也无扩容或新无 Python 构建验收结论。此检查点不扩大 ABI 或 capability。
 
+后续成熟批次的默认四应用 974519/1009368/912526/296452 字节完整回归及 SD 七项均通过，默认仍为 4 MiB linear/1 MiB arena；language 24 项中的一个既有默认 skip 应如实保留，不写成无跳过。runtime typename/VLA sizeof 六项、MIR scope 回收四项、文件策略故障十二项和旧 atomic 七项均通过。RAM 改动释放不可达队列和整 CFG 标记的真实 pool 临时寿命，不转存新 heap/static；同 100-block CFG 重复十二次的 fixture 曾从 used/high=4800/4800 降到 0/400，不能把 fixture 数字当全部 TU 的峰值。driver 的阶段报告传递已通过真实 attempt7 snapshots 验证。文件输出 `no-replace` 对已存在目标明确拒绝、rename 次数为零，不隐式删除目标；stat 后 rename 不是原子 no-replace，需独占 namespace。默认 atomic 替换依赖已验证的文件系统，不能外推 NuttX 所有挂载或崩溃持久性。
+
+用户当前工程路线优先 host GNU make + host Python 预生成 + 直接 xhcc CC/LD；README 的相对路径命令已用 GNU make dry-run 验证，不依赖本机绝对工程目录。独立开发 profile 现已实际构建为 8 MiB linear/2 MiB arena，隔离默认产物/SD，非目标预算达标证明；真实 MicroPython attempt8 已完成 opt（used=2080792、high=2083344），随后申请 emit 16 KiB arena 失败，仍没有 `.o`，更没有完整固件。下一步 caller-output buffer 借用仅完成审计、未改生产源，不能写成已优化。保留阶段数据、原 TU 与失败产物状态，继续优化回用户目标预算；本批不改变 wire、capability 或 ABI。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

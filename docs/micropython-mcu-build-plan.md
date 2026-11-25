@@ -48,7 +48,7 @@ SD 副本新增可选 `XHCC_MCU_ONLY=1` profile 关闭冻结，默认 profile �
 
 实际非空 `py/obj.c` 在同一显式 `-O0` MCU profile 下由 GNU ARM 编译成功（该批 text=2864 字节）。xhcc 首次缺标准头和端序宏；补齐 assert/端序及 alloca 包含接口后，实际 `-E` 已成功输出 24961 行，随后 parser 在位域宽度 `8 * sizeof(size_t) - 1` 等表达式失败。下一批已修复受支持的位域常量表达式并通过六项专项；attempt-3 的同一 `obj.c` 已越过该诊断，但编译与 `-fsyntax-only` 都在 IR 生成前触发 `memory pool exhausted`，仍未产生 xhcc 对象。`alloca` 的类型和参数识别已有测试，但执行保持明确拒绝，直到动态栈活跃值与 ABI 对齐验证完成。不能把头文件可包含等同 builtin 已可执行。
 
-独立 expanded 开发配置的 attempt-4（2 MiB arena／8 MiB linear）已越过 OOM，但函数内 `MP_STATIC_ASSERT_NONCONSTEXPR` 的 `sizeof(char[...])` 变长 type-name 被拒绝，尚无对象。该宏有意接受非 ICE 的 extern 对象地址比较，不能用定义别的编译器宏跳过；下一步修正函数内 VLA `sizeof` 语义。
+独立 expanded 开发配置的 attempt-4（2 MiB arena／8 MiB linear）已越过 OOM，但函数内 `MP_STATIC_ASSERT_NONCONSTEXPR` 的 `sizeof(char[...])` 变长 type-name 被拒绝，尚无对象。该宏有意接受非 ICE 的 extern 对象地址比较，不能用定义别的编译器宏跳过。函数内 VLA `sizeof` 已实现受支持的运行时路径并通过六项专项；后续真实取证显示 parser、sema、IR 均完成，RAM 优化回收不可达分析临时 CFG 后，attempt-8 同预算首次完成 opt。当前 emit 申请 16 KiB 失败，仍无对象；详细阶段数据见[资源预算](resource-budget.md)。
 
 先以主机 GNU make＋Python＋xhcc/xhlinker 推进真实 TU 和固件链，再逐步完善 xhccm 的流式长列表/大图。用户允许独立 expanded 开发 profile 临时增加 arena 与线性内存以先跑通，再按阶段测量优化回目标；默认受限配置及 SD 产物必须保留，不能用扩大预算后的成功冒充原 RAM 目标已达成。每次新 TU 尝试保存独立 artifact 和编译器摘要，不能覆盖旧失败证据。
 

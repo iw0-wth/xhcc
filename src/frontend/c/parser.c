@@ -326,6 +326,7 @@ static AstNode *g_vla_size_expr;
 #define VLA_CTX_NONE   0
 #define VLA_CTX_LOCAL  1
 #define VLA_CTX_PARAM  2
+#define VLA_CTX_SIZEOF 3 /* array type-name within block-scope sizeof */
 static int g_vla_ctx;
 static int   g_attr_is_softfp;
 static int   g_attr_is_forceinline;
@@ -1420,10 +1421,8 @@ static Type *bitwidth_expr_type(AstNode *n) {
     int op;
     if (!n) return 0;
     if (n->kind == AST_SIZEOF) {
-        if (n->sizeof_operand) return 0;
-        /* The parser's generic AST_SIZEOF currently has int type. size_t is
-         * unsigned and follows the selected package's pointer width. */
-        return type_ptr_size() == 8 ? type_ulong() : type_uint();
+        if (n->sizeof_operand || n->sizeof_is_vla) return 0;
+        return ast_sizeof_type();
     }
     if (n->kind == AST_NUM)
         return n->type && type_is_integer(n->type) ? n->type : 0;
@@ -1474,7 +1473,7 @@ static int eval_bitwidth(AstNode *n, BitWidthValue *out) {
     int op;
     if (!n) return 0;
     if (n->kind == AST_NUM || n->kind == AST_SIZEOF) {
-        if (n->kind == AST_SIZEOF && n->sizeof_operand) return 0;
+        if (n->kind == AST_SIZEOF && (n->sizeof_operand || n->sizeof_is_vla)) return 0;
         t = bitwidth_expr_type(n);
         if (!t) return 0;
         out->type = t;
@@ -1861,6 +1860,7 @@ typedef struct DeclNode {
     int           dims[ARK_MAX_ARRAY_DIMS];
     int           ndims;
     int           vla_dim;                  /* index of the VLA dimension, -1 = none */
+    AstNode      *vla_bound;                /* bound belonging to this declarator */
     AstNode     **params;                   /* suffix FUNC: parameter ASTs are dropped,
                                              * only their types are kept */
     Type        **ptypes;
@@ -1942,8 +1942,13 @@ static void decl_parse_suffixes(Parser *p, DeclNode *n, int consume_paren) {
                  * fallback to 1 on failure to avoid empty arrays. Supports 1+2, SIZE+2 (macro expansion), sizeof(int)*2 etc. */
                 AstNode *dim_expr = parse_cond_expr(p);
                 long long folded = 0;
-                if (dim_expr && eval_const_expr(dim_expr, &folded) && folded > 0) {
-                    v = folded;
+                if (dim_expr && eval_const_expr(dim_expr, &folded)) {
+                    if (folded <= 0) {
+                        perror_at(p, "array dimension must be greater than zero");
+                        v = 1; /* recovery only: the translation unit has failed */
+                    } else {
+                        v = folded;
+                    }
                 } else {
                     /* `int a[2.5]` and `int a[(int)(1.0/0.0)]` are not
                      * integer constant expressions (the first has a float
@@ -2001,9 +2006,9 @@ static void decl_parse_suffixes(Parser *p, DeclNode *n, int consume_paren) {
                 /* Prototype scope: the parameter decays to a pointer, so the
                  * length is never needed -- and must not be recorded, or it
                  * is consumed by the next local declaration in the body. */
-            } else if (g_vla_ctx != VLA_CTX_LOCAL) {
+            } else if (g_vla_ctx != VLA_CTX_LOCAL && g_vla_ctx != VLA_CTX_SIZEOF) {
                 perror_at(p, "a variably modified type is only allowed for a block-scope object");
-            } else if (g_vla_size_expr) {
+            } else if (g_vla_ctx != VLA_CTX_SIZEOF && g_vla_size_expr) {
                 perror_at(p, "nested variable-length array declarators are not supported");
             } else if (!g_config.enable_vla) {
                 perror_at(p, "variable-length arrays are disabled in this configuration");
@@ -2016,7 +2021,9 @@ static void decl_parse_suffixes(Parser *p, DeclNode *n, int consume_paren) {
             else {
                 vla_ok = 1;
                 vla_dim = vla_at[0];
-                g_vla_size_expr = vla_exprs[0];
+                n->vla_bound = vla_exprs[0];
+                if (g_vla_ctx != VLA_CTX_SIZEOF)
+                    g_vla_size_expr = vla_exprs[0];
             }
 #endif
             if (!vla_ok && vla_at[0] < dim_count) {
@@ -2147,6 +2154,7 @@ static Type *decl_apply(Parser *p, DeclNode *n, Type *T, char **out_name) {
                  * irgen emits IR_ALLOCA for the declaration. */
                 T = type_pointer(T);
                 T->is_vla = 1;
+                T->vla_bound = n->vla_bound;
             } else {
                 T = type_array(T, n->dims[i]);
             }
@@ -3790,7 +3798,23 @@ static AstNode *parse_unary_expr(Parser *p) {
                     (t2.kind == TOK_IDENT && sym_is_typedef(t2.str))) {
                     lexer_advance(p->lex); /* '(' */
                     {
-                        Type *st = type_name_of_token(p);
+                        int saved_ctx = g_vla_ctx;
+                        Type *st;
+                        /* A type-name in sizeof has no array object to allocate.
+                         * Keep its bound on the type, outside the local-object
+                         * declaration side channel (also for nested sizeof). */
+                        g_vla_ctx = sym_current_scope() > 0 ? VLA_CTX_SIZEOF : VLA_CTX_NONE;
+                        st = type_name_of_token(p);
+                        g_vla_ctx = saved_ctx;
+                        if (st && st->is_vla && st->vla_bound) {
+                            AstNode *dynamic = ast_new(AST_SIZEOF, line);
+                            dynamic->sizeof_is_vla = 2;
+                            dynamic->u.sizeof_expr.bound = st->vla_bound;
+                            dynamic->u.sizeof_expr.element_bytes = type_size(st->base);
+                            dynamic->type = ast_sizeof_type();
+                            lexer_expect(p->lex, TOK_RPAREN);
+                            return dynamic;
+                        }
                         if (st && st->kind == TYPE_FUNC) {
                             /* C99 6.5.3.4p1: sizeof shall not be applied to
                              * a function type.  Reporting beats folding to

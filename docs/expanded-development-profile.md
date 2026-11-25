@@ -46,6 +46,21 @@ used by `MP_STATIC_ASSERT_NONCONSTEXPR`; no object was produced. This is progres
 to a new diagnostic, not a successful MicroPython compile or a production-memory
 result. Per-attempt source, module and tool records remain in the SD evidence.
 
+Attempt-5 then used the same 2 MiB/8 MiB budgets with the supported function-local
+VLA `sizeof` correction. The standalone language tests passed, but real `obj.c`
+again reached arena exhaustion without an object. That build had no stage/request
+statistics, so the failure cannot yet be attributed to parser, sema, IR or output.
+RAM optimization is now a parallel priority: add non-allocating stage/request
+reports, repeat the fixed TU, and reduce duplicate storage and overlapping
+lifetimes before claiming the production budget can handle it.
+
+Attempt-7 provided stage reports and located the failure in `ir.unreachable`.
+After reclaiming its temporary CFG scope, attempt-8 completed opt at the same
+budgets (used 2,080,792; high 2,083,344 bytes). It then failed during emit while
+requesting 16,384 bytes, with no object. The real stage progression confirms an
+optimization benefit without claiming complete compilation; see the detailed
+[resource measurements](resource-budget.md).
+
 A future reduction effort should retain the exact source/configuration and
 stage failure/peak records from the expanded attempt, then reduce live AST/IR,
 source buffering or rule heaps before lowering the arena again. A successful

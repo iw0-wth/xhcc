@@ -4,6 +4,7 @@
  */
 #include "memory.h"
 #include "platform.h"
+#include <limits.h>
 
 /* Place the large pool in .ark_buf section so the linker script can put it
  * in AXI SRAM (0x24000000) on STM32H743. On host builds this is a no-op. */
@@ -16,11 +17,45 @@ static int           g_offset = 0;
 static int           g_high = 0;
 /* Bumped by mem_pool_reset(); see mem_pool_generation() in memory.h. */
 static int           g_generation = 0;
+static const char   *g_phase = "unclassified";
+
+void mem_pool_set_phase(const char *phase) {
+    g_phase = phase ? phase : "unclassified";
+}
+
+const char *mem_pool_phase(void) { return g_phase; }
+
+void mem_pool_report_phase(void) {
+    ark_log("[memory] arena stage=%s used=%d high=%d capacity=%d B\n",
+            g_phase, g_offset, g_high, ARK_POOL_SIZE);
+}
+
+static void mem_pool_exhausted(int request, int aligned) {
+    ark_log("[memory] memory pool exhausted: phase=%s request=%d aligned=%d "
+            "used=%d high=%d capacity=%d B\n",
+            g_phase, request, aligned, g_offset, g_high, ARK_POOL_SIZE);
+    ark_abort("memory pool exhausted");
+}
 
 void mem_pool_reset(void) {
     g_offset = 0;
     g_high = 0;
+    g_phase = "unclassified";
     g_generation++;
+}
+
+MemPoolMark mem_pool_mark(void) {
+    MemPoolMark mark;
+    mark.offset = g_offset;
+    mark.generation = g_generation;
+    return mark;
+}
+
+int mem_pool_rewind(MemPoolMark mark) {
+    if (mark.generation != g_generation || mark.offset < 0 ||
+        mark.offset > g_offset || (mark.offset & 7)) return -1;
+    g_offset = mark.offset;
+    return 0;
 }
 
 int mem_pool_generation(void) {
@@ -40,10 +75,15 @@ int mem_pool_capacity(void) {
 }
 
 void *mem_pool_alloc(int size) {
+    int request = size;
     if (size <= 0) size = 1;
+    if (size > INT_MAX - 7) {
+        mem_pool_exhausted(request, -1); /* alignment cannot be represented */
+        return 0;
+    }
     size = (size + 7) & ~7; /* 8-byte aligned, compatible with 64-bit host pointers */
-    if (g_offset + size > ARK_POOL_SIZE) {
-        ark_abort("memory pool exhausted");
+    if (size > ARK_POOL_SIZE - g_offset) {
+        mem_pool_exhausted(request, size);
         return 0;
     }
     void *p = &g_pool[g_offset];
@@ -67,7 +107,7 @@ void mem_pool_free(void *ptr, int size) {
      * not zero it here. */
     unsigned char *p = (unsigned char *)ptr;
     int aligned;
-    if (!p || size <= 0) return;
+    if (!p || size <= 0 || size > INT_MAX - 7) return;
     aligned = (size + 7) & ~7;
     if (p + aligned == &g_pool[g_offset]) {
         g_offset -= aligned;
@@ -120,14 +160,18 @@ void *mem_realloc(void *old_ptr, int old_size, int new_size) {
      * into O(N), which previously exhausted the 1 MB pool on ~500-decl files.
      * old_size is the logical size the caller passed previously; mem_pool_alloc
      * rounds up to 8 bytes, so we compare against the aligned old size. */
-    if (old_ptr && old_size > 0 && new_size > 0) {
+    if (new_size > INT_MAX - 7) {
+        mem_pool_exhausted(new_size, -1);
+        return 0;
+    }
+    if (old_ptr && old_size > 0 && old_size <= INT_MAX - 7 && new_size > 0) {
         int aligned_old = (old_size + 7) & ~7;
         int aligned_new = (new_size + 7) & ~7;
         unsigned char *end = (unsigned char *)old_ptr + aligned_old;
         if (end == &g_pool[g_offset]) {
             /* Last allocation: adjust the bump pointer in place */
             int delta = aligned_new - aligned_old;
-            if (g_offset + delta <= ARK_POOL_SIZE) {
+            if (delta <= ARK_POOL_SIZE - g_offset) {
                 g_offset += delta;
                 if (g_offset > g_high) g_high = g_offset;
                 /* Zero newly exposed bytes (shrinking leaves them, which is fine) */

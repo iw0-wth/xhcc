@@ -26,6 +26,7 @@ class MemoryPeakTests(unittest.TestCase):
 #include "memory.h"
 #include <stdio.h>
 #include <stdlib.h>
+void ark_log(const char *format, ...) { (void)format; }
 void ark_abort(const char *message) { fprintf(stderr,"%s\n",message); exit(90); }
 int main(void) {
     unsigned char *allocation, *grown;

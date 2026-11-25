@@ -54,6 +54,31 @@ The Python [desktop adapter](tools/xhcc.py) discovers packages and runs the comp
 wasmtime run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
 ```
 
+## Using host GNU make and Python generators
+
+An existing project can keep host GNU make and its Python generators while invoking the Wasm compiler/linker directly. From the project's build directory, save this configuration as `xhcc-host.mk` (adjust the relative repository path):
+
+```make
+XHCC_ROOT ?= ../xhcc
+WASMTIME ?= wasmtime
+XHCC_MODULE ?= $(XHCC_ROOT)/build/wasm/xhcc.wasm
+XHLINKER_MODULE ?= $(XHCC_ROOT)/build/wasm/xhlinker.wasm
+XHCC_CC = $(WASMTIME) run --dir=. --dir="$(XHCC_ROOT)/packages::/packages" --env XHCC_PACKAGE_ROOT=/packages "$(XHCC_MODULE)" arm-none-eabi-gcc
+XHCC_LD = $(WASMTIME) run --dir=. --dir="$(XHCC_ROOT)/packages::/packages" --env XHCC_PACKAGE_ROOT=/packages "$(XHLINKER_MODULE)" --target arm
+CC = $(XHCC_CC)
+LD = $(XHCC_LD)
+```
+
+Load that fragment alongside the original Makefile and override command variables explicitly, including GNU make's built-in `CC=cc` default:
+
+```sh
+make -f xhcc-host.mk -f Makefile CC='$(XHCC_CC)' LD='$(XHCC_LD)' PYTHON=python3
+```
+
+This quoting assumes a POSIX shell (including MSYS2 Bash). `--dir=.` exposes the current project directory; mount additional source trees explicitly if needed. Host Python runs the original project's generators; no Python bridge is required between GNU make and the Wasm commands. The [Python adapter](tools/xhcc.py) remains an optional alternative. Set `XHCC_MODULE` to another built module when appropriate, for example `$(XHCC_ROOT)/build/wasm/dev/expanded/all/xhccn/xhccn.wasm` for an expanded-profile compile-only build. A project whose link recipe invokes the compiler driver can instead use `LD='$(XHCC_CC)'` with a linking-enabled module.
+
+Compile C with `-c` into `.o` files before linking. The original project's flags and link recipe must fit the supported GCC/ELF subset; standalone `xhlinker` does not accept compiler-only flags. Archive/`-l` handling and full GNU linker scripts are not implemented. Replacing `CC`/`LD` does not guarantee an arbitrary make project builds: the complete original-Makefile MicroPython build and firmware output remain unverified, including current compiler memory limits in complex translation units.
+
 ## ARM/RV32 ELF linking and image output
 
 Compile first, then link explicit objects. This minimal example sets `add` as the ELF entry to demonstrate linking; it is not a board startup program:

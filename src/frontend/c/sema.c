@@ -417,7 +417,7 @@ int eval_const_expr(AstNode *node, long long *out_value) {
         case AST_SIZEOF:
             /* Still waiting for sema (the operand's type is not known yet):
              * u.num_val has not been written, so it is not a constant. */
-            if (node->sizeof_operand) return 0;
+            if (node->sizeof_operand || node->sizeof_is_vla) return 0;
             *out_value = node->u.num_val;
             return 1;
         case AST_CAST:
@@ -457,6 +457,24 @@ int eval_const_expr(AstNode *node, long long *out_value) {
                 default: return 0;
             }
         case AST_BINARY:
+            /* Only identical, side-effect-free whole-object addresses are
+             * folded. Different external symbols may alias or be weak. */
+            if (node->u.binary.op == TOK_EQ || node->u.binary.op == TOK_NE) {
+                AstNode *a = node->u.binary.left, *b = node->u.binary.right;
+                if (a && b && a->kind == AST_UNARY && b->kind == AST_UNARY &&
+                    a->u.unary.op == TOK_BAND && b->u.unary.op == TOK_BAND &&
+                    a->u.unary.operand && b->u.unary.operand &&
+                    a->u.unary.operand->kind == AST_VAR &&
+                    b->u.unary.operand->kind == AST_VAR) {
+                    Symbol *sa = sym_find(a->u.unary.operand->u.name);
+                    Symbol *sb = sym_find(b->u.unary.operand->u.name);
+                    if (sa && sa == sb && (sa->kind == SYM_VAR ||
+                        sa->kind == SYM_GLOBAL || sa->kind == SYM_PARAM)) {
+                        *out_value = node->u.binary.op == TOK_EQ;
+                        return 1;
+                    }
+                }
+            }
             if (!eval_const_expr(node->u.binary.left,  &lv)) return 0;
             if (!eval_const_expr(node->u.binary.right, &rv)) return 0;
             switch (node->u.binary.op) {
@@ -1011,10 +1029,32 @@ static Type *sema_expr(AstNode *node) {
             if (!node->type) node->type = type_pointer(type_char());
             return node->type;
         case AST_SIZEOF:
+            if (node->sizeof_is_vla == 2) {
+                Type *bt = sema_expr(node->u.sizeof_expr.bound);
+                if (!bt || !type_is_integer(bt)) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                        "variable-length array bound must have integer type", 0, 0, 0);
+                    g_errors++;
+                }
+                if (node->u.sizeof_expr.element_bytes <= 0) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                        "'sizeof' of a variable-length array requires a complete element type",
+                        0, 0, 0);
+                    g_errors++;
+                }
+                /* Lower the count to target size_t before multiplication. The
+                 * ordinary cast/binary IR path handles 32/64-bit word bridges. */
+                node->u.sizeof_expr.bound = ast_cast(ast_sizeof_type(),
+                    node->u.sizeof_expr.bound, node->line);
+                node->type = ast_sizeof_type();
+                return node->type;
+            }
             if (node->sizeof_is_vla) {
                 /* Runtime size: irgen reads the byte count the declaration
                  * stored, so the operand stays in place for it. */
-                node->type = type_int();
+                node->type = ast_sizeof_type();
                 return node->type;
             }
             if (node->sizeof_operand) {
@@ -1031,7 +1071,7 @@ static Type *sema_expr(AstNode *node) {
                      * read.  Report it rather than answer the pointer size. */
                     if (node->sizeof_operand->kind == AST_VAR) {
                         node->sizeof_is_vla = 1;
-                        node->type = type_int();
+                        node->type = ast_sizeof_type();
                         return node->type;
                     }
                     {
@@ -1053,7 +1093,7 @@ static Type *sema_expr(AstNode *node) {
                 node->u.num_val = sz;
                 node->sizeof_operand = 0;
             }
-            node->type = type_int();
+            node->type = ast_sizeof_type();
             return node->type;
         case AST_INIT_LIST: {
             int i;

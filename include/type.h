@@ -99,6 +99,8 @@ typedef struct Type {
      * the order they were met.  Appended at the very end so the positional
      * initialisers in type.c keep their meaning; see BfBreak. */
     BfBreak     *bf_breaks;
+    /* Frontend-only VLA bound; consumed by sizeof lowering, never serialized. */
+    struct AstNode *vla_bound;
 } Type;
 
 /* ARK_IS_CX(t): does `t` name a _Complex type?  Spelled as a literal 0 in a

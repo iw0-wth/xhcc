@@ -4083,6 +4083,15 @@ static void irgen_expr(IrGen *g, AstNode *node) {
             break;
         }
         case AST_SIZEOF:
+            if (node->sizeof_is_vla == 2) {
+                AstNode *bytes = ast_num(node->u.sizeof_expr.element_bytes, node->line);
+                AstNode *product;
+                bytes->type = ast_sizeof_type();
+                product = ast_binary(TOK_MUL, node->u.sizeof_expr.bound, bytes, node->line);
+                product->type = ast_sizeof_type();
+                irgen_expr(g, product);
+                break;
+            }
             if (node->sizeof_is_vla && node->sizeof_operand &&
                 node->sizeof_operand->kind == AST_VAR) {
                 Symbol *vs = sym_find(node->sizeof_operand->u.name);
@@ -4091,7 +4100,11 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                     break;
                 }
             }
-            ir_emit(g->fn, IR_PUSH_INT, node->u.num_val, 0, 0);
+            {
+                AstNode *value = ast_num(node->u.num_val, node->line);
+                value->type = ast_sizeof_type();
+                irgen_expr(g, value);
+            }
             break;
         case AST_COMPOUND_LITERAL: {
             /* Bug-I7 FIX: Block-scope compound literal -- allocate on stack.

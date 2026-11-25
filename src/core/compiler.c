@@ -60,6 +60,24 @@ unsigned long arkcc_buf_addr(void)
 #endif
 }
 
+/* Checkpoints are explicit and allocation-free; keep the existing final arena
+ * peak report in the driver unchanged. Labels must outlive compilation. */
+static void memory_phase_begin(const ArkOptions *opts, const char *phase) {
+    mem_pool_set_phase(phase);
+#ifdef XHCC
+    if (opts->memory_report) mem_pool_report_phase();
+#else
+    (void)opts;
+#endif
+}
+static void memory_phase_end(const ArkOptions *opts) {
+#ifdef XHCC
+    if (opts->memory_report) mem_pool_report_phase();
+#else
+    (void)opts;
+#endif
+}
+
 static int derive_output(const char *input, char *out, int cap, const char *ext) {
     int n = ark_strlen(input);
     int el = ark_strlen(ext);
@@ -1776,6 +1794,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     if (out_ir) *out_ir = 0;
     if (out_be) *out_be = 0;
 
+    memory_phase_begin(opts, "preprocess");
     diag_begin_tu(opts->input_path);
     preproc_reset();
 #ifdef XHCC
@@ -2320,12 +2339,15 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * parser must start from the default alignment no matter what the
      * preprocessor (or a previous translation unit) left behind. */
     type_pack_reset();
+    memory_phase_end(opts);
+    memory_phase_begin(opts, "parse");
 #ifdef XHCC
     { int lex_rc=lexer_init_source(&lex, &stream->reader); if(lex_rc!=ARK_OK)return lex_rc; }
 #else
     lexer_init(&lex, preprocessed);
 #endif
     ast = parse_program(&lex);
+    memory_phase_end(opts);
 #ifdef XHCC
     if (stream->reader.error < 0) {
         diag_tool(DIAG_SEV_ERROR, opts->input_path, "cannot read preprocessing temporary: %s",
@@ -2340,7 +2362,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * follow-on messages ("unresolved label", "cannot be lowered") that point
      * at the symptom instead of the cause. Warnings do not count. */
     if (diag_errors() > 0) return ARK_ERR_PARSE;
+    memory_phase_begin(opts, "sema");
     sema_errs = sema_check(ast);
+    memory_phase_end(opts);
     if (sema_errs > 0) return ARK_ERR_SEMA;
     if (diag_errors() > 0) return ARK_ERR_SEMA;
     /* AST stage of the pass pipeline: the lint passes, in the order declared
@@ -2353,7 +2377,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
 #endif
     {
         int diag_before_irgen = diag_errors();
+        memory_phase_begin(opts, "IR");
         ir = shared ? irgen_program_into(ast, shared) : irgen_program(ast);
+        memory_phase_end(opts);
         if (!ir) return ARK_ERR_IRGEN;
         if (g_irgen_errors > diag_before_irgen) {
             /* IR generation could not lower part of the program; the emitted
@@ -2395,7 +2421,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     if (!shared) {
         int lvl = opts->opt_level;
         if (lvl < g_config.opt_level) lvl = g_config.opt_level;
+        memory_phase_begin(opts, "opt");
         pipeline_run_ir(ir, lvl, pipeline_profile());
+        memory_phase_end(opts);
     }
 
     if (out_ir) *out_ir = ir;
@@ -3628,7 +3656,9 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
      * file" or "failed". */
     {
         int diag_before_codegen = diag_errors();
+        memory_phase_begin(opts, "emit");
         asm_len = be->emit_asm(ir, g_asm, ARK_ASM_BUF_SIZE);
+        memory_phase_end(opts);
         if (asm_len < 0) {
             /* Every backend returns -1 when the whole program does not
              * fit the buffer instead of handing back the prefix: a cut
@@ -3701,7 +3731,9 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
 #if ARKCC_BACKEND_X86_64
             g_x86_obj_mode = 1;
 #endif
+            memory_phase_begin(opts, "assemble");
             code_len = be->assemble(g_asm, g_code, ARK_CODE_BUF_SIZE);
+            memory_phase_end(opts);
             if (code_len < 0) {
                 diag_tool(DIAG_SEV_ERROR, opts->input_path, "assembly failed", 0,0,0,0,0,0);
                 return ARK_ERR_ASM;
@@ -3786,7 +3818,9 @@ int ark_emit_program(const ArkOptions *opts, IrProgram *ir, const ArkBackend *be
 #if ARKCC_BACKEND_X86_64
     g_x86_obj_mode = 0;
 #endif
+    memory_phase_begin(opts, "assemble");
     code_size = be->assemble(g_asm, g_code, ARK_CODE_BUF_SIZE);
+    memory_phase_end(opts);
     if (code_size < 0) {
         diag_tool(DIAG_SEV_ERROR, "arkcc", "assembly failed", 0,0,0,0,0,0);
         return ARK_ERR_ASM;

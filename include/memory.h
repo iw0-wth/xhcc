@@ -21,6 +21,13 @@ void *mem_pool_alloc(int size);
  * before any further mem_pool_alloc. `size` must match the size passed to the
  * corresponding mem_pool_alloc call. */
 void  mem_pool_free(void *ptr, int size);
+/* Temporary scopes only: every allocation after the mark must be dead before
+ * rewind, with no pointer escaping. Validation cannot detect live pointers.
+ * Rewind returns 0 on success, -1 for stale/forward/invalid marks; preserves
+ * the peak and generation. A mark is invalid after mem_pool_reset(). */
+typedef struct { int offset; int generation; } MemPoolMark;
+MemPoolMark mem_pool_mark(void);
+int mem_pool_rewind(MemPoolMark mark);
 char *mem_strdup(const char *s);
 char *mem_strndup(const char *s, int n);
 void *mem_realloc(void *old_ptr, int old_size, int new_size);
@@ -30,6 +37,13 @@ int   mem_pool_used(void);
  * instead of from the number in a failed build's error message. */
 int   mem_pool_high(void);
 int   mem_pool_capacity(void);
+/* Borrowed phase label: use a literal or storage valid until the next set/reset.
+ * NULL and reset select "unclassified". These operations allocate no memory. */
+void  mem_pool_set_phase(const char *phase);
+const char *mem_pool_phase(void);
+/* Explicit checkpoint: caller gates this on its memory-report option. Arena
+ * accounting excludes static buffers, stack, filesystem and libc/rules heap. */
+void  mem_pool_report_phase(void);
 /* Reset generation: bumped by every mem_pool_reset().  A caller that caches a
  * pointer into the pool instead of re-allocating must compare this counter and
  * drop its cache when it changes -- the pool is rewound between translation

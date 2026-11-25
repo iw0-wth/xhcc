@@ -107,9 +107,17 @@ void mirpass_unreachable(IrFunc *f) {
     MirFunc m;
     unsigned char *reach;
     int b;
+    MemPoolMark scratch;
 
     if (!f) return;
-    if (mir_build(f, &m) != 0) return;
+    /* This analysis never modifies IR or retains graph pointers. Diagnostics
+     * use stack/static storage and the filesystem source provider, not arena
+     * allocations. All allocations in this scope are temporary CFG scratch. */
+    scratch = mem_pool_mark();
+    if (mir_build(f, &m) != 0) {
+        mem_pool_rewind(scratch);
+        return;
+    }
     reach = (unsigned char *)mem_pool_alloc(m.blk_count);
     mir_reachable(&m, reach);
 
@@ -136,6 +144,7 @@ void mirpass_unreachable(IrFunc *f) {
         }
         b = e;
     }
+    mem_pool_rewind(scratch);
 }
 
 /* ---------------------------------------------------------------- */

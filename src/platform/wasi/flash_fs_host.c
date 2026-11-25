@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #ifdef _WIN32
 #include <io.h>
 #include <process.h>
@@ -37,6 +38,28 @@ static unsigned long output_sequence;
 /* Rename provides visibility atomicity on supporting filesystems; no fsync or
  * crash/power-loss durability guarantee is made. Never unlink the destination. */
 static int replace_output(const char *temporary, const char *path) {
+    const char *policy = getenv("XHCC_OUTPUT_POLICY");
+    if (policy && strcmp(policy, "atomic-replace")) {
+        if (strcmp(policy, "no-replace")) { errno = EINVAL; return -1; }
+        /* This check is not atomic rename-noreplace. The deployment must give
+         * this compiler exclusive ownership of the output namespace until
+         * rename returns. It avoids destructive NuttX/FAT overwrite paths. */
+#ifdef _WIN32
+        {
+            DWORD attrs = GetFileAttributesA(path);
+            if (attrs != INVALID_FILE_ATTRIBUTES) { errno = EEXIST; return -1; }
+            if (GetLastError() != ERROR_FILE_NOT_FOUND && GetLastError() != ERROR_PATH_NOT_FOUND) {
+                errno = EACCES; return -1;
+            }
+        }
+#else
+        {
+            struct stat existing;
+            if (!lstat(path, &existing)) { errno = EEXIST; return -1; }
+            if (errno != ENOENT) return -1;
+        }
+#endif
+    }
 #ifdef _WIN32
     if (MoveFileExA(temporary, path, MOVEFILE_REPLACE_EXISTING)) return 0;
     /* Preserve a useful errno contract without adding a second filesystem op. */

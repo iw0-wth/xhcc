@@ -22,6 +22,7 @@
  */
 #include "pipeline.h"
 #include "platform.h"
+#include "memory.h"
 #include "arkcc_config.h"
 #include "config.h"
 #include "opt.h"
@@ -312,7 +313,10 @@ void pipeline_run_ir(IrProgram *prog, int level, int profile) {
         const IrStage *s = &g_ir_stages[i];
         const char *why = 0;
         int f;
+        const char *outer_phase;
         if (!decide_ir(s, level, profile, &why)) continue;
+        outer_phase = mem_pool_phase();
+        if (s->name && s->name[0]) mem_pool_set_phase(s->name);
         if (s->scope == 1) {
             s->fn_prog(prog);
             if (s->cleanup_dce) {
@@ -327,6 +331,7 @@ void pipeline_run_ir(IrProgram *prog, int level, int profile) {
             for (f = 0; f < prog->func_count; f++)
                 s->fn_func(prog->funcs[f]);
         }
+        mem_pool_set_phase(outer_phase);
     }
 }
 

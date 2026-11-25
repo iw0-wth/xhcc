@@ -54,6 +54,31 @@ Python [桌面适配器](tools/xhcc.py) 发现包并启动编译器，Wasm 命�
 wasmtime run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
 ```
 
+## 配合主机 GNU make 与 Python 生成器
+
+已有项目可以保留主机 GNU make 和 Python 生成器，直接调用 Wasm 编译器/链接器。在项目构建目录将以下配置保存为 `xhcc-host.mk`，按目录关系调整相对仓库路径：
+
+```make
+XHCC_ROOT ?= ../xhcc
+WASMTIME ?= wasmtime
+XHCC_MODULE ?= $(XHCC_ROOT)/build/wasm/xhcc.wasm
+XHLINKER_MODULE ?= $(XHCC_ROOT)/build/wasm/xhlinker.wasm
+XHCC_CC = $(WASMTIME) run --dir=. --dir="$(XHCC_ROOT)/packages::/packages" --env XHCC_PACKAGE_ROOT=/packages "$(XHCC_MODULE)" arm-none-eabi-gcc
+XHCC_LD = $(WASMTIME) run --dir=. --dir="$(XHCC_ROOT)/packages::/packages" --env XHCC_PACKAGE_ROOT=/packages "$(XHLINKER_MODULE)" --target arm
+CC = $(XHCC_CC)
+LD = $(XHCC_LD)
+```
+
+将配置片段和原 Makefile 一起加载，并显式覆盖命令变量，包括 GNU make 内置的 `CC=cc` 默认值：
+
+```sh
+make -f xhcc-host.mk -f Makefile CC='$(XHCC_CC)' LD='$(XHCC_LD)' PYTHON=python3
+```
+
+上述引号适用于 POSIX shell（含 MSYS2 Bash）。`--dir=.` 预开放当前项目目录，其他源码树需要显式挂载。主机 Python 执行原项目的生成器，GNU make 与 Wasm 命令之间不需要 Python 桥接；[Python 适配器](tools/xhcc.py) 仍可选用。可将 `XHCC_MODULE` 指向其他已构建模块，例如 expanded profile 的仅编译应用 `$(XHCC_ROOT)/build/wasm/dev/expanded/all/xhccn/xhccn.wasm`。若原项目的链接配方使用编译驱动，可配合含链接器的模块改用 `LD='$(XHCC_CC)'`。
+
+C 源文件先用 `-c` 生成 `.o`，再链接。原项目参数与链接配方必须落在受支持的 GCC/ELF 子集内，独立 `xhlinker` 不接受仅编译参数。归档/`-l` 和完整 GNU 链接脚本尚未实现，替换 `CC`/`LD` 不保证任意 make 项目都成功：MicroPython 原始 Makefile 整仓构建及固件输出仍未验证，复杂翻译单元也仍受编译器内存限制。
+
 ## ARM/RV32 ELF 链接与镜像输出
 
 先编译，再链接显式对象。以下最小示例以 `add` 为 ELF 入口演示链接，不是板级启动程序：
