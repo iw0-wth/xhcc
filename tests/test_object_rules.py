@@ -30,6 +30,15 @@ class ObjectRules(unittest.TestCase):
     (pkg/'object.rules').write_text(rules+f'relmap {key} 99\n')
     p=self.compile(root,source,output);self.assertNotEqual(p.returncode,0)
   self.assertEqual(hashlib.sha256(compiler.read_bytes()).digest(),digest)
+ def test_arm_profile_selection_tracks_isa_capabilities(self):
+  source=OUT/'profiles.c';source.write_text('int entry(void){return 7;}\n')
+  for cpu,arch,thumb in [('cortex-m0',12,1),('cortex-m3',10,2)]:
+   with self.subTest(cpu=cpu):
+    output=OUT/(cpu+'_attrs.o');p=subprocess.run([sys.executable,'tools/xhcc.py','arm-none-eabi-gcc','-mcpu='+cpu,'-mthumb','-c',str(source.relative_to(ROOT)),'-o',str(output.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+    with output.open('rb') as f:
+     attrs=ELFFile(f).get_section_by_name('.ARM.attributes');self.assertIsNotNone(attrs);values={a.tag:a.value for sub in attrs.iter_subsections() for section in sub.iter_subsubsections() for a in section.iter_attributes()};self.assertEqual(values['TAG_CPU_ARCH'],arch);self.assertEqual(values['TAG_THUMB_ISA_USE'],thumb)
+  with tempfile.TemporaryDirectory(prefix='xh-t1-no-profile-') as tmp:
+   root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/arm',pkg);text=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if s.startswith('id=') else 'tools=variant-gcc' if s.startswith('tools=') else s for s in text.splitlines())+'\n');rules=(pkg/'object.rules').read_text();(pkg/'object.rules').write_text('\n'.join(s for s in rules.splitlines() if not s.startswith('attributes_profile thumb1 '))+'\n');output=OUT/'no_t1_profile.o';output.unlink(missing_ok=True);p=subprocess.run([sys.executable,'tools/xhcc.py','--package-root',str(root),'variant-gcc','-mcpu=cortex-m0','-mthumb','-c',str(source.relative_to(ROOT)),'-o',str(output.relative_to(ROOT))],cwd=ROOT,capture_output=True,text=True);self.assertNotEqual(p.returncode,0,p.stdout+p.stderr);self.assertFalse(output.exists());self.assertIn('profile',p.stdout+p.stderr)
  def test_flags_are_external(self):
   with tempfile.TemporaryDirectory(prefix='xh-object-flags-') as tmp:
    root=Path(tmp);pkg=root/'variant';shutil.copytree(ROOT/'packages/x86',pkg);text=(pkg/'package.ini').read_text();(pkg/'package.ini').write_text('\n'.join('id=variant' if s.startswith('id=') else 'tools=variant-gcc' if s.startswith('tools=') else s for s in text.splitlines())+'\n')

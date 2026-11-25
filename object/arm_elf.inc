@@ -3,6 +3,7 @@
  * allocated in proportion to this translation unit. ELF32 little endian REL. */
 #include "flash_fs.h"
 #include "xh_object_rules.h"
+#include "xh_arm_thumb1.h"
 typedef struct { const char *name; unsigned value,size; int sec,bind,type,index; } XhSym;
 typedef struct { unsigned off; int sym,type,sec; } XhRel;
 typedef struct { unsigned name,type,flags,off,size,link,info,align,entsize; } XhSec;
@@ -20,9 +21,9 @@ int xhcc_arm_write_elf(const char *path,unsigned char *code,int code_len){
     int rcap=a->ref_count*2+(p?p->func_count*2:0)+16,local_count=1;unsigned dsize=0,bsize=0,dalign=8,balign=8,total,strsz=1,stroff=0;
     XhSym *s;XhRel *r;unsigned char *data,*out;int *gidx;unsigned *goff;XhSec *sec;int nsec=14,custom_count=0;char *names;unsigned names_size;const char **custom_names;
     const char base_names[]="\0.text\0.data\0.bss\0.rel.text\0.rel.data\0.symtab\0.strtab\0.shstrtab\0.ARM.attributes\0.init_array\0.fini_array\0.rel.init_array\0.rel.fini_array\0";
-    /* aeabi, Tag_File: v7-M, microcontroller, Thumb-2, base AAPCS. */
+    /* ISA capability selects external aeabi bytes; never label Thumb-1 v7-M. */
     const XhObjectTarget*descriptor=xh_object_rules_get("arm");const unsigned char*attrs;unsigned attrs_size;
-    if(!descriptor||descriptor->elf_class!=32||descriptor->machine!=40||descriptor->endian!=1||!ark_streq(descriptor->abi,"eabi5")){diag_tool(DIAG_SEV_ERROR,path,"object descriptor disagrees with ARM target",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}attrs=descriptor->attributes;attrs_size=descriptor->attributes_size;
+    if(!descriptor||descriptor->elf_class!=32||descriptor->machine!=40||descriptor->endian!=1||!ark_streq(descriptor->abi,"eabi5")){diag_tool(DIAG_SEV_ERROR,path,"object descriptor disagrees with ARM target",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}if(xh_object_rules_attributes_for_profile(descriptor,xh_arm_thumb1_enabled()?"thumb1":"thumb2",xh_arm_thumb1_enabled()?1:0,&attrs,&attrs_size))return ARK_ERR_CODEGEN;
     if(!p){diag_tool(DIAG_SEV_ERROR,path,"ELF assembly input is not supported",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}
     for(i=0;i<p->global_count;i++)rcap+=p->globals[i]->init_ref_count+1;
     custom_names=mem_pool_alloc((p->global_count+1)*(int)sizeof(char*));if(!custom_names)goto fail;

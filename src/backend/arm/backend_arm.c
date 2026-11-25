@@ -18,6 +18,7 @@
 #include "backend.h"
 #include "codegen.h"
 #include "xh_arm_rules.h"
+#include "xh_arm_thumb1.h"
 #include "xh_ir_legacy_adapter.h"
 #include "xh_rules.h"
 #include "xh_template.h"
@@ -9817,7 +9818,7 @@ static int ldr_str_size_a(int imm, int is_byte, int is_half) {
  * thirteen, and so that the off path can reproduce the old "unknown mnemonic"
  * diagnostic exactly. */
 static int ark_asm_extra_on(void) {
-    return g_config.enable_asm_extra ? 1 : 0;
+    return (g_config.enable_asm_extra || xh_arm_thumb1_enabled()) ? 1 : 0;
 }
 
 static int ark_asm_extra_name(const char *op) {
@@ -9973,6 +9974,7 @@ static int logic_dp_a(ArmAsm *a, const char *op, const char **pp, int emit) {
 }
 
 static int op_size_a(const char *op) {
+    if(xh_arm_thumb1_enabled()&&op[0]=='B'&&!strieq_a(op,"BL")&&!strieq_a(op,"BX")&&!strieq_a(op,"BLX")&&!strieq_a(op,"BKPT")&&!strieq_a(op,"BIC"))return 2;
     if (strieq_a(op, "BL"))   return 4;
     if (strieq_a(op, "MOVW")) return 4;
     if (strieq_a(op, "MOVT")) return 4;
@@ -12366,7 +12368,10 @@ static void pass2_a(ArmAsm *a) {
 #else
                 int shrink = 0;
 #endif
-                if (addr < 0 || (g_xhcc_elf_mode && name[0] != '.')) {
+                if(xh_arm_thumb1_enabled()){
+                    if(addr<0){diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","external tail branches are outside initial subset",0,0,0,0,0,0);a->hard_errors++;arm_encode16(a,"FIXED_BF00",0,0,0,0,0);}
+                    else emit_b16_a(a,cond,addr);
+                }else if (addr < 0 || (g_xhcc_elf_mode && name[0] != '.')) {
                     /* Forward reference: emit placeholder, resolve later.
                      * type=2: 32-bit B.W (T4, +-1MB), type=3: 32-bit B<cond>.W (T3, +-1MB).
                      * For type=3, cond is encoded in placeholder hi word
@@ -13107,14 +13112,23 @@ static int arm_emit(IrProgram *m, char *out, int cap) {
     char *text;
     int fi,ii;
     xh_arm_rules_reset();
+    if(xh_arm_thumb1_enabled()&&m->global_count){diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","global objects are outside initial scalar subset",0,0,0,0,0,0);if(cap>0)out[0]=0;return -1;}
     for(fi=0;fi<m->func_count;fi++)for(ii=0;ii<m->funcs[fi]->code_count;ii++){
         const IrInst*inst=&m->funcs[fi]->code[ii];
+        if(xh_arm_thumb1_enabled()&&(inst->op==IR_PUSH_FLOAT||inst->op==IR_PUSH_STR||inst->op==IR_PUSH_GLOBAL||inst->op==IR_PUSH_GLOBAL_ADDR||inst->op==IR_FADD||inst->op==IR_FSUB||inst->op==IR_FMUL||inst->op==IR_FDIV||inst->op==IR_FCMP||inst->op==IR_F2I||inst->op==IR_I2F||inst->op==IR_F2F||inst->op==IR_64BINARY||inst->op==IR_64CMP)){
+            diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","initial scalar subset excludes floating/complex/64-bit/global address operations",0,0,0,0,0,0);if(cap>0)out[0]=0;return -1;
+        }
         if(inst->op==IR_BINARY&&(xh_ir_legacy_binary(inst)==XH_IR_BIN_INVALID||(inst->aux&IR_AUX_SLOT64))){
             diag_tool(DIAG_SEV_ERROR,"ARM IR","invalid flags or unsupported width for integer32 binary",0,0,0,0,0,0);
             if(cap>0)out[0]=0;return -1;
         }
     }
     text = codegen_arm(m);
+    if(xh_arm_thumb1_enabled()){
+        AsmBuffer legalized;
+        if(xh_arm_thumb1_legalize(text,&legalized)){if(cap>0)out[0]=0;return -1;}
+        text=legalized.buf;
+    }
     if(xh_arm_feature_text(text))return -1;
     if(xh_arm_rules_failed()){if(cap>0)out[0]=0;return -1;}
     int n = ark_strlen(text);

@@ -6,15 +6,15 @@
 
 > Modular, cross-OS Compiler Collection running on MCUs: multi-backend cross-builds to flashable firmware, drop-in gcc replacement for make/CC, RTOS-harness callable, backends added by copying a directory.
 
-XH Compiler Collection (`xhcc`) currently runs as WASI Preview1 commands with external target packages, a bounded make/GCC-compatible interface and an ARM standard-ELF linker. Desktop execution and simulated SD deployment are tested. MCU deployment and RTOS-harness integration remain goals; complete NuttX/WAMR memory use has not been measured. Copying a package directory extends a supported engine; an arbitrary new ISA can require engine development.
+XH Compiler Collection (`xhcc`) currently runs as WASI Preview1 commands with external target packages, a bounded make/GCC-compatible interface and a shared ARM/RV32 standard-ELF linker. Desktop execution and simulated SD deployment are tested. MCU deployment and RTOS-harness integration remain goals; complete NuttX/WAMR memory use has not been measured. Copying a package directory extends a supported engine; an arbitrary new ISA can require engine development.
 
 ## Four applications
 
 | Application | Contents and purpose |
 | --- | --- |
-| `xhcc.wasm` | Multi-target C compiler with bounded standard ARM ELF linking and legacy compatibility interfaces |
+| `xhcc.wasm` | Multi-target C compiler with bounded standard ARM/RV32 ELF linking and legacy compatibility interfaces |
 | `xhccm.wasm` | Compiler/linker plus an in-process make subset; compiler recipes call the driver without a shell or subprocess |
-| `xhlinker.wasm` | Independent standard ARM Thumb ELF32 linker, without the C frontend, IR generation, code-generation backends or make |
+| `xhlinker.wasm` | Independent standard ARM Thumb/RV32 ELF32 linker, without the C frontend, IR generation, code-generation backends or make |
 | `xhccn.wasm` | Multi-target compiler with linking compiled out; rejects link requests |
 
 The compiler applications share the frontend, IR and target-engine sources. All four are sibling commands deployed beside one `packages/` tree, with no per-backend child Wasm. Each default build has a **4 MiB Wasm linear-memory cap**, not a proven 4 MiB total MCU RAM footprint.
@@ -54,7 +54,7 @@ The Python [desktop adapter](tools/xhcc.py) discovers packages and runs the comp
 wasmtime run --dir=. build/wasm/xhcc.wasm arm-none-eabi-gcc -c examples/add.c -o build/add.o --memory-report
 ```
 
-## ARM ELF linking and image output
+## ARM/RV32 ELF linking and image output
 
 Compile first, then link explicit objects. This minimal example sets `add` as the ELF entry to demonstrate linking; it is not a board startup program:
 
@@ -64,9 +64,9 @@ python tools/xhcc.py arm-none-eabi-gcc build/add.o --entry add --text-address 0x
 wasmtime run --dir=. build/wasm/xhlinker.wasm --entry add --text-address 0x08004000 --data-address 0x20002000 --oformat=binary build/add.o -o build/add.bin
 ```
 
-`xhcc`, `xhccm` and `xhlinker` accept supported little-endian ARM Thumb ELF32 relocatable objects and produce executable ELF or flat binary. `-T script.ld` accepts a checked MEMORY/SECTIONS subset with Flash/RAM layout, data VMA/LMA, BSS/COMMON and selected startup-symbol assignments. Flat output follows load addresses rather than filling the Flash-to-SRAM address gap. GNU ld comparisons cover two layouts and actual execution, local/weak/strong/COMMON symbols, relocations and image bytes.
+`xhcc`, `xhccm` and `xhlinker` share one bounded linker core for little-endian ARM Thumb and RV32 ELF32 relocatable objects, producing executable ELF or flat binary. For RV32, select `riscv32-unknown-elf-gcc` in the compiler driver or `--target=riscv32` in `xhlinker`; the supported profile is RV32IM/ILP32 soft-float with ELF flags zero, without RVC. Its RELA handling includes PC-relative anchor pairs and validated RELAX markers without performing relaxation. `-T script.ld` accepts a checked MEMORY/SECTIONS subset with Flash/RAM layout, data VMA/LMA, BSS/COMMON and selected startup-symbol assignments. Flat output follows load addresses rather than filling the Flash-to-SRAM address gap. GNU ld comparisons cover two layouts and actual execution, local/weak/strong/COMMON symbols, relocations and image bytes.
 
-Automatic `.c` compile-and-link, mixing `.c` and `.o`, archives/`-l`, non-ARM standard linking and full GNU linker-script compatibility remain unsupported. Startup code, vector tables, data copy/BSS clearing and runtime libraries must be supplied by the project. Producing a binary does not establish that it boots on an arbitrary board. Legacy private ARKOBJ linking, IR/LTO and partial image-output paths remain separate interfaces under `--ark-compat`; they are not standard ELF or GCC LTO compatibility claims. See the [ARM linker contract](docs/elf-linker-first-stage.md) and [progress and roadmap](docs/progress-and-roadmap.md).
+Automatic `.c` compile-and-link, mixing `.c` and `.o`, archives/`-l`, i386/AMD64 or other unsupported-target standard linking and full GNU linker-script compatibility remain unsupported. Startup code, vector tables, data copy/BSS clearing and runtime libraries must be supplied by the project. Producing a binary does not establish that it boots on an arbitrary board. Legacy private ARKOBJ linking, IR/LTO and partial image-output paths remain separate interfaces under `--ark-compat`; they are not standard ELF or GCC LTO compatibility claims. RV32 objects preserve RX text, writable data, NOBITS BSS and section-specific RELA; mixed xhcc/Clang objects execute in two tested layouts. See the [linker contract](docs/elf-linker-first-stage.md), [RV32 relocations](docs/rv-elf-relocations.md), [RV32 object sections](docs/rv-elf-sections.md) and [progress and roadmap](docs/progress-and-roadmap.md).
 
 File output uses a same-directory temporary file and replaces the destination after successful writes on supporting filesystems. This does not promise fsync/crash durability; stdout is not atomic.
 
@@ -87,7 +87,7 @@ wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhccm.wasm make -C exa
 wasmtime run --dir=.::/ --env XHCC_PACKAGE_ROOT=/packages xhlinker.wasm -T examples/make-demo/memory.ld --oformat=binary examples/make-demo/first.o examples/make-demo/second.o examples/make-demo/entry.o -o examples/make-demo/firmware.bin
 ```
 
-Keep `XHCC_PACKAGE_ROOT` absolute in the guest when using make's `-C`. `xhccm make [TOOL] ...` supplies a default `CC`; command-line `CC=...` overrides ordinary assignments, while explicit `override` assignments take precedence. A compiler explicitly named in a recipe selects that tool.
+Keep `XHCC_PACKAGE_ROOT` absolute in the guest when using make's `-C`. `xhccm make [TOOL] ...` supplies a default `CC`; command-line `CC=...` overrides ordinary assignments, while explicit `override` assignments take precedence. A compiler explicitly named in a recipe selects that tool. `LD=xhlinker` also dispatches in-process through the same shared linker CLI; ARM and RV32 two-source compile-to-object/link recipes have dedicated execution tests. Pass `--target=riscv32` for RV32 and keep the linker package root absolute after `-C`.
 
 The make subset supports 24 text/control/diagnostic functions, variables and substitution references, `override`/`undefine`, includes, bounded conditionals, explicit/pattern/suffix rules, order-only dependencies, dependency files and incremental/forced builds. Automatic variables include `$?`, `$|` and `$+`; `$+` retains repeated normal prerequisites in GNU declaration order, with the recipe declaration first. Target and pattern variables inherit into prerequisites and restore on scope exit; patterns apply from less to more specific, then explicit-target values. Multiple explicit targets may share a recipe but build independently with their own mtime, `$@` and variables.
 
@@ -99,11 +99,13 @@ Machine-target `-c` emits standard ELF `ET_REL`; C output emits source for anoth
 
 | Target | Current scope | Main boundary |
 | --- | --- | --- |
-| ARM | Cortex-M3/M4/M7/M33, Thumb-2, base AAPCS, checked soft/softfp | No hard-float parameter ABI; M0/M0+/M1/M23 need Thumb-1 lowering |
+| ARM | Cortex-M3/M4/M7/M33 Thumb-2; initial M0/M0+/M1 Thumb-1 local-scalar subset | No hard-float parameter ABI; Thumb-1 limits below; M23 unsupported |
 | RV32 | RV32IM, ILP32, software FP helpers | No RV64 or hardware FP ABI |
 | i386 | ILP32, scalar SysV subset and xhcc aggregate wire | No complete GNU aggregate ABI guarantee |
 | AMD64 | LP64, scalar SysV/SSE, tested varargs and opt-in limited aggregates | Not complete native SysV aggregate interoperability |
 | C | IR translated to C text | Not a wasm32 output backend |
+
+The initial Thumb-1 path uses low registers, byte-built constants, local scalar operations, short control flow and direct calls. Production `-S` has GNU Cortex-M0 assembler/CPU execution checks; `-c` emits Thumb-1 objects with ARMv6-M attributes. DIV, globals, strings, floating point and long branches outside this subset fail explicitly. This is not complete Thumb-1 support or a claim that every ARM architecture has an integrated firmware workflow. Thumb-2 retains base AAPCS and checked soft/softfp support.
 
 The frontend derives from arkcc's C99 implementation with ARMCC extensions and a limited C11 keyword subset: `_Alignas`, `_Alignof`, `_Static_assert`, `_Generic`, `_Thread_local`, `_Atomic`. Native TLS is rejected and atomics have target/runtime limits. Basic/ARMCC asm depends on the target. GNU extended asm supports one 32-bit `=r` output, up to two `r/i` inputs and `memory/cc` clobbers. See [targets](docs/targets.md), [feature limits](docs/feature-parity.md) and [object documentation](object/README.md).
 

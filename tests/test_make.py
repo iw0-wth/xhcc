@@ -563,6 +563,38 @@ class MakeTests(unittest.TestCase):
         self.assertIn('implicit-plus=two.c two.c two.c', self.run_make().stdout)
         self.assertNotIn(' -c ', self.run_make().stdout)
 
+    def test_in_process_xhlinker_compile_link_and_incremental(self):
+        (self.directory / 'one.c').write_text('int helper(void){return 7;}\n')
+        (self.directory / 'two.c').write_text(
+            'extern int helper(void); int entry(void){return helper();}\n')
+        for target, compiler, machine in [('arm', 'arm-none-eabi-gcc', 40),
+                                          ('riscv32', 'riscv32-unknown-elf-gcc', 243)]:
+            with self.subTest(target=target):
+                self.makefile('CC = ' + compiler + '\nLD = xhlinker\n'
+                              'all: linked.elf\n'
+                              'linked.elf: one.o two.o\n'
+                              '\t$(LD) --target=' + target + ' --package-root ../packages -e entry -o "$@" $^\n'
+                              '%.o: %.c\n\t' + self.recipe() + '\n')
+                first = self.run_make('-B')
+                self.assertEqual(first.stdout.count(' -c '), 2)
+                data = (self.directory / 'linked.elf').read_bytes()
+                self.assertEqual(data[:4], b'\x7fELF')
+                self.assertEqual(int.from_bytes(data[16:18], 'little'), 2)
+                self.assertEqual(int.from_bytes(data[18:20], 'little'), machine)
+                old = (self.directory / 'linked.elf').stat().st_mtime_ns
+                second = self.run_make()
+                self.assertNotIn(' -c ', second.stdout)
+                self.assertNotIn('xhlinker --target=', second.stdout)
+                self.assertEqual((self.directory / 'linked.elf').stat().st_mtime_ns, old)
+
+    def test_xhlinker_failure_and_unknown_ld_are_reported(self):
+        self.makefile('LD = xhlinker\nall:\n\t$(LD) --target=riscv32 --package-root ../packages missing.o -o failed.elf\n')
+        result = self.run_make(success=False)
+        self.assertIn('recipe failed', result.stderr)
+        self.assertFalse((self.directory / 'failed.elf').exists())
+        self.makefile('LD = custom-unknown-ld\nall:\n\t$(LD) -o failed.elf missing.o\n')
+        self.assertIn('unknown compiler/command', self.run_make(success=False).stderr)
+
     def test_errors_cycles_and_shell_rejection(self):
         for content, expected in [
             ('all: missing\n', 'no rule'),

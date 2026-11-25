@@ -131,7 +131,7 @@ class ElfLinkTests(unittest.TestCase):
                    '-fsanitize=undefined', '-fsanitize-trap=all',
                    '-Iinclude', '-include', 'include/xh_small.h',
                    str(source.relative_to(ROOT)), 'src/link/elf_link.c',
-                   'src/link/elf_read.c', 'src/link/arm_elf_reloc.c', 'src/link/ld_script.c',
+                   'src/link/elf_read.c', 'src/link/arm_elf_reloc.c', 'src/link/rv_elf_reloc.c', 'src/link/ld_script.c',
                    'src/backend/rules/relocation.c', '-o',
                    str((OUT / 'link.wasm').relative_to(ROOT))]
         p = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120)

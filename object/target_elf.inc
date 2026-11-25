@@ -12,9 +12,15 @@ static void te64(unsigned char *p,unsigned long long v){te32(p,(unsigned)v);te32
 static unsigned tealign(unsigned v,unsigned a){return(v+a-1)&~(a-1);}
 static int tesym(TeSym *s,int *n,int cap,const char *name){int i;for(i=0;i<*n;i++)if(ark_streq(s[i].name,name))return i;if(*n>=cap)return -1;i=(*n)++;s[i].name=name;s[i].value=s[i].size=0;s[i].bind=1;s[i].type=s[i].defined=0;return i;}
 static int terel(TeRel*r,int*n,int cap,unsigned off,int sym,int type,int add){if(*n>=cap||sym<0)return -1;r[*n].off=off;r[*n].sym=sym;r[*n].type=type;r[*n].add=add;(*n)++;return 0;}
+#ifdef RV_SEC_COUNT
+#include "rv_elf_sections.inc"
+#endif
 static int tewrite(const char*path,unsigned char*code,int len,int machine,int wide,TeSym*s,int n,TeRel*r,int nr){
  const char*target=machine==243?"riscv32":machine==3?"x86":machine==62?"x86_64":0;const XhObjectTarget*descriptor=target?xh_object_rules_get(target):0;
  if(!descriptor||descriptor->elf_class!=(wide?64u:32u)||descriptor->machine!=(unsigned)machine||descriptor->endian!=1||!ark_streq(descriptor->abi,machine==243?"ilp32":machine==3?"sysv-ilp32":"sysv-lp64")){diag_tool(DIAG_SEV_ERROR,path,"object descriptor disagrees with target data model",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}
+#ifdef RV_SEC_COUNT
+ if(machine==243)return trwrite(path,code,len,s,n,r,nr,descriptor);
+#endif
  const char names[]="\0.text\0.rela.text\0.symtab\0.strtab\0.shstrtab\0.note.GNU-stack\0";
  unsigned off[7]={0},sz[7]={0},strsz=1,total,shoff;int i,j,locals=1,syment=wide?24:16,relent=wide?24:12,eh=wide?64:52,sh=wide?64:40;unsigned char*out;
  for(i=0;i<n;i++){if(!s[i].bind)locals++;strsz+=(unsigned)ark_strlen(s[i].name)+1;}
@@ -33,5 +39,9 @@ static int tewrite(const char*path,unsigned char*code,int len,int machine,int wi
  if(fs_write_file(path,out,(int)total)!=(int)total){diag_tool(DIAG_SEV_ERROR,path,"cannot write ELF object",0,0,0,0,0,0);return ARK_ERR_IO;}return ARK_OK;
  fail:diag_tool(DIAG_SEV_ERROR,path,"ELF object exceeds compiler memory",0,0,0,0,0,0);return ARK_ERR_CODEGEN;
 }
+#ifdef RV_SEC_COUNT
+static int techeck(const char*path,IrProgram*p){int i;if(!p)return -1;for(i=0;i<p->global_count;i++)if(p->globals[i]->is_tls||p->globals[i]->has_at)goto bad;for(i=0;i<p->func_count;i++)if(p->funcs[i]->alias_target)goto bad;return 0;bad:diag_tool(DIAG_SEV_ERROR,path,"RV ELF TLS/absolute data placement/aliases are not supported",0,0,0,0,0,0);return -1;}
+#else
 static int techeck(const char*path,IrProgram*p){int i;if(!p)return 0;for(i=0;i<p->global_count;i++){IrGlobal*g=p->globals[i];if(g->is_tls||g->section||g->has_at){diag_tool(DIAG_SEV_ERROR,path,"ELF TLS/custom sections/absolute data placement are not supported",0,0,0,0,0,0);return -1;}}for(i=0;i<p->func_count;i++){IrFunc*f=p->funcs[i];if(f->is_constructor||f->is_destructor||f->alias_target){diag_tool(DIAG_SEV_ERROR,path,"ELF constructors/destructors/aliases are not supported",0,0,0,0,0,0);return -1;}}return 0;}
+#endif
 static void temeta(TeSym*s,int n,IrProgram*p){int i,j;if(!p)return;for(i=0;i<n;i++){for(j=0;j<p->func_count;j++)if(ark_streq(s[i].name,p->funcs[j]->name)){s[i].type=2;if(s[i].defined)s[i].bind=p->funcs[j]->is_static?0:p->funcs[j]->is_weak?2:1;}for(j=0;j<p->global_count;j++)if(ark_streq(s[i].name,p->globals[j]->name)){s[i].type=1;s[i].size=(unsigned)type_size(p->globals[j]->type);if(s[i].defined)s[i].bind=p->globals[j]->is_static?0:1;}}}

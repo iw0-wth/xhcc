@@ -1,6 +1,7 @@
 /* Deliberately small make language. Commands run in-process, never via a shell. */
 #include "xh_make.h"
 #include "xh_driver.h"
+#include "xh_linker_cli.h"
 #include "xh_package.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -604,6 +605,8 @@ static int execute(Make *m,const char *text,const Auto *a) {
         FILE *in,*out;char buf[1024];size_t got;
         if(n!=3)return fail(m,"cp requires source and destination",0);
         in=fopen(args[2],"rb");if(!in)rc=1;else {out=fopen(args[3],"wb");if(!out)rc=1;else {while((got=fread(buf,1,sizeof(buf),in))!=0)if(fwrite(buf,1,got,out)!=got){rc=1;break;}if(ferror(in))rc=1;if(fclose(out))rc=1;}fclose(in);}
+    } else if(!strcmp(args[1],"xhlinker")) {
+        rc=xh_linker_main(n,args+1);
     } else {
         const char *root=getenv("XHCC_PACKAGE_ROOT");if(!root||!*root)root="packages";
         for(i=2;i<=n;i++) {

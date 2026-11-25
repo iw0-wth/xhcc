@@ -32,9 +32,9 @@ class ResourceBudget(unittest.TestCase):
   self.assertIn('src_core_compiler.c.o:',compiler_only)
   self.assertRegex(compiler_only,r'src_frontend_[^\s:]*\.o:')
   self.assertNotRegex(compiler_only,r'src_link_[^\s:]*\.o:')
-  for symbol in ('xh_elf_link_arm','ld_find_global','lto_read_payload'):
+  for symbol in ('xh_elf_link_arm','xh_elf_link_report','xh_linker_main','ld_find_global','lto_read_payload'):
    with self.subTest(app='xhccn',symbol=symbol):self.assertNotIn(symbol,compiler_only)
-  self.assertIn('src_link_elf_link.c.o:',linker_only);self.assertIn('xh_elf_link_arm',linker_only)
+  self.assertIn('src_link_elf_link.c.o:',linker_only);self.assertIn('xh_elf_link_report',linker_only);self.assertIn('xh_linker_main',linker_only)
   self.assertNotRegex(linker_only,r'src_frontend_[^\s:]*\.o:')
   self.assertNotIn('src_core_compiler.c.o:',linker_only)
   self.assertNotIn('ark_frontend_unit',linker_only);self.assertNotIn('ark_compile',linker_only)

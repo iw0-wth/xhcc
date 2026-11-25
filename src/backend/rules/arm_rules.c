@@ -12,9 +12,11 @@ static XhArmAbi abi;
 static int abi_loaded;
 typedef struct{char key[48];int thumb2,dsp,sp,dp;}ArmFeatureRule;
 static ArmFeatureRule feature_rules[160];static int feature_count,feature_loaded;
-static int target_strict,target_thumb2,target_dsp,target_sp,target_dp;
+static int target_strict,target_thumb2,target_dsp,target_sp,target_dp,target_thumb1;
+int xh_arm_thumb1_enabled(void){return target_thumb1;}
 void arm_set_target_features(const CpuInfo*cpu,int strict){
     target_strict=strict;target_thumb2=cpu?cpu->thumb2:0;target_dsp=cpu?cpu->has_dsp:0;
+    target_thumb1=cpu&&cpu->arch_m==6&&cpu->thumb_only&&!cpu->thumb2;
     target_sp=cpu?cpu->has_fpu:0;target_dp=cpu?cpu->has_fpu_dp:0;
     if(g_config.fpu_type&&(!strcmp(g_config.fpu_type,"fpv5-sp-d16")||!strcmp(g_config.fpu_type,"fpv4-sp-d16")))target_dp=0;
     feature_loaded=0;
@@ -31,9 +33,14 @@ static int feature_load(void){
     bad:failed=1;diag_tool(DIAG_SEV_ERROR,"ARM feature rules","invalid feature requirement records",0,0,0,0,0,0);return -1;
 }
 int xh_arm_feature_check(const char*key){
-    int i;ArmFeatureRule*r;if(!target_strict)return 0;if(feature_load())return -1;r=&feature_rules[0];
+    int i;ArmFeatureRule*r;
+    if(target_thumb1){char needle[64];snprintf(needle,sizeof needle,"|%s|",key);
+        if(!strstr("|MOV||MOVS||ADDS||SUBS||MULS||ANDS||ORRS||EORS||LSLS||LSRS||ASRS||MVNS||RSBS||CMP||LDR||STR||LDRB||STRB||LDRH||STRH||PUSH||POP||BX||BL||B||BEQ||BNE||BLT||BGT||BLE||BGE||BLO||BHI||BLS||BHS||NOP||ADD||SUB||MOV_REG||MOV_IMM||ADD_IMM8||SUB_IMM8||ADD_IMM3||SUB_IMM3||ADD_REG3||SUB_REG3||ADD_HIGH||ADD_SP||SUB_SP||MUL||NEG||CMP_REG||CMP_IMM||LSL_IMM||LSR_IMM||ASR_IMM||LSL_REG||LSR_REG||ASR_REG||AND_REG_T1||ORR_REG_T1||EOR_REG_T1||MVN_REG_T1||STR_IMM16||LDR_IMM16||STRB_IMM16||LDRB_IMM16||STRH_IMM16||LDRH_IMM16||LDR_SP||STR_SP||B_T1||BCC_T1||FIXED_BF00||FIXED_F000||FIXED_D000|",needle)){
+            failed=1;diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","encoding %s is outside initial Thumb-1 subset",key,0,0,0,0,0);return -1;
+        }
+    }if(!target_strict)return 0;if(feature_load())return -1;r=&feature_rules[0];
     for(i=1;i<feature_count;i++)if(!strcmp(feature_rules[i].key,key)){r=&feature_rules[i];break;}
-    if((r->thumb2&&!target_thumb2)||(r->dsp&&!target_dsp)||(r->sp&&!target_sp)||(r->dp&&!target_dp)){
+    if((r->thumb2&&!target_thumb2&&!target_thumb1)||(r->dsp&&!target_dsp)||(r->sp&&!target_sp)||(r->dp&&!target_dp)){
         failed=1;diag_tool(DIAG_SEV_ERROR,"ARM feature rules","instruction %s is not supported by selected CPU/FPU capabilities",key,0,0,0,0,0);return -1;
     }return 0;
 }

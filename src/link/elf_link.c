@@ -1,7 +1,8 @@
-/* Bounded ELF32 ARM linker, implemented from public ELF/AAELF wire formats. */
+/* Shared bounded ELF32 linker, independently implemented from ELF and psABIs. */
 #include "xh_elf_link.h"
 #include "xh_elf_read.h"
 #include "xh_arm_elf_reloc.h"
+#include "xh_rv_elf_reloc.h"
 #include "xh_ld_script.h"
 #include "flash_fs.h"
 #include <stdlib.h>
@@ -40,8 +41,12 @@ typedef struct {
     uint32_t common_start,common_end;
     unsigned common_group,has_common;
 } Script;
+typedef struct { XhElfTarget id;unsigned machine;uint32_t flags;unsigned thumb; } Target;
+static const Target arm_target={XH_ELF_TARGET_ARM,40,0x05000000u,1};
+static const Target rv_target={XH_ELF_TARGET_RISCV32,243,0,0};
 typedef struct {
     Obj obj[XH_ELF_LINK_MAX_OBJECTS];
+    const Target *target;
     Script *script;
 
     size_t used,limit,peak;
@@ -72,7 +77,7 @@ static unsigned char *load(Link *l,const char *path,int *len,XhElfView *v) {
     p=(unsigned char *)take(l,(size_t)n+1u); if(!p)return NULL;
     got=fs_read_file(path,(char *)p,n+1);
     if(got!=n || fs_file_size(path)!=n) { fail(l,"ELF input read failed or changed: %s",path);drop(l,p,(size_t)n+1u);return NULL; }
-    if(xh_elf_open(p,(size_t)n,v) || xh_elf_validate_thumb(v)) { fail(l,"invalid or unsupported ARM Thumb ELF: %s",path);drop(l,p,(size_t)n+1u);return NULL; }
+    if(xh_elf_open_target(p,(size_t)n,l->target->id,v) || (l->target->thumb && xh_elf_validate_thumb(v))) { fail(l,"invalid or unsupported target ELF: %s",path);drop(l,p,(size_t)n+1u);return NULL; }
     *len=n;return p;
 }
 static Sym *symbol(Link *l,unsigned index,Obj **owner) {
@@ -103,7 +108,7 @@ static int scan(Link *l,const char *path,Obj *o) {
     if(o->ny>XH_ELF_LINK_MAX_SYMBOLS-l->total_symbols){fail(l,"ELF link symbol limit exceeded");goto bad;}
     for(i=0;i<o->ny;i++) {
         XhElfSymbol s;xh_elf_symbol(&v,o->tab,i,&s);
-        if(s.bind>2u || (s.type==2u && s.shndx && !(s.value&1u))) {fail(l,"unsupported symbol binding or non-Thumb function");goto bad;}
+        if(s.bind>2u || (l->target->thumb && s.type==2u && s.shndx && !(s.value&1u))) {fail(l,"unsupported symbol binding or non-Thumb function");goto bad;}
         names+=strlen(s.name)+1u;
         if(names>XH_ELF_LINK_MAX_NAMES){fail(l,"ELF name limit exceeded");goto bad;}
     }
@@ -175,7 +180,7 @@ static int script_lookup(void *user,int kind,const char *name,uint32_t *value) {
 static int resolve(Link *l,unsigned idx,uint32_t *value,unsigned *thumb,unsigned *undefweak) {
     Obj *o;Sym *s=symbol(l,idx,&o);uint32_t offset;
     if(s->winner>=0)s=symbol(l,(unsigned)s->winner,&o);
-    *undefweak=0;*thumb=(s->type==2u && (s->value&1u))?1u:0u;
+    *undefweak=0;*thumb=(l->target->thumb && s->type==2u && (s->value&1u))?1u:0u;
     if(!s->shndx) {
         if(s->bind && l->script && !script_lookup(l,XH_LD_SYMBOL,o->names+s->name,value)){*thumb=0;return 0;}
         if(s->bind!=2u)return fail(l,"undefined symbol: %s",o->names+s->name);
@@ -188,6 +193,40 @@ static int resolve(Link *l,unsigned idx,uint32_t *value,unsigned *thumb,unsigned
     offset=*thumb?(s->value&~1u):s->value;
     if(offset>o->sec[s->shndx].size || s->size>o->sec[s->shndx].size-offset || plus(o->sec[s->shndx].addr,offset,value))return fail(l,"symbol outside section: %s",o->names+s->name);
     *value|=*thumb;return 0;
+}
+static int rv_reloc(Link *l,Obj *o,const XhElfView *v,unsigned relsec,const XhElfSection *rs,const XhElfRela *r,unsigned char *image) {
+    Sec *dst=&o->sec[rs->info];XhRvElfRelContext c;unsigned width,thumb,weak;uint32_t k;int branch;
+    memset(&c,0,sizeof(c));
+    if(xh_rv_elf_rela_width(r->type,&width))return fail(l,"unsupported RV32 relocation %u",(unsigned)r->type);
+    if(r->type==51u) {
+        unsigned matches=0;
+        if(r->symbol || r->addend)return fail(l,"invalid RV32 RELAX marker");
+        for(k=0;k<rs->size/12u;k++){XhElfRela a;xh_elf_rela(v,relsec,k,&a);if(a.offset==r->offset && (a.type==18u || a.type==19u || a.type==23u || a.type==24u || a.type==25u || a.type==26u || a.type==27u || a.type==28u))matches++;}
+        if(matches!=1)return fail(l,"RV32 RELAX requires exactly one associated relocation");
+    }
+    if(!dst->out)return 0;
+    if(!width)return 0;
+    if(dst->type==8u)return fail(l,"RV32 relocation into NOBITS unsupported");
+    if(plus(dst->addr,r->offset,&c.place))return fail(l,"RV32 relocation place overflow");
+    c.addend=r->addend;
+    if(r->type==24u || r->type==25u) {
+        XhElfSymbol anchor;XhElfRela high;unsigned matches=0;
+        xh_elf_symbol(v,o->tab,r->symbol,&anchor);
+        if(r->addend || anchor.shndx!=rs->info || anchor.bind!=0u)return fail(l,"RV32 PCREL_LO requires local same-section HI anchor");
+        memset(&high,0,sizeof(high));
+        for(k=0;k<rs->size/12u;k++){XhElfRela a;xh_elf_rela(v,relsec,k,&a);if(a.offset==anchor.value && a.type==23u){high=a;matches++;}}
+        if(matches!=1)return fail(l,"RV32 PCREL_LO missing or duplicate HI anchor");
+        if(resolve(l,o->base+high.symbol,&c.pair_symbol,&thumb,&weak))return -1;
+        if(weak)return fail(l,"RV32 PCREL_HI to undefined weak unsupported");
+        if(plus(dst->addr,high.offset,&c.pair_place))return fail(l,"RV32 HI place overflow");
+        c.pair_addend=high.addend;c.has_pair=1;
+    } else {
+        if(resolve(l,o->base+r->symbol,&c.symbol,&thumb,&weak))return -1;
+        branch=r->type==16u || r->type==17u || r->type==18u || r->type==19u;
+        if(branch && weak)return fail(l,"RV32 branch to undefined weak unsupported");
+    }
+    if(xh_rv_elf_rela_apply(r->type,image+dst->off,dst->size,r->offset,&c))return fail(l,"RV32 relocation range/encoding error (type %u)",(unsigned)r->type);
+    return 0;
 }
 static int script_expr(Link *l,int expr,uint32_t dot,uint32_t *value) {
     return xh_ld_script_eval(&l->script->ir,expr,dot,script_lookup,l,value,l->err,l->errcap);
@@ -287,7 +326,7 @@ static void shdr(unsigned char *p,uint32_t name,uint32_t type,uint32_t flags,uin
 static void phdr(unsigned char *p,uint32_t off,uint32_t vma,uint32_t lma,uint32_t filesz,uint32_t memsz,uint32_t flags) {
     w32(p,1);w32(p+4,off);w32(p+8,vma);w32(p+12,lma);w32(p+16,filesz);w32(p+20,memsz);w32(p+24,flags);w32(p+28,1);
 }
-int xh_elf_link_arm_report(const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap,XhElfLinkReport *report) {
+int xh_elf_link_report(XhElfTarget target,const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap,XhElfLinkReport *report) {
     Link l;unsigned i,j,pass,outsec=1,locals=1,nsym=1;int result=-1;
     uint32_t text,data,lma,flashend,dataend,bssend,ramalign=1,flashsize,datasize,memsize;
     uint32_t dataoff,stroff,strsize=1,symoff,shoff,total,entry=0,common_addr;
@@ -295,6 +334,8 @@ int xh_elf_link_arm_report(const char *const *inputs,unsigned n,const XhElfLinkO
     const char *entryname;
     memset(&l,0,sizeof(l));l.err=err;l.errcap=errcap;l.limit=XH_ELF_LINK_MAX_MEMORY;
     if(report)memset(report,0,sizeof(*report));
+    l.target=target==XH_ELF_TARGET_ARM?&arm_target:target==XH_ELF_TARGET_RISCV32?&rv_target:NULL;
+    if(!l.target)return fail(&l,"unsupported ELF link target");
     if(err && errcap)err[0]=0;
     if(!inputs || !n || n>XH_ELF_LINK_MAX_OBJECTS || !opt || !opt->output_path || !opt->output_path[0] || !strcmp(opt->output_path,"-"))return fail(&l,"invalid ELF link arguments/output");
     if(opt->output_format>1u)return fail(&l,"unsupported output format");
@@ -342,7 +383,7 @@ layout_ready:
     for(i=0;i<n;i++)for(j=1;j<l.obj[i].ns;j++){Sec *s=&l.obj[i].sec[j];if((s->flags&2u) && (s->addr&(s->align-1u))){fail(&l,"section alignment error");goto done;}}
     for(i=0;i<l.total_symbols;i++) {
         Sym *s=symbol(&l,i,NULL);
-        if(s->bind && !strcmp(symname(&l,i),entryname)) {unsigned t,u;if(resolve(&l,i,&entry,&t,&u))goto done;if(!t || u){fail(&l,"entry must be a defined Thumb function");goto done;}break;}
+        if(s->bind && !strcmp(symname(&l,i),entryname)) {unsigned t,u;Sym *def=s->winner<0?s:symbol(&l,(unsigned)s->winner,NULL);if(resolve(&l,i,&entry,&t,&u))goto done;if(def->type!=XH_ELF_STT_FUNC || !def->shndx || u || (l.target->thumb?!t:(entry&3u)!=0u)){fail(&l,"entry must be a defined aligned target function");goto done;}break;}
     }
     if(i==l.total_symbols){fail(&l,"entry symbol not found: %s",entryname);goto done;}
     /* One output symbol per input symbol except the repeated null sentinel.
@@ -386,7 +427,12 @@ layout_ready:
         if(len!=o->filelen || fingerprint(p,(size_t)len)!=o->fingerprint){fail(&l,"ELF input changed between passes");drop(&l,p,(size_t)len+1u);goto done;}
         for(j=1;j<o->ns;j++){Sec *s=&o->sec[j];XhElfSection in;if(!s->out || s->type==8u)continue;xh_elf_section(&v,j,&in);memcpy(image+s->off,in.data,s->size);}
         for(j=1;j<o->ns;j++) {
-            XhElfSection r;uint32_t k;xh_elf_section(&v,j,&r);if(r.type!=9u)continue;
+            XhElfSection r;uint32_t k;xh_elf_section(&v,j,&r);
+            if(r.type==XH_ELF_SHT_RELA) {
+                for(k=0;k<r.size/12u;k++){XhElfRela a;xh_elf_rela(&v,j,k,&a);if(rv_reloc(&l,o,&v,j,&r,&a,image))goto object_bad;}
+                continue;
+            }
+            if(r.type!=9u)continue;
             for(k=0;k<r.size/8u;k++) {
                 XhElfRel rel;Sec *target=&o->sec[r.info];uint32_t value,place;unsigned thumb,weak;int64_t a;unsigned width;
                 xh_elf_rel(&v,j,k,&rel);
@@ -405,7 +451,7 @@ object_bad:drop(&l,p,(size_t)len+1u);goto done;
     if(l.script && opt->output_format==1u){total=flatlen;goto write_output;}
     /* ELF header and load segments. Segment alignment one is valid ELF and
        avoids padding the file by the MCU's address-space alignment. */
-    memcpy(image,"\177ELF\1\1\1",7);w16(image+16,2);w16(image+18,40);w32(image+20,1);w32(image+24,entry);w32(image+28,52);w32(image+32,shoff);w32(image+36,0x05000000u);w16(image+40,52);w16(image+42,32);w16(image+44,l.script?l.script->ir.section_count:2u);w16(image+46,40);w16(image+48,outsec);w16(image+50,strtabidx);
+    memcpy(image,"\177ELF\1\1\1",7);w16(image+16,2);w16(image+18,l.target->machine);w32(image+20,1);w32(image+24,entry);w32(image+28,52);w32(image+32,shoff);w32(image+36,l.target->flags);w16(image+40,52);w16(image+42,32);w16(image+44,l.script?l.script->ir.section_count:2u);w16(image+46,40);w16(image+48,outsec);w16(image+50,strtabidx);
     if(l.script)for(i=0;i<l.script->ir.section_count;i++){Group *g=&l.script->groups[i];phdr(image+52u+i*32u,g->off,g->addr,g->lma,g->filesz,g->size,g->flags);}
     else {phdr(image+52,116,text,text,flashsize,flashsize,5);phdr(image+84,dataoff,data,lma,datasize,memsize,6);}
     {
@@ -461,6 +507,12 @@ done:
     if(report){report->peak_requested_bytes=l.peak;report->objects=l.objects;report->sections=l.total_sections;report->symbols=l.total_symbols;report->output_bytes=result?0:total;}
     return result;
 }
+int xh_elf_link(XhElfTarget target,const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap) {
+    return xh_elf_link_report(target,inputs,n,opt,err,errcap,NULL);
+}
+int xh_elf_link_arm_report(const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap,XhElfLinkReport *report) {
+    return xh_elf_link_report(XH_ELF_TARGET_ARM,inputs,n,opt,err,errcap,report);
+}
 int xh_elf_link_arm(const char *const *inputs,unsigned n,const XhElfLinkOptions *opt,char *err,size_t errcap) {
-    return xh_elf_link_arm_report(inputs,n,opt,err,errcap,NULL);
+    return xh_elf_link(XH_ELF_TARGET_ARM,inputs,n,opt,err,errcap);
 }

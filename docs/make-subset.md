@@ -180,7 +180,17 @@ Supported syntax and behavior:
   This is a deterministic token parser, not an operating-system shell.
 
 Compiler commands call `xh_driver_main` in the same process; package discovery
-validates command names. No shell, `system`, `popen`, or subprocess is used.
+validates command names. A literal `xhlinker` recipe command (including
+`$(LD)` expanding to `xhlinker`) calls the shared `xh_linker_main` CLI in process.
+For example, `LD = xhlinker` with recipe
+`$(LD) --target=riscv32 --package-root ../packages -e entry -o "$@" $^`
+links prerequisite objects using the same bounded ELF linker as the standalone
+command. `--package-root` identifies the package root, not a target subdirectory;
+absolute guest paths such as `/packages` continue working after `-C`.
+Compiler-command linking continues through the compiler driver. Link failures
+propagate through the normal make recipe failure/cleanup handling. Linker target,
+format and relocation support is determined by the shared linker CLI.
+No shell, `system`, `popen`, or subprocess is used.
 Unknown commands fail. The built-in commands are `echo [words...]`,
 `mkdir -p paths...`, `rm -f files...`, and `cp source destination`. They perform
 literal file operations without globbing or environment expansion. Shell
@@ -194,7 +204,7 @@ export/environment variable import, grouped targets (`&:`), multiple pattern
 targets, double-colon/static pattern rules, inline recipes,
 secondary expansion, implicit wildcard expansion outside the function,
 parallel jobs, recursive make, shell
-scripts, and linking are outside this subset. Unsupported statements fail.
+scripts, and arbitrary external linker commands are outside this subset. Unsupported statements fail.
 Pattern rules retain first-match selection without GNU implicit-rule
 search/backtracking; duplicate pattern rules are not merged.
 

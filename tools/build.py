@@ -34,7 +34,7 @@ def build(target,app):
     for source in sorted((ROOT/'src').rglob('*.c')):
         rel=source.relative_to(ROOT/'src').as_posix()
         if app=='xhlinker':
-            if rel not in ('link/main.c','link/elf_link.c','link/elf_read.c','link/arm_elf_reloc.c','link/ld_script.c','backend/rules/relocation.c','platform/wasi/flash_fs_host.c'):continue
+            if rel not in ('link/main.c','link/linker_cli.c','link/elf_link.c','link/elf_read.c','link/arm_elf_reloc.c','link/rv_elf_reloc.c','link/ld_script.c','backend/rules/relocation.c','platform/wasi/flash_fs_host.c'):continue
         elif rel=='link/main.c':continue
         if app=='xhccn' and rel.startswith('link/'):continue
         if rel.startswith('stages/'):continue

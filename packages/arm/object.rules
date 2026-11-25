@@ -13,3 +13,6 @@ relmap 30 30
 relmap 51 51
 relmap 47 47
 relmap 48 48
+# Capability profiles: baseline v6S-M/Thumb-1 and existing v7-M/Thumb-2.
+attributes_profile thumb1 4115000000616561626900010b000000060c074d0901
+attributes_profile thumb2 41210000006165616269000117000000060a074d0800090212041401150118011901

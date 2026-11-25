@@ -41,4 +41,9 @@ run('xhlinker','--entry','entry','--text-address','0x08004000','--data-address',
 assert (sd/'examples/make-demo/standalone.elf').read_bytes()[:4]==b'\x7fELF'
 run('xhlinker','-T','examples/make-demo/memory.ld','--oformat=binary','examples/make-demo/first.o','examples/make-demo/second.o','examples/make-demo/entry.o','-o','examples/make-demo/firmware.bin')
 assert (sd/'examples/make-demo/firmware.bin').stat().st_size>0
-print('PASS SD four applications, shared packages, ARM direct/make/link/script/binary, incremental make, injected RV32 CC')
+make('-f','Makefile.rvlink','-B','all')
+rvlinked=sd/'examples/make-demo/firmware.rv.elf';rvimage=rvlinked.read_bytes()
+assert rvimage[:4]==b'\x7fELF' and int.from_bytes(rvimage[16:18],'little')==2 and int.from_bytes(rvimage[18:20],'little')==243
+rv_before=(rvlinked.stat().st_mtime_ns,hashlib.sha256(rvimage).digest())
+make('-f','Makefile.rvlink','all');assert rv_before==(rvlinked.stat().st_mtime_ns,hashlib.sha256(rvlinked.read_bytes()).digest()),'incremental RV make rewrote linked output'
+print('PASS SD four applications, shared packages, ARM/RV compile/make/link/script/binary and incremental builds')

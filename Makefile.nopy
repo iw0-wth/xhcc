@@ -21,7 +21,7 @@ ALL_SRC := $(call rwildcard,src/,*.c) $(wildcard object/*.c)
 COMMON_SRC := $(filter-out src/stages/% src/make/% src/link/main.c,$(ALL_SRC))
 MAKE_SRC := $(filter src/make/%,$(ALL_SRC))
 NO_LINK_SRC := $(filter-out src/link/%,$(COMMON_SRC))
-LINK_SRC := src/link/main.c src/link/elf_link.c src/link/elf_read.c src/link/arm_elf_reloc.c src/link/ld_script.c src/backend/rules/relocation.c src/platform/wasi/flash_fs_host.c
+LINK_SRC := src/link/main.c src/link/linker_cli.c src/link/elf_link.c src/link/elf_read.c src/link/arm_elf_reloc.c src/link/rv_elf_reloc.c src/link/ld_script.c src/backend/rules/relocation.c src/platform/wasi/flash_fs_host.c
 HEADERS := $(foreach suffix,*.h *.inc *.def,$(call rwildcard,include/,$(suffix)) $(call rwildcard,object/,$(suffix)) $(call rwildcard,src/,$(suffix)))
 SDK_HEADERS := $(foreach suffix,*.h *.inc *.def,$(call rwildcard,$(WASI_SDK_PATH)/share/wasi-sysroot/include/,$(suffix)) $(call rwildcard,$(WASI_SDK_PATH)/lib/clang/,$(suffix)))
 CFLAGS := -std=c99 -Oz -g0 -ffunction-sections -fdata-sections -include $(ROOT)/include/xh_small.h -I$(ROOT)/include -I$(ROOT)/object -DXH_TARGET=0 '-DXH_MODULE_TARGET="all"' -Wno-unused-value -Wno-incompatible-pointer-types --target=wasm32-wasip1 -mno-bulk-memory -mno-sign-ext -mno-nontrapping-fptoint -mno-simd128 -mno-atomics

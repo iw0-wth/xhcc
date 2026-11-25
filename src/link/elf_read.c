@@ -75,7 +75,19 @@ int xh_elf_rel(const XhElfView *v, unsigned tab, uint32_t i, XhElfRel *r) {
     r->symbol=info>>8; r->type=(uint8_t)info;
     return 0;
 }
-int xh_elf_open(const unsigned char *data, size_t len, XhElfView *out) {
+int xh_elf_rela(const XhElfView *v,unsigned tab,uint32_t i,XhElfRela *r) {
+    XhElfSection t;const unsigned char *p;uint32_t info,a;
+    if(!v || !v->data || !r)return XH_ELF_ERR_ARGUMENT;
+    if(tab>=v->shnum)return XH_ELF_ERR_INDEX;
+    section_raw(v,tab,&t);
+    if(t.type!=XH_ELF_SHT_RELA || t.entsize!=12)return XH_ELF_ERR_FORMAT;
+    if(i>=t.size/12u)return XH_ELF_ERR_INDEX;
+    p=v->data+(size_t)t.offset+(size_t)i*12u;info=rd32(p+4);a=rd32(p+8);
+    r->offset=rd32(p);r->symbol=info>>8;r->type=(uint8_t)info;
+    r->addend=a<=INT32_MAX?(int32_t)a:(int32_t)((int64_t)a-INT64_C(4294967296));
+    return 0;
+}
+int xh_elf_open_target(const unsigned char *data,size_t len,XhElfTarget target,XhElfView *out) {
     XhElfView v;
     XhElfSection s, t, names;
     unsigned i;
@@ -83,19 +95,21 @@ int xh_elf_open(const unsigned char *data, size_t len, XhElfView *out) {
     const char *name;
     if(!out) return XH_ELF_ERR_ARGUMENT;
     out->data=0; out->len=0; out->shoff=0; out->flags=0;
-    out->shnum=0; out->shstrndx=0;
+    out->shnum=0; out->shstrndx=0;out->machine=0;
+    if(target!=XH_ELF_TARGET_ARM && target!=XH_ELF_TARGET_RISCV32)return XH_ELF_ERR_UNSUPPORTED;
     if(!data) return XH_ELF_ERR_ARGUMENT;
     if(len<52) return XH_ELF_ERR_BOUNDS;
     if(data[0]!=127 || data[1]!='E' || data[2]!='L' || data[3]!='F' ||
        data[4]!=1 || data[5]!=1 || data[6]!=1 || rd16(data+16)!=1 ||
-       rd16(data+18)!=40 || rd32(data+20)!=1 || rd16(data+40)!=52 ||
+       rd16(data+18)!=(target==XH_ELF_TARGET_ARM?40u:243u) || rd32(data+20)!=1 || rd16(data+40)!=52 ||
        rd16(data+46)!=40) return XH_ELF_ERR_FORMAT;
     /* Relocatable input has no loadable program headers or entry address. */
     if(rd32(data+24) || rd32(data+28) || rd16(data+42) || rd16(data+44))
         return XH_ELF_ERR_UNSUPPORTED;
     v.data=data; v.len=len; v.shoff=rd32(data+32); v.flags=rd32(data+36);
     v.shnum=rd16(data+48); v.shstrndx=rd16(data+50);
-    if((v.flags & ~0x200u)!=0x05000000u) return XH_ELF_ERR_UNSUPPORTED;
+    v.machine=rd16(data+18);
+    if(target==XH_ELF_TARGET_ARM?(v.flags & ~0x200u)!=0x05000000u:v.flags!=0u)return XH_ELF_ERR_UNSUPPORTED;
     if(!v.shnum || v.shnum>XH_ELF_MAX_SECTIONS ||
        v.shstrndx==0xffffu) return XH_ELF_ERR_UNSUPPORTED;
     if(v.shstrndx>=v.shnum) return XH_ELF_ERR_INDEX;
@@ -116,7 +130,7 @@ int xh_elf_open(const unsigned char *data, size_t len, XhElfView *out) {
         if(s.align>XH_ELF_MAX_ALIGN || (s.align && (s.align&(s.align-1))))
             return XH_ELF_ERR_FORMAT;
         if(s.type==17 || (s.flags&(0x200u|0x400u)) || s.type==18 ||
-           s.type==4 || s.type==11) return XH_ELF_ERR_UNSUPPORTED;
+           (s.type==4 && target==XH_ELF_TARGET_ARM) || (s.type==9 && target==XH_ELF_TARGET_RISCV32) || s.type==11) return XH_ELF_ERR_UNSUPPORTED;
         if(s.type==XH_ELF_SHT_STRTAB && (!s.size || data[s.offset] ||
            data[(size_t)s.offset+s.size-1])) return XH_ELF_ERR_FORMAT;
     }
@@ -152,25 +166,29 @@ int xh_elf_open(const unsigned char *data, size_t len, XhElfView *out) {
     }
     for(i=1;i<v.shnum;i++) {
         section_raw(&v,i,&s);
-        if(s.type!=XH_ELF_SHT_REL) continue;
-        if(s.entsize!=8 || s.size%8) return XH_ELF_ERR_FORMAT;
-        if(s.size/8u>XH_ELF_MAX_RECORDS) return XH_ELF_ERR_UNSUPPORTED;
+        uint32_t stride=s.type==XH_ELF_SHT_RELA?12u:8u;
+        if(s.type!=XH_ELF_SHT_REL && s.type!=XH_ELF_SHT_RELA) continue;
+        if(s.entsize!=stride || s.size%stride) return XH_ELF_ERR_FORMAT;
+        if(s.size/stride>XH_ELF_MAX_RECORDS) return XH_ELF_ERR_UNSUPPORTED;
         if(!s.link || s.link>=v.shnum || !s.info || s.info>=v.shnum)
             return XH_ELF_ERR_INDEX;
         section_raw(&v,s.link,&t);
         if(t.type!=XH_ELF_SHT_SYMTAB) return XH_ELF_ERR_FORMAT;
-        for(j=0;j<s.size/8u;j++) {
-            XhElfRel r;
-            XhElfSection target;
-            int rc=xh_elf_rel(&v,i,j,&r);
+        for(j=0;j<s.size/stride;j++) {
+            XhElfRel r;XhElfRela a;XhElfSection dest;int rc;
+            if(s.type==XH_ELF_SHT_RELA){rc=xh_elf_rela(&v,i,j,&a);r.offset=a.offset;r.symbol=a.symbol;r.type=a.type;}
+            else rc=xh_elf_rel(&v,i,j,&r);
             if(rc) return rc;
             if(r.symbol>=t.size/16u) return XH_ELF_ERR_INDEX;
-            section_raw(&v,s.info,&target);
-            if(r.offset>=target.size) return XH_ELF_ERR_BOUNDS;
+            section_raw(&v,s.info,&dest);
+            if(r.offset>dest.size || (r.offset==dest.size && !(target==XH_ELF_TARGET_RISCV32 && (r.type==0u || r.type==51u))))return XH_ELF_ERR_BOUNDS;
         }
     }
     *out=v;
     return 0;
+}
+int xh_elf_open(const unsigned char *data,size_t len,XhElfView *out) {
+    return xh_elf_open_target(data,len,XH_ELF_TARGET_ARM,out);
 }
 int xh_elf_validate_thumb(const XhElfView *v) {
     unsigned i;

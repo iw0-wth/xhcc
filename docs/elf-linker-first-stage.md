@@ -1,8 +1,12 @@
-# 标准 ARM ELF 链接器首阶段
+# 标准 ELF 链接器首阶段与目标扩展
 
 首版已将有界 ELF32 ARM ET_REL 读取、六类 ARM REL 适配、节布局、符号决议和输出接入 `xhcc`、`xhccm` 与独立 `xhlinker`；`xhccn` 在编译期排除对象链接器。支持显式 ARM `.o` 列表、受检 MEMORY/SECTIONS `.ld` 子集、ET_EXEC 及按 LMA 排列的 binary。独立 GNU 对照与执行测试已通过；它不是完整 GNU ld，不自动提供启动代码、运行库或板级配置。完整应用验收和范围见 [进度与规划](progress-and-roadmap.md)。
 
-## 首版输入合同
+## 跨架构扩展
+
+布局、符号决议、脚本、内存预算和输出由同一核心复用，目标描述与适配器区分 ARM/RV32。RV32 当前只接受 flags=0、ILP32 soft ABI、无 RVC/RVE 的 ELF32 RELA；PCREL LO12 要求同输入节中可验证的唯一 HI20 anchor，RELAX 只验证关联后作 no-op，不执行指令缩短。具体重定位、字节 oracle 与错误边界见 [RV ELF relocation](rv-elf-relocations.md)；真实生产对象分节见 [RV ELF sections](rv-elf-sections.md)。这不是所有架构标准链接已完成，i386/AMD64 等尚未接入。
+
+## ARM 首版输入合同
 
 - 显式列出的 ELF32、little-endian、ET_REL、EM_ARM、EABI5/base soft-float 对象，首版只面向 Thumb。核验 class、endianness、machine、ABI flags 和每个表的边界，不只检查 machine。
 - 读取器借用输入缓冲区，视图、字符串和节数据都不能越过该缓冲区的生命周期。不允许保存视图后覆盖共用输入缓冲区。

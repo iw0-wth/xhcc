@@ -396,8 +396,8 @@ static int diagnostic_policy(const char *a) {
 static int validate_cpu(ArkOptions *o, int arm_flags) {
   if (!strcmp(o->target, "arm")) {
     const CpuInfo *cpu = cpu_lookup(o->cpu);
-    if (!cpu || !cpu->thumb2)
-      return fail("ARM backend requires a Thumb-2 CPU (M3/M4/M7/M33): %s",
+    if (!cpu || (!cpu->thumb2 && !(cpu->arch_m == 6 && cpu->thumb_only)))
+      return fail("ARM CPU/backend requires Thumb-2 or the ARMv6-M Thumb-1 scalar subset: %s",
                   o->cpu ? o->cpu : "(none)");
     o->cpu = cpu->name;
   } else {
@@ -418,7 +418,7 @@ static void usage(void) {
        "         i686-linux-gnu-gcc, riscv32-unknown-elf-gcc, xh-c-gcc\n"
        "  -o FILE  -I DIR  -D NAME[=VALUE]  -U NAME  -include FILE\n"
        "  -std=c99|c11|gnu99|gnu11 (C11 subset; no thread library/TLS)\n"
-       "  -O0|-O1|-O2  -mcpu=CPU (ARM: Cortex-M3/M4/M7/M33)\n"
+       "  -O0|-O1|-O2  -mcpu=CPU (ARMv6-M Thumb-1 scalar subset or Thumb-2)\n"
        "  -config FILE  -f[no-]FEATURE  --diag_style=gnu|arm|ide|modern\n"
        "  -E -dM: final macro definitions; -E -P: omit line markers\n"
        "  -fsyntax-only  -ffreestanding|-fhosted -f[no-]builtin -undef\n"
@@ -444,7 +444,7 @@ static void usage(void) {
        "  Limits: 512 arguments, 64 sources, 32 KiB storage, 64 KiB response\n"
        "          input, 8 response levels, 511-byte derived output paths.\n"
        "  Multiple sources compile sequentially; explicit -o/-MF/-MT require\n"
-       "  one source. ARM link subset: explicit .o files -o FILE (max 32);\n"
+       "  one source. ARM/RV32 link subset: explicit .o files -o FILE (max 32);\n"
        "  --entry NAME (default _start), --text-address NUM (0x08000000),\n"
        "  --data-address NUM (0x20000000), --data-load-address NUM\n"
        "  (default contiguous Flash); -T/--script FILE, --oformat=elf|binary\n"
@@ -913,11 +913,11 @@ int xh_driver_main(int argc, char **argv) {
       goto done;
     }
     if (strlen(a)>=3 && !strcmp(a+strlen(a)-2,".o")) {
-      if(driver.object_count==(int)XH_ELF_LINK_MAX_OBJECTS){result=fail("ARM ELF link object limit is 32",0);goto done;}
+      if(driver.object_count==(int)XH_ELF_LINK_MAX_OBJECTS){result=fail("ARM/RV32 ELF link object limit is 32",0);goto done;}
       driver.objects[driver.object_count++]=a;continue;
     }
     if (strlen(a) < 3 || strcmp(a + strlen(a) - 2, ".c")) {
-      result = fail("only .c compilation or explicit .o ARM ELF linking inputs are supported: %s", a);
+      result = fail("only .c compilation or explicit .o ARM/RV32 ELF linking inputs are supported: %s", a);
       goto done;
     }
     if (driver.source_count == XH_DRIVER_MAX_SOURCES) {
@@ -964,24 +964,24 @@ int xh_driver_main(int argc, char **argv) {
   if (driver.object_count) {
     char error[512];
     if(driver.source_count){result=fail("mixing .c and .o or automatic compile/link is unsupported",0);goto done;}
-    if(seen_c||seen_e||seen_s||compile_options||o->syntax_only||o->gen_depend||o->private_object||o->obj_ir){result=fail("ARM ELF linking does not accept compilation/preprocessing options",0);goto done;}
-    if(!o->output_path||!strcmp(o->output_path,"-")){result=fail("ARM ELF linking requires -o FILE (stdout unsupported)",0);goto done;}
+    if(seen_c||seen_e||seen_s||compile_options||o->syntax_only||o->gen_depend||o->private_object||o->obj_ir){result=fail("ARM/RV32 ELF linking does not accept compilation/preprocessing options",0);goto done;}
+    if(!o->output_path||!strcmp(o->output_path,"-")){result=fail("ARM/RV32 ELF linking requires -o FILE (stdout unsupported)",0);goto done;}
     if(xh_package_apply(root,tool,o)){result=1;goto done;}
-    if(strcmp(o->target,"arm")){result=fail("modern ELF linking currently supports ARM only",0);goto done;}
+    if(strcmp(o->target,"arm")&&strcmp(o->target,"riscv32")){result=fail("modern ELF linking currently supports ARM and riscv32 only",0);goto done;}
     if(explicit_cpu)o->cpu=explicit_cpu;
     if(validate_cpu(o,arm_flags)){result=1;goto done;}
-    if((abi&&strcmp(abi,"aapcs"))||width||arch||softfp||(fpu&&strcmp(fpu,"SoftVFP"))){result=fail("ARM ELF link layout supports base soft-float ARM objects only; architecture overrides unsupported",0);goto done;}
+    if((abi&&strcmp(abi,!strcmp(o->target,"arm")?"aapcs":"ilp32"))||width||arch||softfp||(fpu&&strcmp(fpu,"SoftVFP"))){result=fail("ELF link supports base ARM soft-float or RV32 ILP32 objects; architecture overrides unsupported",0);goto done;}
     for(i=0;i<driver.object_count;i++)if(same_path(o->output_path,driver.objects[i])){result=fail("link output would overwrite input: %s",driver.objects[i]);goto done;}
     link_request.output_path=o->output_path;
 #if XH_WITH_LINKER && !defined(XH_ADAPTER)
     mem_pool_reset();
     {
       XhElfLinkReport report;
-      result=xh_elf_link_arm_report(driver.objects,(unsigned)driver.object_count,&link_request,error,sizeof(error),&report)!=0;
+      result=xh_elf_link_report(!strcmp(o->target,"arm")?XH_ELF_TARGET_ARM:XH_ELF_TARGET_RISCV32,driver.objects,(unsigned)driver.object_count,&link_request,error,sizeof(error),&report)!=0;
       if(memory_report)fprintf(stderr,"[xhcc] link requested heap peak %lu/%lu B (excludes allocator overhead, runtime, stack and filesystem caches); objects=%u sections=%u symbols=%u output=%lu B\n",
         (unsigned long)report.peak_requested_bytes,(unsigned long)XH_ELF_LINK_MAX_MEMORY,
         report.objects,report.sections,report.symbols,(unsigned long)report.output_bytes);
-      if(result)fail("ARM ELF link failed: %s",error);
+      if(result)fail("ELF link failed: %s",error);
     }
 #else
     result=fail("linking is unavailable in this application; use xhcc or xhlinker",0);

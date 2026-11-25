@@ -33,9 +33,25 @@ class CpuRuleTests(unittest.TestCase):
             self.invoke('-c','-mcpu='+cpu,'-mfloat-abi=softfp','-mfpu=fpv4-sp-d16',
                         '-o',self.path('custom.o'),self.path('cpu.c'))
             self.assertEqual((self.dir/'custom.o').read_bytes()[:4],b'\x7fELF')
-    def test_thumb1_rejected_by_capability(self):
-        for cpu in ('M0','M0+','M1','M23'):
-            self.invoke('-c','-mcpu='+cpu,self.path('one.c'),success=False)
+    def test_armv6m_baseline_scalar_and_unsupported_capabilities(self):
+        (self.dir/'baseline.c').write_text('int baseline(int a,int b){return a+b;}\n')
+        for cpu in ('M0','M0+','M1'):
+            with self.subTest(cpu=cpu):
+                self.invoke('-c','-mcpu='+cpu,'-o',self.path('baseline.o'),self.path('baseline.c'))
+                self.assertEqual((self.dir/'baseline.o').read_bytes()[:4],b'\x7fELF')
+        self.invoke('-c','-mcpu=M23','-o',self.path('rejected.o'),self.path('baseline.c'),success=False)
+        # Names do not authorize a CPU: a renamed ARMv8-M baseline is still unsupported.
+        description=self.original.replace('name=Cortex-M23\n','name=Unknown-Thumb1-Core\n')
+        description=description.replace('aliases=M23\n','aliases=unknown-baseline\n')
+        (self.package/'cpus.rules').write_text(description,encoding='utf-8')
+        self.invoke('-c','-mcpu=unknown-baseline','-o',self.path('rejected.o'),self.path('baseline.c'),success=False)
+        # Nor is clearing Thumb-2 on an ARMv7-M descriptor sufficient for ARMv6-M.
+        sections=self.original.split('[M3]',1)
+        prefix,rest=sections
+        m3,next_sections=rest.split('[M4]',1)
+        m3=m3.replace('name=Cortex-M3\n','name=Custom-Not-Thumb2\n').replace('thumb2=1','thumb2=0')
+        (self.package/'cpus.rules').write_text(prefix+'[M3]'+m3+'[M4]'+next_sections,encoding='utf-8')
+        self.invoke('-c','-mcpu=Custom-Not-Thumb2','-o',self.path('rejected.o'),self.path('baseline.c'),success=False)
     def test_invalid_schema_and_duplicate_alias(self):
         variants=[self.original.replace('version=1','version=99'),
                   self.original.replace('thumb2=1','thumb2=2',1),

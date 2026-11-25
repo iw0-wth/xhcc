@@ -66,7 +66,7 @@ class DriverTests(unittest.TestCase):
         self.assertIn('xhcc', self.run_xhcc('--version').stdout)
 
     def test_reject_options_and_missing_values(self):
-        for flag in ['-O3', '-marm', '-mfloat-abi=hard', '-mcpu=cortex-m0',
+        for flag in ['-O3', '-marm', '-mfloat-abi=hard',
                      '-mcpu=cortex-m23', '-std=c17', '-Wunknown', '-funknown',
                      '-g', '-ffunction-sections']:
             with self.subTest(flag=flag):
@@ -106,9 +106,38 @@ class DriverTests(unittest.TestCase):
                      (*objects, '-r'), (*objects, '-DIGNORED=1')):
             self.run_xhcc('arm-none-eabi-gcc', *args, '-o', self.path('rejected.elf'), success=False)
         self.run_xhcc('arm-none-eabi-gcc', *objects, success=False)
-        for tool in ('x86_64-linux-gnu-gcc', 'i686-linux-gnu-gcc', 'riscv32-unknown-elf-gcc', 'xh-c-gcc'):
+        for tool in ('x86_64-linux-gnu-gcc', 'i686-linux-gnu-gcc', 'xh-c-gcc'):
             result = self.run_xhcc(tool, *objects, '-o', self.path('other.elf'), success=False)
-            self.assertIn('ARM only', result.stderr)
+            self.assertIn('ARM and riscv32 only', result.stderr)
+
+    def test_armv6m_thumb1_scalar_subset(self):
+        (self.dir / 'thumb1.c').write_text('int add(int a, int b) { return a+b; }\n')
+        for cpu in ('cortex-m0', 'cortex-m0+', 'cortex-m1'):
+            self.run_xhcc('-c', '-mcpu=' + cpu, '-o', self.path('thumb1.o'), self.path('thumb1.c'))
+            self.assertEqual((self.dir / 'thumb1.o').read_bytes()[:4], b'\x7fELF')
+        (self.dir / 'thumb1-global.c').write_text('int global_value=3; int get(void) { return global_value; }\n')
+        self.run_xhcc('-c', '-mcpu=cortex-m0', '-o', self.path('bad-thumb1.o'), self.path('thumb1-global.c'), success=False)
+        self.run_xhcc('-c', '-mcpu=cortex-m23', '-o', self.path('bad-thumb1.o'), self.path('thumb1.c'), success=False)
+
+    def test_modern_rv32_elf_link(self):
+        import struct
+        (self.dir / 'rv-start.c').write_text('extern int answer(void); int _start(void) { return answer(); }\n')
+        (self.dir / 'rv-answer.c').write_text('int answer(void) { return 42; }\n')
+        objects = [self.path('rv-start.o'), self.path('rv-answer.o')]
+        for source, output in zip(('rv-start.c', 'rv-answer.c'), objects):
+            self.run_xhcc('riscv32-unknown-elf-gcc', '-c', '-o', output, self.path(source))
+        self.run_xhcc('riscv32-unknown-elf-gcc', *objects, '-o', self.path('rv-linked.elf'), '--memory-report')
+        image = (self.dir / 'rv-linked.elf').read_bytes()
+        self.assertEqual(image[:4], b'\x7fELF')
+        self.assertEqual(struct.unpack_from('<HH', image, 16), (2, 243))
+        self.assertEqual(struct.unpack_from('<I', image, 24)[0] % 4, 0)
+        self.run_xhcc('riscv32-unknown-elf-gcc', *objects, '--binary', '-o', self.path('rv-linked.bin'))
+        binary = (self.dir / 'rv-linked.bin').read_bytes()
+        self.assertTrue(binary)
+        self.assertNotEqual(binary[:4], b'\x7fELF')
+        (self.dir / 'rv-linked.elf').write_bytes(b'preserve old RV image')
+        self.run_xhcc('riscv32-unknown-elf-gcc', objects[0], '-o', self.path('rv-linked.elf'), success=False)
+        self.assertEqual((self.dir / 'rv-linked.elf').read_bytes(), b'preserve old RV image')
 
     def test_modern_private_object_ir_option(self):
         output = self.path('with-ir.ark_obj')
