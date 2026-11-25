@@ -27,6 +27,19 @@ class BuildCache(unittest.TestCase):
    root=Path(tmp);source=root/'probe.c';source.write_text('int add(int a,int b){return a+b;}\n');flags=['--target=wasm32-wasip1','-Oz','-g0','-ffunction-sections'];headers=cachemodule.header_snapshot(root,root/'no-sdk')
    def run(cmd):subprocess.run(cmd,check=True,capture_output=True)
    cached=cachemodule.ObjectCache(root/'cache',self.identity,headers);uncached=cachemodule.ObjectCache(root/'cache',self.identity,headers,False);output=root/'probe.o';cached.compile(source,flags,output,run);first=output.read_bytes();cached.compile(source,flags,output,run);self.assertEqual(output.read_bytes(),first);uncached.compile(source,flags,output,run);self.assertEqual(output.read_bytes(),first);self.assertEqual(cached.hits,1);self.assertEqual(uncached.misses,1)
+class ExpandedBuildPlan(unittest.TestCase):
+ def run_plan(self,*args):return subprocess.run([sys.executable,'tools/build.py',*args],cwd=ROOT,capture_output=True,text=True)
+ def test_profiles_paths_and_budget_validation_without_build(self):
+  import json
+  help=self.run_plan('--help');self.assertEqual(help.returncode,0);self.assertIn('--arena-kib',help.stdout)
+  default=self.run_plan('--app','xhccn','--print-artifacts');self.assertEqual(default.returncode,0,default.stderr);a=json.loads(default.stdout);self.assertEqual(a['profile'],'default');self.assertTrue(a['publish_production']);self.assertEqual(a['arena_bytes'],1048576)
+  for options in [('--profile','expanded','--arena-kib','2048','--memory-mib','8'),('--arena-kib','2048','--memory-mib','8'),('--memory-mib','8')]:
+   p=self.run_plan('--app','xhccn','--print-artifacts',*options);self.assertEqual(p.returncode,0,p.stderr);plan=json.loads(p.stdout);self.assertEqual(plan['profile'],'expanded');self.assertFalse(plan['publish_production']);self.assertIn('expanded',Path(plan['artifacts'][0]['path']).parts)
+  for options in [('--arena-kib','0'),('--memory-mib','0'),('--arena-kib','4096','--memory-mib','4')]:self.assertNotEqual(self.run_plan('--print-artifacts',*options).returncode,0)
+ def test_arena_compile_flag_changes_object_cache_key(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   source=Path(tmp)/'source.c';source.write_text('int f(void){return 1;}');identity={'path':'fixture','sha256':'0','version':'fixture'}
+   a=cachemodule.object_key(source,['-DARK_POOL_SIZE=1048576'],identity,'headers',{});b=cachemodule.object_key(source,['-DARK_POOL_SIZE=2097152'],identity,'headers',{});self.assertNotEqual(a,b)
 class NoPythonDependencies(unittest.TestCase):
  def test_make_profiles_sdk_headers_and_tool_timestamps(self):
   import shutil,time
