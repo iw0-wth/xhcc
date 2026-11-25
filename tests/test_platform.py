@@ -10,7 +10,7 @@ class PlatformTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='platform-',dir=ROOT/'build');self.dir=Path(self.temp.name);self.rel=self.dir.relative_to(ROOT).as_posix()
     def tearDown(self):self.temp.cleanup()
     def run_cc(self,*args,ok=True):
-        cmd=[RUNTIME,'run','--dir=.',str(ROOT/'build/wasm/xhcc.wasm'),*args]
+        cmd=[RUNTIME,'run','--dir=.','--env','XHCC_TMPDIR='+self.rel,str(ROOT/'build/wasm/xhcc.wasm'),*args]
         r=subprocess.run(cmd,cwd=ROOT,capture_output=True,text=True,timeout=30)
         self.assertEqual(r.returncode==0,ok,r.stdout+r.stderr);return r
     def test_memory_and_wasi_contract(self):
@@ -28,8 +28,9 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
         self.assertEqual((self.dir/'source.o').read_bytes()[:4],b'\x7fELF')
     def test_errors_and_limits(self):
-        source=self.dir/'large.c';source.write_text(' '*(32*1024));out=self.rel+'/bad.o'
-        self.run_cc('-c','-o',out,self.rel+'/large.c',ok=False);self.assertFalse((ROOT/out).exists())
+        source=self.dir/'large.c';source.write_text(' '*(32*1024)+'\nint large_tail(void){return 17;}\n');out=self.rel+'/bad.o'
+        self.run_cc('-c','-o',out,self.rel+'/large.c');self.assertEqual((ROOT/out).read_bytes()[:4],b'\x7fELF')
+        (ROOT/out).unlink()
         source.write_text('int f( { return; }\n');self.run_cc('-c','-o',out,self.rel+'/large.c',ok=False);self.assertFalse((ROOT/out).exists())
         for i in range(10):(self.dir/f'h{i}.h').write_text(f'#include "h{i+1}.h"\n' if i<9 else '#define END 1\n')
         source.write_text('#include "h0.h"\nint f(void){return END;}\n');self.run_cc('-c','-o',out,self.rel+'/large.c',ok=False)
@@ -63,7 +64,11 @@ class PlatformTests(unittest.TestCase):
             if kind!=8:self.assertLessEqual(offset+size,len(replaced))
     def test_arena_exhaustion_and_io_failure(self):
         source=self.dir/'arena.c';source.write_text('int f(void){int x=0;\n'+('x=x+1;\n'*3000)+'return x;}\n')
+        before=set(self.dir.glob('*.xhcc-tmp-*'))
+        root_before=set(ROOT.glob('.xhcc-spool.xhcc-tmp-*'))
         r=self.run_cc('-c',self.rel+'/arena.c','-o',self.rel+'/arena.o',ok=False)
+        self.assertEqual(set(self.dir.glob('*.xhcc-tmp-*')),before)
+        self.assertEqual(set(ROOT.glob('.xhcc-spool.xhcc-tmp-*')),root_before)
         self.assertIn('memory pool exhausted',r.stderr)
         self.assertFalse((self.dir/'arena.o').exists())
         source.write_text('int f(void){return 1;}\n')

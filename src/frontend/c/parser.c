@@ -2650,15 +2650,14 @@ static AstNode *parse_top_decl(Parser *p) {
              * mis-parse. */
             if (is_asm_fn) {
                 AstNode *n;
-                const char *body_start = 0;
-                const char *body_end = 0;
+                uint32_t body_start = 0;
+                uint32_t body_end = 0;
                 char *body_text = 0;
                 if (lexer_peek(p->lex).kind != TOK_LBRACE) {
                     perror_at(p, "expected '{' in __asm function body");
                 } else {
                     Token lb = lexer_peek(p->lex);
-                    /* lb.src_start points to '{' position */
-                    body_start = lb.src_start ? lb.src_start + 1 : 0;
+                    body_start = lb.src_offset + 1;
                     /* Advance lexer past '}' using bracket depth counting */
                     {
                         int depth = 0;
@@ -2673,7 +2672,7 @@ static AstNode *parse_top_decl(Parser *p) {
                             if (k == TOK_RBRACE) {
                                 depth--;
                                 if (depth == 0) {
-                                    body_end = lexer_peek(p->lex).src_start;
+                                    body_end = lexer_peek(p->lex).src_offset;
                                     lexer_advance(p->lex);
                                     break;
                                 }
@@ -2684,8 +2683,8 @@ static AstNode *parse_top_decl(Parser *p) {
                         }
                     }
                     if (body_start && body_end && body_end >= body_start) {
-                        int blen = (int)(body_end - body_start);
-                        body_text = mem_strndup(body_start, blen);
+                        body_text = lexer_copy_source_span(p->lex, body_start, body_end - body_start);
+                        if (!body_text) body_text = mem_strdup("");
                     } else {
                         body_text = mem_strdup("");
                     }
@@ -2907,11 +2906,11 @@ static AstNode *parse_block(Parser *p) {
     while (lexer_peek(p->lex).kind != TOK_RBRACE &&
            lexer_peek(p->lex).kind != TOK_EOF) {
         AstNode *s;
-        const char *before;
+        uint32_t before;
         /* Same stop as parse_program: no point building an AST for statements
          * of a function we already failed to understand. */
         if (diag_at_limit()) break;
-        before = p->lex->p;
+        before = p->lex->offset;
         s = parse_statement(p);
         if (s) {
             block_add_stmt(blk, s);
@@ -2922,7 +2921,7 @@ static AstNode *parse_block(Parser *p) {
          * #65/#29 repeated on line 36 until the 4 MB pool was gone (595 ms),
          * and the last thing printed was "memory pool exhausted" instead of
          * the missing include. */
-        if (p->lex->p == before) lexer_advance(p->lex);
+        if (p->lex->offset == before) lexer_advance(p->lex);
     }
     sym_leave_scope();
     lexer_expect(p->lex, TOK_RBRACE);

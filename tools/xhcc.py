@@ -89,6 +89,8 @@ def main(argv=None):
     if not compiler.is_file():
         p.error(f'shared compiler module missing: {compiler}; build/install xhcc first')
     environment = {'XHCC_PACKAGE_ROOT': '/xh-packages', 'XHCC_PACKAGE_DIR': '/xh-packages/' + data['id']}
+    if 'XHCC_TMPDIR' in os.environ:
+        environment['XHCC_TMPDIR'] = os.environ['XHCC_TMPDIR']
     command = [a.wasmtime, 'run', '--dir=.', '--dir=' + str(root) + '::/xh-packages']
     for key, value in environment.items():
         command += ['--env', key + '=' + value]

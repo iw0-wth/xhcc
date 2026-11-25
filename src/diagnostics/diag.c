@@ -15,6 +15,7 @@
  */
 #include "diag.h"
 #include "platform.h"
+#include "flash_fs.h"
 
 /* arkcc_config.h is not pulled in by diag.h/common.h, and every feature gate
  * below is an #if on a macro from it: without this include ARKCC_FEATURE_DIAG_SINK
@@ -376,9 +377,9 @@ static void put_location(Line *l, const DiagLoc *loc, DiagStyle style,
  *   "  " + source line verbatim (tabs stay tabs)
  *   "  " + prefix replayed by display width + "^"
  *     ASCII = 1 column, CJK = 2 columns, tab stays a tab and counts 1.
- * Only the main file is echoable: a line from an #included header cannot be
- * mapped back to a buffer here, so those diagnostics print without the block.
- * A missing echo is a smaller lie than a wrong one.
+ * Memory sources echo only the main file. Providers can explicitly map other
+ * files, including an active preprocessor include or a preprocessed spool.
+ * A missing mapping emits no echo rather than borrowing an unrelated line.
  * ------------------------------------------------------------------------- */
 
 #define DIAG_GUTTER "  "
@@ -465,39 +466,143 @@ static void echo_pad_modern(Line *l) {
  * over the exact line to echo. Set immediately before report(), cleared
  * immediately after -- one diagnostic, one line, no state carried over. */
 static const char *g_echo_line;
+static DiagSourceProvider source_provider;
+static void *source_ctx;
+static const char *source_display_path, *source_storage_path;
+
+void diag_clear_source_provider(void) {
+    source_provider = 0;
+    source_ctx = 0;
+    source_display_path = source_storage_path = 0;
+}
+
+void diag_set_source_provider(DiagSourceProvider provider, void *ctx) {
+    diag_clear_source_provider();
+    source_provider = provider;
+    source_ctx = provider ? ctx : 0;
+}
+
+/* A range cursor avoids source-sized storage and reads even very long physical
+ * lines in fixed windows. UTF-8 sequences may straddle a window boundary. */
+typedef struct {
+    unsigned char buf[512];
+    unsigned offset;
+    int pos, count;
+    const char *path;
+} SourceCursor;
+
+static int source_byte(SourceCursor *c) {
+    if (c->pos == c->count) {
+        c->count = fs_read_range(c->path, c->offset, c->buf, sizeof(c->buf));
+        c->pos = 0;
+        if (c->count <= 0) return -1;
+        c->offset += (unsigned)c->count;
+    }
+    return c->buf[c->pos++];
+}
+
+static int file_source(void *ctx, const char *path, int line, int col,
+                       char *buf, unsigned cap, DiagSourceExcerpt *out) {
+    SourceCursor c;
+    int b, current = 1, cells = 1;
+    unsigned used = 0;
+    int desired = col > 80 ? col - 80 : 1;
+    (void)ctx;
+    if (!str_eq(path, source_display_path) || !source_storage_path ||
+        line <= 0 || cap < 5) return 0;
+    c.path = source_storage_path;
+    c.offset = 0; c.pos = c.count = 0;
+    while (current < line) {
+        b = source_byte(&c);
+        if (b < 0) return 0;
+        if (b == '\n') current++;
+    }
+    out->first_col = 1;
+    out->clipped_left = out->clipped_right = 0;
+    for (;;) {
+        char seq[4];
+        int n = 1, w = 1, i;
+        b = source_byte(&c);
+        if (b < 0 || b == '\r' || b == '\n') break;
+        seq[0] = (char)b;
+        if ((b & 0xe0) == 0xc0) n = 2;
+        else if ((b & 0xf0) == 0xe0) { n = 3; w = 2; }
+        else if ((b & 0xf8) == 0xf0) { n = 4; w = 2; }
+        for (i = 1; i < n; i++) {
+            b = source_byte(&c);
+            if (b < 0 || b == '\r' || b == '\n' || (b & 0xc0) != 0x80)
+                return 0; /* malformed input: do not invent a source caret */
+            seq[i] = (char)b;
+        }
+        if (cells + w <= desired) {
+            cells += w;
+            out->first_col = cells;
+            out->clipped_left = 1;
+            continue;
+        }
+        if (used + (unsigned)n >= cap) { out->clipped_right = 1; break; }
+        for (i = 0; i < n; i++) buf[used++] = seq[i];
+        cells += w;
+    }
+    buf[used] = 0;
+    return 1;
+}
+
+void diag_set_source_file(const char *display_path, const char *storage_path) {
+    diag_clear_source_provider();
+    if (!display_path || !storage_path) return;
+    source_display_path = display_path;
+    source_storage_path = storage_path;
+    source_provider = file_source;
+}
 
 static void echo_source(const DiagLoc *loc) {
     const char *start, *end, *p;
+    char excerpt[DIAG_SOURCE_CAP];
+    DiagSourceExcerpt span;
+    int caret_col;
     Line l;
 
     if (!loc || loc->line <= 0) return;
+    span.first_col = 1;
+    span.clipped_left = span.clipped_right = 0;
     if (g_echo_line) {
         start = g_echo_line;
-    } else {
-        if (g.echo_disabled || !g.src) return;
+    } else if (!g.echo_disabled && g.src) {
         if (loc->file && !str_eq(loc->file, g.main_file)) return;
         start = find_line(g.src, loc->line);
         if (!start) return;
-    }
+    } else if (source_provider) {
+        excerpt[0] = excerpt[sizeof(excerpt) - 1] = 0;
+        if (!source_provider(source_ctx, loc->file ? loc->file : g.main_file,
+                             loc->line, loc->col, excerpt, sizeof(excerpt), &span) ||
+            span.first_col < 1) return;
+        excerpt[sizeof(excerpt) - 1] = 0;
+        start = excerpt;
+    } else return;
+    caret_col = loc->col - span.first_col + 1;
     end = start;
     while (*end && *end != '\n' && *end != '\r') end++;
 
     line_reset(&l);
     if (g.style == DIAG_STYLE_MODERN) echo_prefix_modern(&l, loc->line);
     else                              line_puts(&l, DIAG_GUTTER);
+    if (span.clipped_left) line_puts(&l, "...");
     p = start;
     while (p < end) line_putc(&l, *p++);
+    if (span.clipped_right) line_puts(&l, "...");
     emit_line(&l);
 
-    if (loc->col <= 0) return;
+    if (loc->col <= 0 || caret_col <= 0) return;
 
     line_reset(&l);
     if (g.style == DIAG_STYLE_MODERN) echo_pad_modern(&l);
     else                              line_puts(&l, DIAG_GUTTER);
+    if (span.clipped_left) line_puts(&l, "   ");
     {
         int width = 0;
         p = start;
-        while (p < end && width < loc->col - 1) {
+        while (p < end && width < caret_col - 1) {
             int w;
             const char *nxt;
             if (*p == '\t') {
@@ -507,7 +612,7 @@ static void echo_source(const DiagLoc *loc) {
                 continue;
             }
             nxt = utf8_step(p, &w);
-            if (width + w > loc->col - 1) break;   /* never split a wide char */
+            if (width + w > caret_col - 1) break;   /* never split a wide char */
             while (w-- > 0) { line_putc(&l, ' '); width++; }
             p = nxt;
         }
@@ -517,7 +622,8 @@ static void echo_source(const DiagLoc *loc) {
          * construct), or the caret line itself is longer than we are willing
          * to echo. Printing a caret at a position that does not correspond to
          * anything is worse than printing none. */
-        if (l.overflow || width < loc->col - 1) return;
+        if (l.overflow || width < caret_col - 1 ||
+            (span.clipped_right && p >= end)) return;
     }
     line_putc(&l, '^');
     emit_line(&l);
@@ -736,6 +842,8 @@ static void code_to_str(int code, DiagSeverity intrinsic, char *out) {
 
 void diag_init(const char *main_file, const char *source_text) {
     int i;
+    diag_clear_source_provider();
+    g_echo_line = 0;
     g.main_file = main_file;
     g.src = source_text;
     g.echo_disabled = (source_text == 0);
@@ -956,6 +1064,7 @@ int diag_set_style_name(const char *name) {
 
 void diag_reset_policy(void) {
     int i;
+    diag_clear_source_provider();
     for (i = 0; i < DIAG_SUPPRESS_BYTES; i++) {
         baseline_suppressed[i] = g.suppressed[i] = 0;
         baseline_forced_error[i] = g.forced_error[i] = 0;
@@ -1051,6 +1160,7 @@ void diag_summary(void) {
 }
 
 void diag_shutdown(void) {
+    diag_clear_source_provider();
     diag_summary();
     diag_close_sink();
 }
@@ -1109,6 +1219,13 @@ void diag_report_no_final_newline(int code, const char *file, int line,
 }
 void diag_set_main_file(const char *main_file) { (void)main_file; }
 void diag_set_source(const char *source_text)   { (void)source_text; }
+void diag_set_source_provider(DiagSourceProvider provider, void *ctx) {
+    (void)provider; (void)ctx;
+}
+void diag_clear_source_provider(void) { }
+void diag_set_source_file(const char *display_path, const char *storage_path) {
+    (void)display_path; (void)storage_path;
+}
 void diag_summary(void)  { }
 void diag_shutdown(void) { }
 

@@ -15,6 +15,8 @@
  *   - Stringification/token-pasting honor C99 6.10.3.x rules.
  */
 #include "preproc.h"
+#include "xh_pp_stream.h"
+#include "xh_source_reader.h"
 #include "memory.h"
 #include "platform.h"
 #include "flash_fs.h"
@@ -94,6 +96,50 @@ static int apply_trigraphs(char *src) {
 }
 #endif
 
+
+/* File mode owns only bounded frames and scratch; legacy memory fragments keep
+ * their original interface. Sink state is installed only for the public call. */
+typedef struct PpStreamFrame {
+    XhSourceReader reader;
+    unsigned char window[XH_PP_STREAM_WINDOW];
+    char path[512];
+    char text[XH_PP_STREAM_SCRATCH];
+    int block_comment, line_comment, quote, escape, balance;
+    int directive, start, line, failed, raw_pending, long_whitespace, whitespace_known;
+    uint32_t origin;
+    int unit_line_prefix, physical_nonspace;
+    int splice_count, spliced;
+    uint16_t splice_positions[1024];
+} PpStreamFrame;
+static int pp_stream_mode, pp_stream_failed;
+static XhPpSink pp_stream_sink;
+static void *pp_stream_context;
+static XhPpMap pp_stream_map;
+static void *pp_stream_map_context;
+static uint32_t pp_stream_emitted;
+static char pp_stream_output[XH_PP_STREAM_WINDOW];
+static int pp_stream_output_length;
+static int pp_stream_flush(void) {
+    if(!pp_stream_output_length || pp_stream_failed)return pp_stream_failed ? -1 : 0;
+    if(pp_stream_sink(pp_stream_context,pp_stream_output,pp_stream_output_length)<0){pp_stream_failed=1;return -1;}
+    pp_stream_output_length=0;return 0;
+}
+static PpStreamFrame pp_stream_frames[PP_MAX_INC_DEPTH + 1];
+static PpStreamFrame *pp_stream_current;
+static int pp_stream_emit(const char *data, int length) {
+    if (pp_stream_failed) return -1;
+    if (pp_stream_map && pp_stream_current)
+        pp_stream_map(pp_stream_map_context, pp_stream_emitted,
+            pp_stream_current->path, pp_stream_current->origin, pp_stream_current->line);
+    { int i;
+      for(i=0;i<length;i++) {
+          if(pp_stream_output_length==XH_PP_STREAM_WINDOW && pp_stream_flush()<0)return -1;
+          pp_stream_output[pp_stream_output_length++]=data[i];
+      }
+    }
+    pp_stream_emitted += (uint32_t)length;
+    return 0;
+}
 typedef struct Macro {
     char         *name;
     char         *body;
@@ -242,6 +288,7 @@ static const char *g_blue_stack[PP_BLUE_STACK];
  * the pool cost is (live levels) x 16 KB well below this bound.  Exceeding the
  * bound is an error, never a silent share of someone else's buffer. */
 #define PP_RESCAN_MAX_SLOTS  128
+static int pp_rescan_capacity(void) { return pp_stream_mode ? XH_PP_STREAM_SCRATCH : PP_RESCAN_BUF_SIZE; }
 static char *g_rescan_buf[PP_RESCAN_MAX_SLOTS];
 static int   g_rescan_gen = -1;   /* pool generation the cache belongs to */
 static int   g_rescan_top;        /* live process() nesting levels */
@@ -269,7 +316,7 @@ static char *pp_rescan_buf(int slot) {
     }
     if (slot < 0 || slot >= PP_RESCAN_MAX_SLOTS) return 0;
     if (g_rescan_buf[slot] == 0) {
-        g_rescan_buf[slot] = (char *)mem_pool_alloc(PP_RESCAN_BUF_SIZE);
+        g_rescan_buf[slot] = (char *)mem_pool_alloc(pp_rescan_capacity());
     }
     return g_rescan_buf[slot];
 }
@@ -459,6 +506,7 @@ static void add_func_macro(const char *name, char **params, int pc,
 }
 
 static void buf_putc(char *buf, int *plen, int cap, char c) {
+    if (pp_stream_mode && !buf) { pp_stream_emit(&c, 1); return; }
     if (*plen + 1 >= cap) { g_buf_dropped = 1; return; }
     buf[(*plen)++] = c;
 }
@@ -652,7 +700,7 @@ static void pp_report_expand_overflow(const char *name) {
     g_rescan_err_seen = 1;
     pp_diag_msg(g_pp_line, 0, DIAG_SEV_ERROR,
                 "macro '%s' expands past %s bytes (ARKCC_MACRO_EXPAND_MAX)",
-                name ? name : "?", diag_num(cap_s, PP_RESCAN_BUF_SIZE));
+                name ? name : "?", diag_num(cap_s, pp_rescan_capacity()));
 }
 
 /* Every nesting level of process() needs its own rescan buffer; running out of
@@ -736,13 +784,16 @@ static int pp_expr_col(const char *at) {
  *   -2    found but larger than the buffer (already reported) */
 #define READ_INCLUDE_CUT (-2)
 
-#ifdef XHCC
 static char xh_resolved_include[PP_MAX_INC_DEPTH][512];
+#ifndef XHCC
+static int xh_current_system, xh_lookup_system, xh_forced_lookup;
 #endif
 static int read_include_one(const char *name, char *buf, int cap) {
-    int rd = fs_read_file(name, buf, cap);
+    int rd;
+    if (pp_stream_mode) rd = fs_file_size(name);
+    else rd = fs_read_file(name, buf, cap);
     if (rd < 0) return -1;
-    if (fs_file_size(name) > rd) {
+    if (!pp_stream_mode && fs_file_size(name) > rd) {
         char b1[12], b2[12];
         pp_diag_msg(g_pp_line, 1, DIAG_SEV_ERROR,
                     "include file is %s bytes, larger than the %s-byte "
@@ -750,13 +801,11 @@ static int read_include_one(const char *name, char *buf, int cap) {
                     diag_num(b1, fs_file_size(name)), diag_num(b2, cap));
         return READ_INCLUDE_CUT;
     }
-#ifdef XHCC
     {
         int n = ark_strlen(name), k;
         if (n >= 512) return READ_INCLUDE_CUT;
         for (k = 0; k <= n; ++k) xh_resolved_include[g_inc_depth][k] = name[k];
     }
-#endif
     return rd;
 }
 
@@ -1058,20 +1107,46 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
 
 /* Parse macro arguments: p must point at '('. Returns pointer past matching ')'.
  * Args are stored in args[] (max_args entries, currently 16). */
+static char *pp_stream_args[PP_RESCAN_MAX_SLOTS];
 static const char *parse_macro_args(const char *p, char **args, int *parg_count, int max_args) {
     int paren = 1;
+    int stream_used=0;
+    char *stream_args = 0;
+    if(pp_stream_mode && g_rescan_top>0 && g_rescan_top<=PP_RESCAN_MAX_SLOTS) {
+        int slot=g_rescan_top-1;
+        if(!pp_stream_args[slot])pp_stream_args[slot]=(char*)mem_pool_alloc(XH_PP_STREAM_SCRATCH);
+        stream_args=pp_stream_args[slot];
+    }
     int n = 0;
     char buf[1024];
     int bl = 0;
     if (*p != '(') { *parg_count = 0; return p; }
     p++;
     while (*p && paren > 0) {
+        if(pp_stream_mode && (bl>=1023 || n>=max_args)) {
+            pp_stream_failed=1;
+            pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro argument exceeds 1023 bytes or 16 arguments",0,0);
+            *parg_count=n;return p;
+        }
+        if(pp_stream_mode && p[0]=='/' && (p[1]=='*' || p[1]=='/')) {
+            int block=p[1]=='*';p+=2;
+            if(block){while(*p && !(p[0]=='*' && p[1]=='/'))p++;if(*p)p+=2;}
+            else while(*p && *p!='\n')p++;
+            if(bl<1023)buf[bl++]=' ';
+            continue;
+        }
         if (*p == '(') { paren++; if (bl < 1023) buf[bl++] = *p; p++; continue; }
         if (*p == ')') {
             paren--;
             if (paren == 0) {
                 buf[bl] = 0;
-                if (n < max_args) args[n++] = mem_strdup(buf);
+                if (n < max_args) {
+                    if(stream_args && stream_used+bl+1<XH_PP_STREAM_SCRATCH) {
+                        int ai;args[n++]=stream_args+stream_used;
+                        for(ai=0;ai<=bl;ai++)stream_args[stream_used++]=buf[ai];
+                    } else if(stream_args) { pp_stream_failed=1; pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro arguments exceed 8192 bytes",0,0); }
+                    else args[n++]=mem_strdup(buf);
+                }
                 bl = 0;
                 p++;
                 break;
@@ -1080,7 +1155,13 @@ static const char *parse_macro_args(const char *p, char **args, int *parg_count,
         }
         if (*p == ',' && paren == 1) {
             buf[bl] = 0;
-            if (n < max_args) args[n++] = mem_strdup(buf);
+            if (n < max_args) {
+                    if(stream_args && stream_used+bl+1<XH_PP_STREAM_SCRATCH) {
+                        int ai;args[n++]=stream_args+stream_used;
+                        for(ai=0;ai<=bl;ai++)stream_args[stream_used++]=buf[ai];
+                    } else if(stream_args) { pp_stream_failed=1; pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro arguments exceed 8192 bytes",0,0); }
+                    else args[n++]=mem_strdup(buf);
+                }
             bl = 0;
             p++;
             while (*p == ' ' || *p == '\t') p++;
@@ -1101,7 +1182,11 @@ static const char *parse_macro_args(const char *p, char **args, int *parg_count,
         if (bl < 1023) buf[bl++] = *p;
         p++;
     }
-    if (bl >= 1023) {
+    if (pp_stream_mode && bl >= 1023) {
+        pp_stream_failed=1;
+        pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro argument exceeds 1023 bytes",0,0);
+    }
+    if (bl >= 1023 && !pp_stream_mode) {
         /* arkc limit, not an armcc behaviour: no code to borrow, and no column
          * worth guessing (the argument may span lines). */
         pp_diag_msg(g_pp_line, 0, DIAG_SEV_WARNING,
@@ -1248,6 +1333,132 @@ static void handle_pragma_diag(const char *r) {
     }
 }
 
+
+/* Translation phases 1/2 precede lexical chunking. Lookahead is <=3 raw
+ * bytes. A splice is represented by a space for legacy byte compatibility. */
+static int pp_stream_char(PpStreamFrame *f) {
+    unsigned char a,b,c;
+    int r = xh_source_consume(&f->reader,&a);
+    if (r == XH_SOURCE_EOF) return -1;
+    if (r < 0 || !a) { f->failed=1; return -1; }
+#if ARKCC_FEATURE_TRIGRAPH
+    if (g_config.enable_trigraph && a=='?' &&
+        xh_source_peek(&f->reader,0,&b)==1 && b=='?' &&
+        xh_source_peek(&f->reader,1,&c)==1) {
+        const char *keys="=(/)'<>!-", *vals="# [\\]^{ }|~";
+        int k; (void)vals;
+        for(k=0;keys[k];k++) if(c==(unsigned char)keys[k]) {
+            static const char replacements[]={'#','[','\\',']','^','{','}','|','~'};
+            xh_source_consume(&f->reader,&b); xh_source_consume(&f->reader,&c);
+            a=(unsigned char)replacements[k]; break;
+        }
+    }
+#endif
+    if(a=='\\' && xh_source_peek(&f->reader,0,&b)==1 &&
+       (b=='\n' || (b=='\r' && xh_source_peek(&f->reader,1,&c)==1 && c=='\n'))) {
+        xh_source_consume(&f->reader,&b);
+        if(b=='\r') xh_source_consume(&f->reader,&c);
+        f->spliced=1;
+        return ' ';
+    }
+    return a;
+}
+/* Read one logical unit. Macro invocations remain balanced across physical
+ * lines; comments can return many chunks without ever filling a logical line.
+ * Directive comments are replaced by one space while being consumed. */
+static int pp_stream_fill(PpStreamFrame *f) {
+    int n=0, c, prev=f->start, only_ws=1, closed_comment=0;
+    f->origin=f->reader.offset; f->line=(int)f->reader.line;
+    f->unit_line_prefix=f->physical_nonspace;
+    f->directive=0;f->splice_count=0;f->spliced=0;
+    while((c=f->raw_pending ? f->raw_pending : pp_stream_char(f))>=0) {
+        f->raw_pending=0;
+        if(f->spliced) {
+            if(f->splice_count>=1024){f->failed=2;break;}
+            f->splice_positions[f->splice_count++]=(uint16_t)n;f->spliced=0;
+        }
+        if(c!=' ' && c!='\t' && c!='\r')f->whitespace_known=0;
+        if(f->long_whitespace && (c==' ' || c=='\t' || c=='\r'))continue;
+        if(f->long_whitespace)f->long_whitespace=0;
+        if(n>=XH_PP_STREAM_SCRATCH-2 && !f->directive) {
+            if(only_ws && !f->quote && !f->balance && !f->block_comment && !f->line_comment) {
+                /* A whitespace run is not a token. Inspect its bounded-storage
+                 * tail before emitting: directive indentation must disappear
+                 * exactly as it does in the memory preprocessor. */
+                uint32_t offset=f->reader.offset;unsigned char next=(unsigned char)c;
+                if(f->whitespace_known){f->raw_pending=c;break;}
+                while(next==' ' || next=='\t' || next=='\r') {
+                    int status=xh_source_read_byte(&f->reader,offset,&next);
+                    if(status!=XH_SOURCE_OK)break;
+                    offset++;
+                }
+                if(next=='#') {
+                    n=0;f->long_whitespace=1;
+                    if(c==' ' || c=='\t' || c=='\r')continue;
+                    f->long_whitespace=0;
+                } else { f->whitespace_known=1;f->raw_pending=c;break; }
+            }
+            else if(f->block_comment || f->line_comment) { f->raw_pending=c; break; }
+            else { f->failed=2; break; }
+        }
+        if(c=='\n' || c=='\r')f->physical_nonspace=0;
+        else if(c!=' ' && c!='\t')f->physical_nonspace=1;
+        if(f->line_comment) {
+            if(c=='\n') { f->line_comment=0; }
+        } else if(f->block_comment) {
+            if(prev=='*' && c=='/') { f->block_comment=0; closed_comment=1; }
+            if(f->directive) { prev=c; continue; }
+        } else if(f->quote) {
+            if(f->escape) f->escape=0;
+            else if(c=='\\') f->escape=1;
+            else if(c==f->quote) f->quote=0;
+        } else {
+            if(c=='#' && only_ws) {
+                f->directive=1;
+                /* Indentation is discarded by directive processing anyway;
+                 * it must not consume the directive's semantic scratch. */
+                if(n>XH_PP_STREAM_SCRATCH/2)n=0;
+            }
+            if(c=='"' || c=='\'') f->quote=c;
+            if(prev=='/' && c=='*') f->block_comment=1;
+            if(prev=='/' && c=='/') f->line_comment=1;
+            if(c=='(') f->balance++;
+            if(c==')' && f->balance>0) f->balance--;
+        }
+        if(c!=' ' && c!='\t' && c!='\r') only_ws=0;
+        if(f->directive && (f->block_comment || f->line_comment)) {
+            if(prev=='/') { if(n) n--; f->text[n++]=' '; }
+            prev=c; continue;
+        }
+        if(n>=XH_PP_STREAM_SCRATCH-2) { f->failed=2; break; }
+        f->text[n++]=(char)c;
+        prev=c;
+        if(closed_comment && !f->directive && !f->balance)break;
+        if(c=='\n' && !f->block_comment && !f->quote &&
+           (f->directive || f->balance==0)) {
+            int j=n-1,k=0;char name[64];Macro *m;
+            if(f->directive){f->balance=0;break;}
+            while(j>=0 && (f->text[j]==' ' || f->text[j]=='\t' || f->text[j]=='\r' || f->text[j]=='\n'))j--;
+            while(j>=0 && is_alnum(f->text[j]))j--;
+            j++;
+            while(j<n && is_alnum(f->text[j]) && k<63)name[k++]=f->text[j++];
+            name[k]=0;m=find_macro(name);
+            /* Keep a possible function macro and its following argument list
+             * together across a newline (including object aliases). */
+            if(m) {
+                unsigned char b;uint32_t look=0;
+                while(look<XH_PP_STREAM_WINDOW && xh_source_peek(&f->reader,look,&b)==1 &&
+                    (b==' ' || b=='\t' || b=='\r' || b=='\n'))look++;
+                if(look<XH_PP_STREAM_WINDOW && xh_source_peek(&f->reader,look,&b)==1 && b=='(')continue;
+            }
+            break;
+        }
+    }
+    f->start=(f->block_comment || f->line_comment) ? prev : 0;
+    f->text[n]=0;
+    return n;
+}
+static void pp_stream_run(const char *path, char *out, int *out_len, int cap);
 /* Main processing entry point.
  *
  * is_file separates a real file from a macro body being rescanned: only a real
@@ -1255,7 +1466,8 @@ static void handle_pragma_diag(const char *r) {
  * unclosed #if at its end. */
 static void process(const char *src, char *out, int *out_len, int out_cap,
                     int is_file) {
-    const char *p = src;
+    PpStreamFrame *stream = (pp_stream_mode && is_file && !src) ? pp_stream_current : 0;
+    const char *p = stream ? stream->text : src;
     const char *outer_file = g_pp_file;   /* the file our caller was reading */
     /* One scratch slot per live process() invocation (see pp_rescan_buf). */
     int scratch = pp_scratch_reserve();
@@ -1271,11 +1483,16 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
     int cond_top = 0;
     int active = 1;
     int saved_line = g_cur_line;
-    int line_no = 1;
+    int line_no = stream ? stream->line : 1;
 
 #define ACTIVE() (active)
 
-    while (*p) {
+    for (;;) {
+        if (!*p && stream) {
+            if (!pp_stream_fill(stream)) break;
+            p=stream->text; line_no=stream->line;
+        }
+        if (!*p || pp_stream_failed) break;
         /* C99 phase 2: line continuation (backslash-newline) is removed
          * before any other processing. This applies to all code, not just
          * macro definitions (e.g. multi-line if statements in HAL sources). */
@@ -1294,6 +1511,15 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
         while (*p == ' ' || *p == '\t') p++;
         if (*p == '#') {
             is_pp_line = 1;
+            if(stream) {
+                const char *before=line_start;
+                while(before>stream->text && before[-1]!='\n' && before[-1]!='\r') {
+                    before--;
+                    if(*before!=' ' && *before!='\t') {is_pp_line=0;break;}
+                }
+                if(before==stream->text && stream->unit_line_prefix)is_pp_line=0;
+                if(!is_pp_line)p=line_start;
+            }
         } else {
             p = line_start;
         }
@@ -1452,6 +1678,20 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                                     diag_num(d1, g_inc_depth),
                                     diag_num(d2, PP_MAX_INC_DEPTH));
                     } else {
+                        if (pp_stream_mode) {
+                            int rd=read_include(path,0,0,quote=='"');
+                            if(rd<0) pp_diag(g_pp_line,pp_col(q),5,DIAG_SEV_ERROR,"source",path,fs_last_error());
+                            else {
+                                const char *caller=g_pp_file;
+                                int saved_system=xh_current_system;
+                                char resolved[512]; int ri;
+                                for(ri=0;ri<512;ri++){resolved[ri]=xh_resolved_include[g_inc_depth][ri];if(!resolved[ri])break;}
+                                dep_file_record(resolved);
+                                xh_current_system=xh_lookup_system;
+                                g_inc_depth++; pp_stream_run(resolved,out,out_len,out_cap); g_inc_depth--;
+                                xh_current_system=saved_system;g_pp_file=caller;
+                            }
+                        } else {
                         char *inc_buf = g_inc_bufs[g_inc_depth];
                         int rd = read_include(path, inc_buf, PP_INC_BUF, quote == '"');
                         if (rd == READ_INCLUDE_CUT) {
@@ -1504,6 +1744,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                             }
                         }
                     }
+                }
                 }
             }
             else if (ark_streq(cmd, "if")) {
@@ -1810,7 +2051,9 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
         }
 
         if (*p == '/' && p[1] == '/') {
-            while (*p && *p != '\n') {
+            for (;;) {
+                if (!*p && stream) { if(!pp_stream_fill(stream))break;p=stream->text; }
+                if(!*p || *p=='\n')break;
                 if (ACTIVE()) buf_putc(out, out_len, out_cap, *p);
                 p++;
             }
@@ -1819,7 +2062,16 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
         if (*p == '/' && p[1] == '*') {
             if (ACTIVE()) { buf_putc(out, out_len, out_cap, *p); buf_putc(out, out_len, out_cap, p[1]); }
             p += 2;
-            while (*p && !(*p == '*' && p[1] == '/')) {
+            for (;;) {
+                if (!*p && stream) { if (!pp_stream_fill(stream)) break; p=stream->text; }
+                if (!*p || (*p == '*' && p[1] == '/')) break;
+                if (stream && *p=='*' && !p[1]) {
+                    if(ACTIVE())buf_putc(out,out_len,out_cap,*p);
+                    if(!pp_stream_fill(stream)){p=stream->text;break;}
+                    p=stream->text;
+                    if(*p=='/') { if(ACTIVE())buf_putc(out,out_len,out_cap,*p); p++; break; }
+                    continue;
+                }
                 if (*p == '\n') line_no++;
                 if (ACTIVE()) buf_putc(out, out_len, out_cap, *p);
                 p++;
@@ -1848,7 +2100,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
              * directly, which handle_pragma_pack already handles. */
             if (ark_streq(name, "_Pragma")) {
                 const char *r = p;
-                while (*r == ' ' || *r == '\t') r++;
+                while (*r == ' ' || *r == '\t' || (stream && (*r=='\n' || *r=='\r'))) r++;
                 if (*r == '(') {
                     int paren = 1;
                     r++;
@@ -1901,7 +2153,16 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                         p++;
                         {
                             int depth = 1;
-                            while (*p && depth > 0) {
+                            while (depth > 0) {
+                                /* A file-pull unit may end anywhere inside the
+                                 * asm body. Keep its verbatim/brace state alive
+                                 * across refills so # immediates never reenter
+                                 * the C directive dispatcher. */
+                                if(!*p && stream) {
+                                    if(!pp_stream_fill(stream))break;
+                                    p=stream->text;
+                                }
+                                if(!*p)break;
                                 if (*p == '{') depth++;
                                 else if (*p == '}') {
                                     depth--;
@@ -1923,7 +2184,11 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
             }
             /* Predefined macros. */
             if (ark_streq(name, "__LINE__")) {
-                emit_int(out, out_len, out_cap, line_no);
+                if(stream) {
+                    int si,physical=line_no;
+                    for(si=0;si<stream->splice_count;si++)if(stream->splice_positions[si]<(uint16_t)(st-stream->text))physical++;
+                    emit_int(out,out_len,out_cap,physical);
+                } else emit_int(out, out_len, out_cap, line_no);
                 continue;
             }
             if (ark_streq(name, "__FILE__")) {
@@ -1955,7 +2220,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
             if (m) {
                 if (m->is_func) {
                     const char *r = p;
-                    while (*r == ' ' || *r == '\t') r++;
+                    while (*r == ' ' || *r == '\t' || (stream && (*r=='\n' || *r=='\r'))) r++;
                     if (*r == '(') {
                         char *args[16] = {0};
                         int argc = 0;
@@ -1969,7 +2234,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                             continue;
                         }
                         /* Substitute into a temp buffer first. */
-                        expand_func_macro(m, args, argc, temp, &temp_len, PP_RESCAN_BUF_SIZE - 1);
+                        expand_func_macro(m, args, argc, temp, &temp_len, pp_rescan_capacity() - 1);
                         temp[temp_len] = 0;
                         /* C99 6.10.3.4: rescan the substituted token sequence
                          * for further macro expansion. The blue-paint stop-set
@@ -1994,6 +2259,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                         if (g_buf_dropped != drop0) {
                             pp_report_expand_overflow(m->name);
                         }
+                        if(stream){const char *lp=p;while(lp<r){if(*lp++=='\n')line_no++;}}
                         p = r;
                         continue;
                     } else {
@@ -2040,7 +2306,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                     }
                     if (fm && fm != m && fm->is_func) {
                         const char *r2 = p;
-                        while (*r2 == ' ' || *r2 == '\t') r2++;
+                        while (*r2 == ' ' || *r2 == '\t' || (stream && (*r2=='\n' || *r2=='\r'))) r2++;
                         if (*r2 == '(') {
                             char *args[16] = {0};
                             int argc = 0;
@@ -2055,7 +2321,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                                 continue;
                             }
                             expand_func_macro(fm, args, argc, temp, &temp_len,
-                                              PP_RESCAN_BUF_SIZE - 1);
+                                              pp_rescan_capacity() - 1);
                             temp[temp_len] = 0;
                             if (g_macro_depth < 64) {
                                 if (g_blue_top < PP_BLUE_STACK) {
@@ -2075,6 +2341,7 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                             if (g_buf_dropped != drop0) {
                                 pp_report_expand_overflow(fm->name);
                             }
+                            if(stream){const char *lp=p;while(lp<r2){if(*lp++=='\n')line_no++;}}
                             p = r2;
                             continue;
                         }
@@ -2132,27 +2399,7 @@ char *preproc_process_forced(const char *src, const char *const *files, int coun
     return result;
 }
 #endif
-char *preproc_process(const char *src) {
-    /* Static output buffer kept out of the memory pool so the bump allocator
-     * has the full pool available for AST/IR/symbol tables. Single-threaded
-     * compiler use means reentry between translation units is safe because
-     * preproc_process completes before any pool consumer runs.
-     * Placed in .ark_buf section so the linker can put it in AXI SRAM on STM32H743. */
-    static char out_buf[PP_BUF_SIZE] ARK_BUFFER_SECTION;
-    char *out = out_buf;
-    int out_len = 0;
-    const char *src_ptr = src;
-#if ARKCC_FEATURE_TRIGRAPH
-    /* Apply trigraph translation in place before line-continuation joining.
-     * The in-place pass is safe because every trigraph collapses 3 input
-     * bytes into 1 output byte, so the write pointer never overtakes the
-     * read pointer. The modified src is held by g_src (compiler.c) which
-     * owns the storage; no other code uses the input after this. */
-    if (g_config.enable_trigraph) {
-        apply_trigraphs((char *)src);
-        src_ptr = src;
-    }
-#endif
+static int pp_initialize(void) {
     /* Note: preproc_reset() is called by compiler.c before each translation unit. */
     g_cur_line = 1;
     g_macro_expand = 1;
@@ -2291,19 +2538,12 @@ char *preproc_process(const char *src) {
     }
     preproc_define("__SIZEOF_INT__", "4"); preproc_define("__SIZEOF_LONG_LONG__", "8");
 #endif
-#if ARKCC_FEATURE_EOF_NL_WARN
-    /* The translation unit's own last line, before anything is expanded:
-     * armcc reports #1-D while reading, ahead of every other diagnostic of the
-     * file (measured: a file that both lacks a final newline and has an
-     * undefined identifier reports #1-D first). */
-    pp_check_final_newline(src_ptr, 0);
-#endif
 #ifdef XHCC
     {
         static const char *engines[]={"arm","x86","x86_64","riscv32","c"};
         const XhTargetDescriptor *td=xh_target_rules_get(engines[g_target_id>=0&&g_target_id<5?g_target_id:0]);
         int mi;
-        if(!td){out[0]=0;return out;}
+        if(!td)return -1;
         {char identity[68];identity[0]='"';for(mi=0;td->id[mi]&&mi<64;mi++)identity[mi+1]=td->id[mi];identity[mi+1]='"';identity[mi+2]=0;preproc_define("__XHCC_TARGET_ID__",identity);}
         for(mi=0;mi<td->macro_count;mi++)preproc_define(td->macros[mi].name,td->macros[mi].value);
     }
@@ -2337,15 +2577,45 @@ char *preproc_process(const char *src) {
             for (j = 0; entry[j]; ++j) if (entry[j] == '=') { eq = entry + j; break; }
             if (eq) {
                 char name[256]; int len = (int)(eq - entry), k;
-                if (len >= (int)sizeof name) { pp_diag_msg(1, 1, DIAG_SEV_ERROR, "command macro name too long", 0, 0); out[0]=0; return out; }
+                if (len >= (int)sizeof name) { pp_diag_msg(1, 1, DIAG_SEV_ERROR, "command macro name too long", 0, 0); return -1; }
                 for (k = 0; k < len; ++k) name[k] = entry[k];
                 name[len] = 0; preproc_define(name, eq + 1);
             } else preproc_define(entry, "1");
         }
     }
+#endif
+    return 0;
+}
+
+char *preproc_process(const char *src) {
+    /* Static output buffer kept out of the memory pool so the bump allocator
+     * has the full pool available for AST/IR/symbol tables. Single-threaded
+     * compiler use means reentry between translation units is safe because
+     * preproc_process completes before any pool consumer runs.
+     * Placed in .ark_buf section so the linker can put it in AXI SRAM on STM32H743. */
+    static char out_buf[PP_BUF_SIZE] ARK_BUFFER_SECTION;
+    char *out = out_buf;
+    int out_len = 0;
+    const char *src_ptr = src;
+#if ARKCC_FEATURE_TRIGRAPH
+    /* Apply trigraph translation in place before line-continuation joining.
+     * The in-place pass is safe because every trigraph collapses 3 input
+     * bytes into 1 output byte, so the write pointer never overtakes the
+     * read pointer. The modified src is held by g_src (compiler.c) which
+     * owns the storage; no other code uses the input after this. */
+    if (g_config.enable_trigraph) {
+        apply_trigraphs((char *)src);
+        src_ptr = src;
+    }
+#endif
+    if(pp_initialize()<0){out[0]=0;return out;}
+#if ARKCC_FEATURE_EOF_NL_WARN
+    pp_check_final_newline(src_ptr,0);
+#endif
+#ifdef XHCC
     {
         int fi;
-        for (fi = 0; fi < xh_forced_count; ++fi) {
+        for (fi = 0; !pp_stream_mode && fi < xh_forced_count; ++fi) {
             char directive[1024];
             const char *path = xh_forced_files[fi];
             int n = 0, pi;
@@ -2365,7 +2635,7 @@ char *preproc_process(const char *src) {
         }
     }
 #endif
-    process(src_ptr, out, &out_len, PP_BUF_SIZE - 1, 1);
+    if (!pp_stream_mode) process(src_ptr, out, &out_len, PP_BUF_SIZE - 1, 1);
     out[out_len] = 0;
     return out;
 }
@@ -2384,4 +2654,66 @@ int preproc_get_included_files(const char **out, int max_count) {
     if (n > max_count) n = max_count;
     for (i = 0; i < n; i++) out[i] = g_inc_files[i];
     return n;
+}
+
+static void pp_stream_run(const char *path, char *out, int *out_len, int cap) {
+    PpStreamFrame *saved=pp_stream_current, *f=&pp_stream_frames[g_inc_depth];
+    const char *saved_file=g_pp_file;
+    int k;
+    if(ark_strlen(path)>=512) { pp_stream_failed=1; return; }
+    for(k=0;path[k];k++) f->path[k]=path[k]; f->path[k]=0;
+    f->block_comment=f->line_comment=f->quote=f->escape=f->balance=0;
+    f->unit_line_prefix=f->physical_nonspace=0;
+    f->directive=f->start=f->failed=f->raw_pending=f->long_whitespace=f->whitespace_known=0;
+    if(xh_source_open(f->path,f->window,sizeof(f->window),&f->reader)<0) {
+        pp_diag(1,1,5,DIAG_SEV_ERROR,"source",path,fs_last_error()); pp_stream_failed=1;return;
+    }
+    pp_stream_current=f;g_pp_file=f->path;
+    diag_set_source_file(f->path,f->path);
+    f->text[0]=0;
+    process(0,out,out_len,cap,1);
+#if ARKCC_FEATURE_EOF_NL_WARN
+    if(!f->failed && f->reader.size) {
+        unsigned char last;
+        if(xh_source_read_byte(&f->reader,f->reader.size-1,&last)==XH_SOURCE_OK && last!='\n' && last!='\r')
+            pp_diag((int)f->reader.line,(int)f->reader.column,1,DIAG_SEV_WARNING,0,0,0);
+    }
+#endif
+    if(f->failed) {
+        pp_diag_msg((int)f->reader.line,1,DIAG_SEV_ERROR,
+            f->failed==2 ? "stream preprocessing token/directive/macro invocation exceeds 8190 bytes" :
+            "stream preprocessing source read failed or embedded NUL",0,0);
+        pp_stream_failed=1;
+    }
+    xh_source_close(&f->reader);
+    pp_stream_current=saved;g_pp_file=saved_file;
+    if(saved)diag_set_source_file(saved->path,saved->path);
+    else diag_clear_source_provider();
+}
+int preproc_stream_file(const char *path, const char *const *forced_files,
+                        int forced_count, XhPpSink sink, void *context,
+                        XhPpMap map, void *map_context) {
+    int i,n=0,result;
+    if(!path || !sink || forced_count<0) return -1;
+    pp_stream_mode=1; pp_stream_failed=0;pp_stream_emitted=0;pp_stream_output_length=0;
+    pp_stream_sink=sink;pp_stream_context=context;
+    pp_stream_map=map;pp_stream_map_context=map_context;
+    for(i=0;i<PP_RESCAN_MAX_SLOTS;i++)pp_stream_args[i]=0;
+    g_rescan_gen=-1;g_rescan_top=0;g_buf_dropped=g_rescan_err_seen=0;
+    if(pp_initialize()<0)pp_stream_failed=1;
+    for(i=0;i<forced_count && !pp_stream_failed;i++) {
+        int rd;xh_forced_lookup=1;
+        rd=read_include(forced_files[i],0,0,1);xh_forced_lookup=0;
+        if(rd<0){pp_diag(1,1,5,DIAG_SEV_ERROR,"source",forced_files[i],fs_last_error());pp_stream_failed=1;break;}
+        dep_file_record(xh_resolved_include[0]);
+        g_inc_depth=1;pp_stream_run(xh_resolved_include[0],0,&n,0);g_inc_depth=0;
+        buf_putc(0,&n,0,'\n');
+    }
+    if(!pp_stream_failed) pp_stream_run(path,0,&n,0);
+    pp_stream_flush();
+    result=(pp_stream_failed || g_buf_dropped || g_rescan_err_seen) ? -1 : 0;
+    pp_stream_mode=0;pp_stream_sink=0;pp_stream_context=0;
+    pp_stream_map=0;pp_stream_map_context=0;pp_stream_current=0;
+    g_rescan_gen=-1;
+    return result;
 }

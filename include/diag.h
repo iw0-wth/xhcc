@@ -87,9 +87,10 @@ typedef struct {
  * ------------------------------------------------------------------------- */
 
 /* main_file  : name used for loc->file == NULL and for the summary line.
- * source_text: the translation unit source, for echoing + caret. NULL disables
- *              echoing (diagnostics still print, just without the two lines).
- *              The pointer must stay valid until diag_shutdown(). */
+ * source_text: the translation unit source, for echoing + caret. NULL leaves
+ *              echo unavailable until a provider is installed after init.
+ *              The pointer must stay valid until replaced or diag_shutdown().
+ *              Clears any previous borrowed provider registration. */
 void diag_init(const char *main_file, const char *source_text);
 
 /* Start a new driver invocation before parsing its command line. Clear warning
@@ -109,6 +110,30 @@ void diag_set_main_file(const char *main_file);
  * edits), the later stages against the preprocessed text (that is the text
  * whose lines the lexer counts), so the buffer changes exactly once per file. */
 void diag_set_source(const char *source_text);
+
+/* Bounded excerpt, in the same display-cell columns as DiagLoc.col. Text must
+ * be NUL terminated, contain no line endings and start on a UTF-8 boundary.
+ * first_col is the original 1-based column; clipped ends render as "...".
+ * Return nonzero only for a known mapping (never guess a physical #line path).
+ * No ownership transfers: ctx and any paths must outlive the registration. */
+#define DIAG_SOURCE_CAP 448
+typedef struct {
+    int first_col;
+    int clipped_left;
+    int clipped_right;
+} DiagSourceExcerpt;
+typedef int (*DiagSourceProvider)(void *ctx, const char *path, int line, int col,
+                                  char *buf, unsigned cap, DiagSourceExcerpt *out);
+void diag_set_source_provider(DiagSourceProvider provider, void *ctx);
+void diag_clear_source_provider(void);
+
+/* Filesystem provider: fixed 512-byte read window, no allocation, O(bytes to
+ * requested line/column) I/O. Only display_path may map to storage_path; both
+ * pointers are borrowed. Useful for raw-file warnings and preprocessed spools.
+ * diag_init/begin_tu/reset_policy/shutdown clear registrations; set_source
+ * keeps them, with a non-NULL memory source taking precedence. Clear before
+ * destroying storage or borrowed callback context. */
+void diag_set_source_file(const char *display_path, const char *storage_path);
 
 /* Print the summary line (unless clean) and close any --errors sink. */
 void diag_shutdown(void);

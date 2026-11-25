@@ -7,6 +7,7 @@
 #define ARK_PREPROC_H
 
 #include "common.h"
+#include "xh_pp_stream.h"
 
 /* Add extra search paths (reset before each compile). */
 void preproc_reset(void);

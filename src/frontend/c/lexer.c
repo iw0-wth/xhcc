@@ -18,172 +18,106 @@
 #include "arkcc_config.h"
 #include "type.h"
 
-/* Display column of `p` inside the current line: one cell per ASCII byte, one
- * for a 2-byte UTF-8 sequence, two for a 3- or 4-byte one. That is exactly the
- * width diag.c's caret replay uses, so the caret lands on the character the
- * message names instead of walking past it on CJK lines. A tab counts as one
- * cell, because the caret line replays it as a tab.
- *
- * lexing only moves forward, so the walk is continued from the previous
- * position instead of restarting at the line start: a token costs the few
- * characters after its predecessor, not the whole line. */
-static int lex_col(Lexer *lex, const char *p) {
-    if (!lex->line_start || p < lex->line_start) return 0;
-    if (!lex->col_p || lex->col_p < lex->line_start || lex->col_p > p) {
-        lex->col_p = lex->line_start;
-        lex->col_cells = 1;
-    }
-    while (lex->col_p < p) {
-        unsigned char c = (unsigned char)*lex->col_p;
-        if (c < 0x80)                { lex->col_cells += 1; lex->col_p += 1; }
-        else if ((c & 0xE0) == 0xC0) { lex->col_cells += 1; lex->col_p += 2; }
-        else if ((c & 0xF0) == 0xE0) { lex->col_cells += 2; lex->col_p += 3; }
-        else if ((c & 0xF8) == 0xF0) { lex->col_cells += 2; lex->col_p += 4; }
-        else                         { lex->col_cells += 1; lex->col_p += 1; }
-    }
-    return lex->col_cells;
+
+/* All source access goes through the reader cache; no token points into it. */
+static void lex_error(Lexer *lex, const char *message) {
+    DiagLoc loc;
+    if (lex->error) return;
+    loc.file = 0; loc.line = lex->line; loc.col = lex->column;
+    lex->error = ARK_ERR_LEX;
+    diag_report_msg(DIAG_SEV_ERROR, &loc, message, 0, 0, 0);
 }
-
-static Token lexer_read_token(Lexer *lex);
-
-/* Encode Unicode codepoint cp as UTF-8 into buf; returns byte length.
- * Caller must ensure buf has at least 4 bytes available. */
-static int utf8_encode(unsigned int cp, char *buf) {
-    if (cp < 0x80u) {
-        buf[0] = (char)cp;
-        return 1;
-    } else if (cp < 0x800u) {
-        buf[0] = (char)(0xC0 | (cp >> 6));
-        buf[1] = (char)(0x80 | (cp & 0x3F));
-        return 2;
-    } else if (cp < 0x10000u) {
-        buf[0] = (char)(0xE0 | (cp >> 12));
-        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        buf[2] = (char)(0x80 | (cp & 0x3F));
-        return 3;
-    } else {
-        buf[0] = (char)(0xF0 | (cp >> 18));
-        buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-        buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        buf[3] = (char)(0x80 | (cp & 0x3F));
-        return 4;
-    }
+static int peek(Lexer *lex, uint32_t n) {
+    unsigned char c;
+    int rc;
+    if (lex->error || n >= lex->source->size - lex->offset) return 0;
+    rc = xh_source_read_byte(lex->source, lex->offset + n, &c);
+    if (rc < 0) { lex_error(lex, "source reader I/O failure"); lex->error = ARK_ERR_IO; return 0; }
+    if (rc == XH_SOURCE_OK && !c) lex_error(lex, "NUL byte in source");
+    return rc == XH_SOURCE_OK ? c : 0;
 }
-
-/* Wrapper around lexer_read_token: ensures every returned token has a
- * src_start so the parser can report errors correctly (especially __asm). */
-static Token lexer_read_token_with_pos(Lexer *lex) {
-    const char *p_before;
-    Token t;
-    /* Skip whitespace and comments before scanning the next token. */
-    /* We do not let lexer_read_token do the skipping itself, because
-     * lexer_read_token only sets src_start when it actually consumes bytes.
-     * If lexer_read_token hits EOF right after skipping, the returned token's
-     * src_start would be stale. By skipping here and capturing p_before, the
-     * next token's src_start always points at the first byte of the token,
-     * which is essential for inline-asm source-range tracking. */
-    {
-        /* Inline skip_ws_and_comments to advance p here. */
-        while (*lex->p) {
-            char c = *lex->p;
-            if (c == ' ' || c == '\t' || c == '\r') lex->p++;
-            else if (c == '\n') { lex->line++; lex->p++; lex->line_start = lex->p; }
-            else if (c == '/' && lex->p[1] == '/') {
-                while (*lex->p && *lex->p != '\n') lex->p++;
-            } else if (c == '/' && lex->p[1] == '*') {
-                lex->p += 2;
-                while (*lex->p && !(lex->p[0]=='*' && lex->p[1]=='/')) {
-                    if (*lex->p == '\n') { lex->line++; lex->line_start = lex->p + 1; }
-                    lex->p++;
-                }
-                if (*lex->p) lex->p += 2;
-            } else break;
+static void advance(Lexer *lex, uint32_t n) {
+    while (n--) {
+        int c = peek(lex, 0);
+        if (!c) return;
+        lex->offset++;
+        if (lex->token_active && ++lex->raw_token_bytes > XH_LEX_TOKEN_MAX) {
+            lex_error(lex, "token exceeds 4096 byte limit");
+            return;
         }
+        if (c == '\r' || c == '\n') {
+            if (c == '\r' || !lex->previous_cr) lex->line++;
+            lex->column = 1; lex->line_start = lex->offset;
+            lex->line_blank = 1; lex->utf8_remaining = 0;
+        } else {
+            if (lex->utf8_remaining && (c & 0xc0) == 0x80) lex->utf8_remaining--;
+            else {
+                lex->utf8_remaining = 0;
+                if ((c & 0xe0) == 0xc0) { lex->column++; lex->utf8_remaining=1; }
+                else if ((c & 0xf0) == 0xe0) { lex->column+=2; lex->utf8_remaining=2; }
+                else if ((c & 0xf8) == 0xf0) { lex->column+=2; lex->utf8_remaining=3; }
+                else lex->column++;
+            }
+            if (c != ' ' && c != '\t') lex->line_blank = 0;
+        }
+        lex->previous_cr = c == '\r';
     }
-    p_before = lex->p;
-    t = lexer_read_token(lex);
-    if (!t.src_start) t.src_start = p_before;
-    /* Column of the token start, in display cells (see lex_col). */
-    t.col = lex_col(lex, p_before);
-    return t;
 }
-
-static int is_alpha(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-}
-static int is_digit(char c) { return c >= '0' && c <= '9'; }
-static int is_alnum(char c) { return is_alpha(c) || is_digit(c); }
-static int is_hex(char c) {
-    return is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-}
-static int is_oct(char c) { return c >= '0' && c <= '7'; }
-
-/* Identifier rules: $ is allowed when --dollar is set; otherwise standard.
- * This matches ARMCC behavior where $ is a valid identifier character
- * (e.g. $count is a common symbol name). */
-static int is_ident_start(char c) {
-    if (is_alpha(c)) return 1;
+static int is_alpha(int c) { return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_'; }
+static int is_digit(int c) { return c>='0'&&c<='9'; }
+static int is_alnum(int c) { return is_alpha(c)||is_digit(c); }
+static int is_hex(int c) { return is_digit(c)||(c>='a'&&c<='f')||(c>='A'&&c<='F'); }
+static int hex_val(int c) { return is_digit(c)?c-'0':(c>='a'?c-'a'+10:c-'A'+10); }
+static int is_ident_start(int c) {
+    if (is_alpha(c) || c >= 128) return 1;
 #if ARKCC_FEATURE_ARMCC_KEYWORDS
-    if (c == '$' && g_config.dollar_in_identifiers) return 1;
-#else
-    (void)c;
+    if (c=='$' && g_config.dollar_in_identifiers) return 1;
 #endif
     return 0;
 }
-static int is_ident_char(char c) {
-    if (is_alnum(c)) return 1;
-#if ARKCC_FEATURE_ARMCC_KEYWORDS
-    if (c == '$' && g_config.dollar_in_identifiers) return 1;
-#else
-    (void)c;
-#endif
-    return 0;
-}
-
-static int hex_val(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    return c - 'A' + 10;
-}
-
+static int is_ident_char(int c) { return is_ident_start(c)||is_digit(c); }
 static Token make_token(TokenKind kind, int line) {
-    Token t;
-    t.kind = kind; t.value = 0; t.fvalue = 0.0; t.str = 0; t.line = line; t.col = 0;
-    t.src_start = 0; t.is_imag = 0; t.is_float = 0;
-    t.lit_unsigned = 0; t.lit_long = 0; t.lit_llong = 0;
-    t.lit_dec = 0;
-    return t;
+    Token t = {0}; t.kind=kind; t.line=line; return t;
 }
-
-/* Consume an integer literal suffix (u/U, l/L, ll/LL, ul, llu, ...) and
- * report what was seen. C99 6.4.4.1: the suffix decides the literal's type. */
-static void scan_int_suffix(Lexer *lex, int *uns, int *lng, int *llng) {
-    int u = 0, l = 0, ll = 0;
+static Token make_number(long long value, int line) {
+    Token t=make_token(TOK_NUM,line);t.value=value;return t;
+}
+static void append(Lexer *lex, int c) {
+    if (lex->token_length >= XH_LEX_TOKEN_MAX) { lex_error(lex,"token exceeds 4096 byte limit"); return; }
+    lex->scratch[lex->token_length++] = (char)c;
+    lex->scratch[lex->token_length] = 0;
+    if (lex->token_length > lex->peak_token_bytes) lex->peak_token_bytes=lex->token_length;
+}
+static void take(Lexer *lex) { int c=peek(lex,0); if(c) { append(lex,c); advance(lex,1); } }
+static void skip_ws(Lexer *lex) {
     for (;;) {
-        char ch = *lex->p;
-        if (ch == 'u' || ch == 'U') { u = 1; lex->p++; }
-        else if (ch == 'l' || ch == 'L') {
-            if (lex->p[1] == 'l' || lex->p[1] == 'L') { ll = 1; lex->p += 2; }
-            else { l = 1; lex->p++; }
-        } else break;
+        int c=peek(lex,0);
+        if (c==' '||c=='\t'||c=='\r'||c=='\n'||c=='\v'||c=='\f') advance(lex,1);
+        else if(c=='/' && peek(lex,1)=='/') { while(peek(lex,0)&&peek(lex,0)!='\n'&&peek(lex,0)!='\r') advance(lex,1); }
+        else if(c=='/' && peek(lex,1)=='*') {
+            advance(lex,2);
+            while(peek(lex,0)&&!(peek(lex,0)=='*'&&peek(lex,1)=='/')) advance(lex,1);
+            if(peek(lex,0)) advance(lex,2); else lex_error(lex,"unterminated comment");
+        } else return;
     }
-    if (uns)  *uns  = u;
-    if (lng)  *lng  = l;
-    if (llng) *llng = ll;
 }
-
-static Token make_number(long long val, int line) {
-    Token t = make_token(TOK_NUM, line);
-    t.value = val;
-    return t;
+static int escape(Lexer *lex) {
+    int c=peek(lex,0), v=0, n=0;
+    if(c=='x') { advance(lex,1);while(is_hex(peek(lex,0))){v=(v*16+hex_val(peek(lex,0)))&255;advance(lex,1);}return v; }
+    if(c>='0'&&c<='7') { while(n++<3&&peek(lex,0)>='0'&&peek(lex,0)<='7'){v=v*8+peek(lex,0)-'0';advance(lex,1);}return v&255; }
+    advance(lex,1);
+    switch(c) {case 'n':return '\n';case 'r':return '\r';case 't':return '\t';case 'a':return 7;case 'b':return 8;case 'f':return 12;case 'v':return 11;default:return c;}
 }
-
-static Token make_ident(const char *start, int len, int line) {
-    Token t = make_token(TOK_IDENT, line);
-    t.str = mem_strndup(start, len);
-    return t;
+static void ucn(Lexer *lex) {
+    unsigned int cp=0;int i,n=peek(lex,1)=='u'?4:8;
+    advance(lex,2);
+    for(i=0;i<n&&is_hex(peek(lex,0));i++){cp=cp*16+(unsigned)hex_val(peek(lex,0));advance(lex,1);}
+    if(i!=n || cp>0x10ffffu || (cp>=0xd800u&&cp<=0xdfffu)){lex_error(lex,"invalid universal character name");return;}
+    if(cp<128) append(lex,(int)cp);
+    else if(cp<2048){append(lex,0xc0|(cp>>6));append(lex,0x80|(cp&63));}
+    else if(cp<65536){append(lex,0xe0|(cp>>12));append(lex,0x80|((cp>>6)&63));append(lex,0x80|(cp&63));}
+    else {append(lex,0xf0|(cp>>18));append(lex,0x80|((cp>>12)&63));append(lex,0x80|((cp>>6)&63));append(lex,0x80|(cp&63));}
 }
-
 /* Keyword table */
 typedef struct { const char *s; TokenKind k; } Keyword;
 
@@ -302,470 +236,140 @@ static int check_keyword(const char *s, int len) {
     return -1;
 }
 
-static void skip_ws_and_comments(Lexer *lex) {
-    while (*lex->p) {
-        char c = *lex->p;
-        if (c == ' ' || c == '\t' || c == '\r') {
-            lex->p++;
-        } else if (c == '\n') {
-            lex->line++;
-            lex->p++;
-            lex->line_start = lex->p;
-        } else if (c == '/' && lex->p[1] == '/') {
-            while (*lex->p && *lex->p != '\n') lex->p++;
-        } else if (c == '/' && lex->p[1] == '*') {
-            lex->p += 2;
-            while (*lex->p && !(lex->p[0]=='*' && lex->p[1]=='/')) {
-                if (*lex->p == '\n') { lex->line++; lex->line_start = lex->p + 1; }
-                lex->p++;
-            }
-            if (*lex->p) lex->p += 2;
-        } else {
-            break;
-        }
-    }
-}
-
-/* Parse escape sequences: \xNN, \NNN, \n, \t, etc. (also simple \uXXXX and
- * \UXXXXXXXX). We return the byte value to insert; the caller handles
- * multi-byte UTF-8 encoding if the source uses \u/\U UCN escapes.
- */
-static int read_escape(const char **pp) {
-    char e = **pp;
-    int v;
-    if (e == 'x') {
-        (*pp)++;
-        v = 0;
-        while (is_hex(**pp)) { v = v * 16 + hex_val(**pp); (*pp)++; }
-        return v & 0xFF;
-    }
-    if (e >= '0' && e <= '7') {
-        int n = 0;
-        v = 0;
-        while (n < 3 && is_oct(**pp)) {
-            v = v * 8 + (**pp - '0');
-            (*pp)++;
-            n++;
-        }
-        return v & 0xFF;
-    }
-    (*pp)++;
-    switch (e) {
-        case 'n':  return '\n';
-        case 't':  return '\t';
-        case 'r':  return '\r';
-        case '\\': return '\\';
-        case '\'': return '\'';
-        case '"':  return '"';
-        case '?':  return '?';
-        case 'a':  return 7;
-        case 'b':  return 8;
-        case 'f':  return 12;
-        case 'v':  return 11;
-        case '0':  return 0;
-        default:   return e;
-    }
-}
-
-/* True when nothing but blanks separate lex->p from the start of its line
- * (so a '#' here really is a directive, not a stray token mid-expression). */
-static int lex_at_line_start(const Lexer *lex) {
-    const char *q = lex->line_start;
-    while (q < lex->p) {
-        if (*q != ' ' && *q != '\t' && *q != '\r') return 0;
-        q++;
-    }
-    return 1;
-}
 
 static Token lexer_read_token(Lexer *lex) {
-    const char *start;
-    int line;
-    char c;
+    int line,c,wide=0;
     Token tk;
-
-    skip_ws_and_comments(lex);
-    /* Directives the preprocessor chose to hand through (currently only
-     * `#pragma pack`) are applied here, so the value is in effect exactly at
-     * the point it appears rather than at file end.  A '#' that does not
-     * start a line is left alone. */
-    while (lex->p[0] == '#' && lex_at_line_start(lex)) {
-        const char *q = lex->p + 1;
-        while (*q == ' ' || *q == '\t') q++;
-        if (q[0] == 'p' && q[1] == 'r' && q[2] == 'a' && q[3] == 'g' &&
-            q[4] == 'm' && q[5] == 'a' && !is_alnum(q[6])) {
-            q += 6;
-            while (*q == ' ' || *q == '\t') q++;
-            if (q[0] == 'p' && q[1] == 'a' && q[2] == 'c' && q[3] == 'k' &&
-                !is_alnum(q[4])) {
-                type_pragma_pack(q + 4);
-            }
+    skip_ws(lex);
+    /* Handed-through directives are bounded independently of source lines. */
+    while(peek(lex,0)=='#' && lex->line_blank) {
+        uint32_t i;
+        lex->token_length=0;lex->scratch[0]=0;
+        while(peek(lex,0)&&peek(lex,0)!='\n'&&peek(lex,0)!='\r') take(lex);
+        i=1;while(lex->scratch[i]==' '||lex->scratch[i]=='\t')i++;
+        if(lex->token_length >= i+6 && lex->scratch[i]=='p' && lex->scratch[i+1]=='r' && lex->scratch[i+2]=='a' && lex->scratch[i+3]=='g' && lex->scratch[i+4]=='m' && lex->scratch[i+5]=='a' && !is_alnum(lex->scratch[i+6])) {
+            i+=6;while(lex->scratch[i]==' '||lex->scratch[i]=='\t')i++;
+            if(lex->token_length >= i+4 && lex->scratch[i]=='p' && lex->scratch[i+1]=='a' && lex->scratch[i+2]=='c' && lex->scratch[i+3]=='k' && !is_alnum(lex->scratch[i+4])) type_pragma_pack(lex->scratch+i+4);
         }
-        while (*q && *q != '\n') q++;
-        if (*q == '\n') { q++; lex->line++; lex->line_start = q; }
-        lex->p = q;
-        skip_ws_and_comments(lex);
+        skip_ws(lex);
     }
-    start = lex->p;
-    line = lex->line;
-    c = *lex->p;
-
-    if (c == '\0') { tk = make_token(TOK_EOF, line); tk.src_start = start; return tk; }
-
+    lex->token_start=lex->offset;
+    lex->token_active=1;lex->raw_token_bytes=0;
+    lex->token_column=lex->column;
+    lex->token_length=0;lex->scratch[0]=0;
+    line=lex->line;c=peek(lex,0);
+    if(!c)return make_token(TOK_EOF,line);
 #if ARKCC_FEATURE_WCHAR
-    /* B2: Wide string literal L"..." or wide char literal L'...'.
-     * The prefix L is a single identifier char, so we look ahead: if L is
-     * followed by " or ', treat it as a wide literal and consume both.
-     * Otherwise fall through to identifier scanning.
-     */
-    if (g_config.enable_wchar && c == 'L' &&
-        (lex->p[1] == '"' || lex->p[1] == '\'')) {
-        if (lex->p[1] == '"') {
-            /* Wide string literal; emit TOK_STR with value=1 (wide flag). */
-            Token t = make_token(TOK_STR, line);
-            int cap = 32, len = 0;
-            char *buf = (char *)mem_pool_alloc(cap);
-            lex->p += 2; /* consume L" */
-            while (*lex->p && *lex->p != '"') {
-                int ch;
-                if (*lex->p == '\\' && lex->p[1]) {
-                    lex->p++;
-                    ch = read_escape(&lex->p);
-                } else {
-                    ch = (unsigned char)*lex->p;
-                    lex->p++;
-                }
-                if (len + 1 >= cap) {
-                    int nc = cap * 2;
-                    buf = (char *)mem_realloc(buf, cap, nc);
-                    cap = nc;
-                }
-                buf[len++] = (char)ch;
-            }
-            if (*lex->p == '"') lex->p++;
-            buf[len] = 0;
-            t.str = buf;
-            t.value = 1;  /* wide-string flag */
-            return t;
-        } else {
-            /* Wide char literal L'...': C does not have a distinct token kind,
-             * so we emit TOK_NUM with the codepoint value. */
-            int val = 0;
-            lex->p += 2; /* consume L' */
-            if (*lex->p == '\\') {
-                lex->p++;
-                val = read_escape(&lex->p);
-            } else if (*lex->p) {
-                val = (unsigned char)*lex->p;
-                lex->p++;
-            }
-            if (*lex->p == '\'') lex->p++;
-            return make_number(val, line);
-        }
-    }
+    if(g_config.enable_wchar && c=='L' && (peek(lex,1)=='"'||peek(lex,1)=='\'')){wide=1;advance(lex,1);c=peek(lex,0);}
 #endif
-
-    /* Identifier / keyword scan, also handles C99 UCN escapes: \uXXXX \UXXXXXXXX. */
-    if (is_ident_start(c) || (c == '\\' && (lex->p[1] == 'u' || lex->p[1] == 'U'))) {
-        char *buf;
-        int cap = 32, blen = 0;
+    if(is_ident_start(c)||(c=='\\'&&(peek(lex,1)=='u'||peek(lex,1)=='U'))) {
         int kw;
-        buf = (char *)mem_pool_alloc(cap);
-        /* First char: is_ident_start already validated plain chars; only UCN
-         * needs special handling for the first character. */
-        if (c == '\\') {
-            /* UCN will be processed in the loop below; nothing to add here. */
-        } else {
-            buf[blen++] = c;
-            lex->p++;  /* consume first identifier character */
+        while(is_ident_char(peek(lex,0))||(peek(lex,0)=='\\'&&(peek(lex,1)=='u'||peek(lex,1)=='U'))) {
+            if(peek(lex,0)=='\\')ucn(lex);else take(lex);
         }
-        while (1) {
-            char ch = *lex->p;
-            if (is_ident_char(ch)) {
-                if (blen + 1 >= cap) { int nc = cap * 2; buf = (char *)mem_realloc(buf, cap, nc); cap = nc; }
-                buf[blen++] = ch;
-                lex->p++;
-            } else if (ch == '\\' && (lex->p[1] == 'u' || lex->p[1] == 'U')) {
-                unsigned int cp = 0;
-                int ndigits, i;
-                char kind = lex->p[1];
-                lex->p += 2;  /* consume \u or \U */
-                ndigits = (kind == 'u') ? 4 : 8;
-                for (i = 0; i < ndigits; i++) {
-                    if (!is_hex(lex->p[i])) break;
-                    cp = cp * 16 + (unsigned int)hex_val(lex->p[i]);
-                }
-                if (i == ndigits) {
-                    lex->p += ndigits;
-                    /* Encode the codepoint as UTF-8 into the buffer. */
-                    if (cp < 0x80u) {
-                        if (blen + 1 >= cap) { int nc = cap * 2; buf = (char *)mem_realloc(buf, cap, nc); cap = nc; }
-                        buf[blen++] = (char)cp;
-                    } else if (cp < 0x800u) {
-                        if (blen + 2 >= cap) { int nc = cap * 2; buf = (char *)mem_realloc(buf, cap, nc); cap = nc; }
-                        buf[blen++] = (char)(0xC0 | (cp >> 6));
-                        buf[blen++] = (char)(0x80 | (cp & 0x3F));
-                    } else if (cp < 0x10000u) {
-                        if (blen + 3 >= cap) { int nc = cap * 2; buf = (char *)mem_realloc(buf, cap, nc); cap = nc; }
-                        buf[blen++] = (char)(0xE0 | (cp >> 12));
-                        buf[blen++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                        buf[blen++] = (char)(0x80 | (cp & 0x3F));
-                    } else {
-                        if (blen + 4 >= cap) { int nc = cap * 2; buf = (char *)mem_realloc(buf, cap, nc); cap = nc; }
-                        buf[blen++] = (char)(0xF0 | (cp >> 18));
-                        buf[blen++] = (char)(0x80 | ((cp >> 12) & 0x3F));
-                        buf[blen++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                        buf[blen++] = (char)(0x80 | (cp & 0x3F));
-                    }
-                } else {
-                    /* Malformed UCN: preserve the literal escape text. */
-                    if (blen + 2 + i >= cap) { int nc = cap * 2 + 2 + i; buf = (char *)mem_realloc(buf, cap, nc); cap = nc; }
-                    buf[blen++] = '\\';
-                    buf[blen++] = kind;
-                    { int j; for (j = 0; j < i; j++) buf[blen++] = lex->p[j]; }
-                    lex->p += i;
-                }
-            } else {
-                break;
-            }
-        }
-        buf[blen] = 0;
-        kw = check_keyword(buf, blen);
-        if (kw >= 0) {
-            Token t = make_token((TokenKind)kw, line);
-            t.src_start = start;
-            return t;
-        }
-        {
-            Token t = make_token(TOK_IDENT, line);
-            t.str = buf;
-            t.src_start = start;
-            return t;
-        }
+        kw=check_keyword(lex->scratch,(int)lex->token_length);
+        tk=make_token(kw<0?TOK_IDENT:(TokenKind)kw,line);
+        if(kw<0)tk.str=mem_strndup(lex->scratch,(int)lex->token_length);
+        return tk;
     }
-
-    /* Scan spelling first: floating prefixes must not overflow an integer
-     * accumulator, and a leading zero does not make 01.5 an octal integer. */
-    if (is_digit(c) || (c == '.' && is_digit(lex->p[1]))) {
-        const char *digits = start, *core_end, *p;
-        int hex = c == '0' && (lex->p[1] == 'x' || lex->p[1] == 'X');
-        int floating = 0, has_digits = 0, bad = 0;
-        if (hex) {
-            lex->p += 2; digits = lex->p;
-            while (is_hex(*lex->p)) { has_digits = 1; lex->p++; }
-        } else {
-            while (is_digit(*lex->p)) { has_digits = 1; lex->p++; }
+    if(is_digit(c)||(c=='.'&&is_digit(peek(lex,1)))) {
+        int hex=c=='0'&&(peek(lex,1)=='x'||peek(lex,1)=='X');
+        int floating=0,has_digits=0,bad=0,float_suffix=0;
+        uint32_t core_end,i;
+        if(hex){take(lex);take(lex);}
+        while(hex?is_hex(peek(lex,0)):is_digit(peek(lex,0))){has_digits=1;take(lex);}
+        if(peek(lex,0)=='.') {
+            floating=1;take(lex);
+            while(hex?is_hex(peek(lex,0)):is_digit(peek(lex,0))){has_digits=1;take(lex);}
         }
-        if (*lex->p == '.') {
-            floating = 1; lex->p++;
-            while (hex ? is_hex(*lex->p) : is_digit(*lex->p)) {
-                has_digits = 1; lex->p++;
-            }
-        }
-        if (hex ? (*lex->p == 'p' || *lex->p == 'P')
-                : (*lex->p == 'e' || *lex->p == 'E')) {
-            floating = 1; lex->p++;
-            if (*lex->p == '+' || *lex->p == '-') lex->p++;
-            if (!is_digit(*lex->p)) bad = 1;
-            while (is_digit(*lex->p)) lex->p++;
-        } else if (hex && floating) {
-            /* A hexadecimal floating constant requires a binary exponent. */
-            bad = 1;
-        }
-        core_end = lex->p;
-        if (!has_digits) bad = 1;
-        if (floating) {
-            Token t = make_token(TOK_FCONST, line);
-            int float_suffix = 0;
-            double value;
-            if (*lex->p == 'f' || *lex->p == 'F') {
-                float_suffix = 1; lex->p++;
-            } else if (*lex->p == 'l' || *lex->p == 'L') {
-                /* Existing subset represents long double as double. */
-                lex->p++;
-            }
+        if(hex?(peek(lex,0)=='p'||peek(lex,0)=='P'):(peek(lex,0)=='e'||peek(lex,0)=='E')) {
+            floating=1;take(lex);
+            if(peek(lex,0)=='+'||peek(lex,0)=='-')take(lex);
+            if(!is_digit(peek(lex,0)))bad=1;
+            while(is_digit(peek(lex,0)))take(lex);
+        } else if(hex&&floating)bad=1;
+        core_end=lex->token_length;
+        if(!has_digits)bad=1;
+        if(floating) {
+            char *end;double value;
+            /* Bounded, complete and NUL terminated: libc never sees a reader window. */
+            float_suffix=peek(lex,0)=='f'||peek(lex,0)=='F';
 #if !defined(ARKCC_STM32)
             {
-                char *converted_end;
-                extern double strtod(const char *, char **);
-                extern float strtof(const char *, char **);
-                /* Source is NUL-terminated. libc stops at the suffix/token
-                 * boundary; checking the exact endpoint avoids truncation and
-                 * does not need scratch allocation, even for long mantissas. */
-                value = float_suffix ? (double)strtof(start, &converted_end)
-                                     : strtod(start, &converted_end);
-                if (converted_end != core_end) bad = 1;
+                extern double strtod(const char *,char **);
+                extern float strtof(const char *,char **);
+                value=float_suffix?(double)strtof(lex->scratch,&end):strtod(lex->scratch,&end);
+                if(end!=lex->scratch+core_end)bad=1;
             }
 #else
-            /* Freestanding STM32 fallback retains manual arithmetic; it is
-             * bounded and overflow-safe but is NOT a correctly-rounded parser.
-             * The production WASI path above always uses libc conversion. */
+            /* Preserve the freestanding target's arithmetic fallback. */
             {
-                double mantissa = 0.0, scale = 1.0;
-                int fraction = 0, exp_negative = 0, exponent = 0;
-                int radix = hex ? 16 : 10;
-                p = digits;
-                while (p < core_end && (hex ? is_hex(*p) : is_digit(*p)) ||
-                       (p < core_end && *p == '.')) {
-                    if (*p == '.') fraction = 1;
-                    else {
-                        mantissa = mantissa * radix + (hex ? hex_val(*p) : *p - '0');
-                        if (fraction) scale *= radix;
-                    }
-                    p++;
+                double mantissa=0.0,scale=1.0;
+                int fraction=0,negative=0,exponent=0,radix=hex?16:10;
+                end=lex->scratch+(hex?2:0);
+                while(end<lex->scratch+core_end && ((hex?is_hex(*end):is_digit(*end))||*end=='.')) {
+                    if(*end=='.')fraction=1;
+                    else {mantissa=mantissa*radix+(hex?hex_val(*end):*end-'0');if(fraction)scale*=radix;}
+                    end++;
                 }
-                if (p < core_end) {
-                    p++;
-                    if (*p == '+' || *p == '-') { exp_negative = *p == '-'; p++; }
-                    for (; p < core_end; ++p) {
-                        if (exponent < 100000) exponent = exponent * 10 + (*p - '0');
-                    }
+                if(end<lex->scratch+core_end) {
+                    end++;if(*end=='+'||*end=='-'){negative=*end=='-';end++;}
+                    while(end<lex->scratch+core_end){if(exponent<100000)exponent=exponent*10+(*end-'0');end++;}
                 }
-                value = mantissa / scale;
-                if (exponent) {
-                    extern double pow(double, double);
-                    value *= pow(hex ? 2.0 : 10.0,
-                                 exp_negative ? -(double)exponent : (double)exponent);
-                }
-                if (float_suffix) value = (double)(float)value;
+                value=mantissa/scale;
+                if(exponent){extern double pow(double,double);value*=pow(hex?2.0:10.0,negative?-(double)exponent:(double)exponent);}
+                if(float_suffix)value=(double)(float)value;
             }
 #endif
-            if (*lex->p == 'i' || *lex->p == 'I' ||
-                *lex->p == 'j' || *lex->p == 'J') {
-                t.is_imag = 1; lex->p++;
-            }
-            if (is_ident_char(*lex->p)) {
-                bad = 1; while (is_ident_char(*lex->p)) lex->p++;
-            }
-            if (bad) {
-                DiagLoc loc; loc.file = 0; loc.line = line; loc.col = lex_col(lex, start);
-                diag_report_msg(DIAG_SEV_ERROR, &loc, "invalid floating literal", 0, 0, 0);
-            }
-            t.fvalue = value;
-            /* FCONST's integer member has no semantic value; converting an
-             * out-of-int-range double here was undefined behaviour. */
-            t.value = 0;
-            t.is_float = float_suffix;
-            return t;
+            if(float_suffix||peek(lex,0)=='l'||peek(lex,0)=='L')take(lex);
+            tk=make_token(TOK_FCONST,line);tk.fvalue=value;tk.is_float=float_suffix;
+            if(peek(lex,0)=='i'||peek(lex,0)=='I'||peek(lex,0)=='j'||peek(lex,0)=='J'){tk.is_imag=1;take(lex);}
         } else {
-            unsigned long long value = 0, limit = ~(unsigned long long)0;
-            int radix = hex ? 16 : (c == '0' ? 8 : 10);
-            int overflow = 0, u = 0, l = 0, ll = 0;
-            Token t;
-            for (p = digits; p < core_end; ++p) {
-                unsigned digit = hex ? (unsigned)hex_val(*p) : (unsigned)(*p - '0');
-                if (digit >= (unsigned)radix) { bad = 1; continue; }
-                if (value > (limit - digit) / (unsigned)radix) overflow = 1;
-                /* Unsigned arithmetic preserves the full 64-bit token pattern
-                 * without signed-overflow UB; overflow is diagnosed below. */
-                value = value * (unsigned)radix + digit;
+            unsigned long long v=0,limit=~(unsigned long long)0;
+            int radix=hex?16:(c=='0'?8:10),overflow=0;
+            tk=make_number(0,line);tk.lit_dec=radix==10;
+            for(i=hex?2u:0u;i<core_end;i++) {
+                unsigned d=(unsigned)(hex?hex_val(lex->scratch[i]):lex->scratch[i]-'0');
+                if(d>=(unsigned)radix){bad=1;continue;}
+                if(v>(limit-d)/(unsigned)radix)overflow=1;
+                v=v*(unsigned)radix+d;
             }
-            scan_int_suffix(lex, &u, &l, &ll);
-            if (is_ident_char(*lex->p)) {
-                bad = 1; while (is_ident_char(*lex->p)) lex->p++;
+            tk.value=(long long)v;
+            while(peek(lex,0)=='u'||peek(lex,0)=='U'||peek(lex,0)=='l'||peek(lex,0)=='L') {
+                if(peek(lex,0)=='u'||peek(lex,0)=='U'){tk.lit_unsigned=1;take(lex);}
+                else {take(lex);if(peek(lex,0)=='l'||peek(lex,0)=='L'){tk.lit_llong=1;take(lex);}else tk.lit_long=1;}
             }
-            if (bad || overflow) {
-                DiagLoc loc; loc.file = 0; loc.line = line; loc.col = lex_col(lex, start);
-                diag_report_msg(DIAG_SEV_ERROR, &loc,
-                                overflow ? "integer literal exceeds 64-bit range" : "invalid integer literal",
-                                0, 0, 0);
-            }
-            t = make_number((long long)value, line);
-            t.lit_unsigned = u; t.lit_long = l; t.lit_llong = ll;
-            t.lit_dec = !hex && radix == 10;
-            return t;
+            if(overflow)lex_error(lex,"integer literal exceeds 64-bit range");
         }
+        if(is_ident_char(peek(lex,0))){bad=1;while(is_ident_char(peek(lex,0)))take(lex);}
+        if(bad)lex_error(lex,floating?"invalid floating literal":"invalid integer literal");
+        return tk;
     }
-
-    /* Character literal. */
-    if (c == '\'') {
-        int val = 0;
-        lex->p++;
-        if (*lex->p == '\\') {
-            lex->p++;
-            val = read_escape(&lex->p);
-        } else if (*lex->p) {
-            val = (unsigned char)*lex->p;
-            lex->p++;
-        }
-        if (*lex->p == '\'') lex->p++;
-        return make_number(val, line);
-    }
-
-    /* String literal; adjacent "..." segments are concatenated per C99. */
-    if (c == '"') {
-        Token t = make_token(TOK_STR, line);
-        int cap = 32, len = 0;
-        char *buf = (char *)mem_pool_alloc(cap);
-        for (;;) {
-            lex->p++; /* consume opening quote " */
-            while (*lex->p && *lex->p != '"') {
+    if(c=='\'' || c=='"') {
+        int quote=c,val=0;
+        tk=make_token(quote=='"'?TOK_STR:TOK_NUM,line);tk.value=wide;
+        for(;;) {
+            advance(lex,1);
+            while(peek(lex,0)&&peek(lex,0)!=quote) {
                 int ch;
-                if (*lex->p == '\\' && lex->p[1]) {
-                    /* C99 UCN: \uXXXX \UXXXXXXXX is encoded as UTF-8 bytes. */
-                    if (lex->p[1] == 'u' || lex->p[1] == 'U') {
-                        unsigned int cp = 0;
-                        int ndigits, i;
-                        char kind = lex->p[1];
-                        char ub[4];
-                        int ulen;
-                        lex->p += 2;
-                        ndigits = (kind == 'u') ? 4 : 8;
-                        for (i = 0; i < ndigits; i++) {
-                            if (!is_hex(lex->p[i])) break;
-                            cp = cp * 16 + (unsigned int)hex_val(lex->p[i]);
-                        }
-                        if (i == ndigits) {
-                            lex->p += ndigits;
-                            ulen = utf8_encode(cp, ub);
-                            if (len + ulen + 1 >= cap) {
-                                int nc = cap * 2;
-                                while (len + ulen + 1 >= nc) nc *= 2;
-                                buf = (char *)mem_realloc(buf, cap, nc);
-                                cap = nc;
-                            }
-                            for (i = 0; i < ulen; i++) buf[len++] = ub[i];
-                            continue;
-                        }
-                        /* Malformed UCN: emit the literal 'u' or 'U' byte. */
-                        ch = (int)kind;
-                        lex->p++;  /* consume the 'u' or 'U' */
-                    } else {
-                        lex->p++;
-                        ch = read_escape(&lex->p);
-                    }
-                } else {
-                    ch = (unsigned char)*lex->p;
-                    lex->p++;
-                }
-                if (len + 1 >= cap) {
-                    int nc = cap * 2;
-                    buf = (char *)mem_realloc(buf, cap, nc);
-                    cap = nc;
-                }
-                buf[len++] = (char)ch;
+                if(peek(lex,0)=='\\') {
+                    if(quote=='"'&&(peek(lex,1)=='u'||peek(lex,1)=='U')){ucn(lex);continue;}
+                    advance(lex,1);ch=escape(lex);
+                } else {ch=peek(lex,0);advance(lex,1);}
+                if(quote=='"')append(lex,ch);else {val=ch;break;}
             }
-            if (*lex->p == '"') lex->p++;
-            /* Skip whitespace between adjacent string literals (concatenation). */
-            {
-                const char *q = lex->p;
-                while (*q == ' ' || *q == '\t' || *q == '\r' || *q == '\n') {
-                    if (*q == '\n') { lex->line++; lex->line_start = q + 1; }
-                    q++;
-                }
-                if (*q == '"') {
-                    lex->p = q;
-                    continue;
-                }
-            }
-            break;
+            if(peek(lex,0)==quote)advance(lex,1);else lex_error(lex,"unterminated literal");
+            if(quote!='"'||wide)break;
+            lex->token_active=0;
+            skip_ws(lex);
+            lex->token_active=1;
+            if(peek(lex,0)!='"')break;
         }
-        buf[len] = 0;
-        t.str = buf;
-        return t;
+        if(quote=='"')tk.str=mem_strndup(lex->scratch,(int)lex->token_length);
+        else tk.value=val;
+        return tk;
     }
-
-    lex->p++;
+    advance(lex, 1);
     switch (c) {
         case '(': return make_token(TOK_LPAREN, line);
         case ')': return make_token(TOK_RPAREN, line);
@@ -780,61 +384,61 @@ static Token lexer_read_token(Lexer *lex) {
         case '#': return make_token(TOK_HASH, line);
         case '~': return make_token(TOK_BNOT, line);
         case '.':
-            if (lex->p[0] == '.' && lex->p[1] == '.') {
-                lex->p += 2;
+            if (peek(lex, 0) == '.' && peek(lex, 1) == '.') {
+                advance(lex, 2);
                 return make_token(TOK_ELLIPSIS, line);
             }
             return make_token(TOK_DOT, line);
         case '^':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_XOR_ASSIGN, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_XOR_ASSIGN, line); }
             return make_token(TOK_BXOR, line);
         case '+':
-            if (*lex->p == '+') { lex->p++; return make_token(TOK_INC, line); }
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_ADD_ASSIGN, line); }
+            if (peek(lex, 0) == '+') { advance(lex, 1); return make_token(TOK_INC, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_ADD_ASSIGN, line); }
             return make_token(TOK_PLUS, line);
         case '-':
-            if (*lex->p == '-') { lex->p++; return make_token(TOK_DEC, line); }
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_SUB_ASSIGN, line); }
-            if (*lex->p == '>') { lex->p++; return make_token(TOK_ARROW, line); }
+            if (peek(lex, 0) == '-') { advance(lex, 1); return make_token(TOK_DEC, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_SUB_ASSIGN, line); }
+            if (peek(lex, 0) == '>') { advance(lex, 1); return make_token(TOK_ARROW, line); }
             return make_token(TOK_MINUS, line);
         case '*':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_MUL_ASSIGN, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_MUL_ASSIGN, line); }
             return make_token(TOK_MUL, line);
         case '/':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_DIV_ASSIGN, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_DIV_ASSIGN, line); }
             return make_token(TOK_DIV, line);
         case '%':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_MOD_ASSIGN, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_MOD_ASSIGN, line); }
             return make_token(TOK_MOD, line);
         case '=':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_EQ, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_EQ, line); }
             return make_token(TOK_ASSIGN, line);
         case '!':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_NE, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_NE, line); }
             return make_token(TOK_NOT, line);
         case '<':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_LE, line); }
-            if (*lex->p == '<') {
-                lex->p++;
-                if (*lex->p == '=') { lex->p++; return make_token(TOK_SHL_ASSIGN, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_LE, line); }
+            if (peek(lex, 0) == '<') {
+                advance(lex, 1);
+                if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_SHL_ASSIGN, line); }
                 return make_token(TOK_SHL, line);
             }
             return make_token(TOK_LT, line);
         case '>':
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_GE, line); }
-            if (*lex->p == '>') {
-                lex->p++;
-                if (*lex->p == '=') { lex->p++; return make_token(TOK_SHR_ASSIGN, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_GE, line); }
+            if (peek(lex, 0) == '>') {
+                advance(lex, 1);
+                if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_SHR_ASSIGN, line); }
                 return make_token(TOK_SHR, line);
             }
             return make_token(TOK_GT, line);
         case '&':
-            if (*lex->p == '&') { lex->p++; return make_token(TOK_AND, line); }
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_AND_ASSIGN, line); }
+            if (peek(lex, 0) == '&') { advance(lex, 1); return make_token(TOK_AND, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_AND_ASSIGN, line); }
             return make_token(TOK_BAND, line);
         case '|':
-            if (*lex->p == '|') { lex->p++; return make_token(TOK_OR, line); }
-            if (*lex->p == '=') { lex->p++; return make_token(TOK_OR_ASSIGN, line); }
+            if (peek(lex, 0) == '|') { advance(lex, 1); return make_token(TOK_OR, line); }
+            if (peek(lex, 0) == '=') { advance(lex, 1); return make_token(TOK_OR_ASSIGN, line); }
             return make_token(TOK_BOR, line);
         default:
             /* armcc reports this as #7 "unrecognized token" with the caret on
@@ -844,40 +448,72 @@ static Token lexer_read_token(Lexer *lex) {
                 DiagLoc loc;
                 loc.file = 0;
                 loc.line = line;
-                loc.col = lex_col(lex, lex->p);
+                loc.col = lex->column;
                 diag_report(7, DIAG_SEV_ERROR, &loc, 0, 0, 0);
+                lex->error = ARK_ERR_LEX;
             }
             return make_token(TOK_EOF, line);
     }
 }
 
-void lexer_init(Lexer *lex, const char *input) {
-    lex->input = input;
-    lex->p = input;
-    lex->line = 1;
-    lex->line_start = input;
-    lex->last_line = 0;
-    lex->col_p = 0;
-    lex->col_cells = 1;
-    lex->current = lexer_read_token_with_pos(lex);
-    lex->ahead = lexer_read_token_with_pos(lex);
-}
-
-Token lexer_peek(Lexer *lex)  { return lex->current; }
-Token lexer_peek2(Lexer *lex) { return lex->ahead; }
-
-Token lexer_next(Lexer *lex) {
-    Token t = lex->current;
-    lex->current = lex->ahead;
-    lex->ahead = lexer_read_token_with_pos(lex);
-    if (t.kind != TOK_EOF && t.line > 0) lex->last_line = t.line;
+static Token lexer_read_token_with_pos(Lexer *lex) {
+    Token t=lexer_read_token(lex);
+    lex->token_active=0;
+    t.src_offset=lex->token_start;
+    t.col=lex->token_column;
+    /* Compute token's position from a small saved position, never a line rescan. */
+    if(lex->memory_input)t.src_start=lex->memory_input+t.src_offset;
+    else if(t.str)t.src_start=t.str;
+    else t.src_start="";
     return t;
 }
-
-void lexer_advance(Lexer *lex) {
-    (void)lexer_next(lex);
+static Token positioned(Lexer *lex) {
+    return lexer_read_token_with_pos(lex);
 }
-
+int lexer_init_source(Lexer *lex,XhSourceReader *source) {
+    if(!lex)return ARK_ERR_IO;
+    if(!source||!source->range||source->error) {
+        lex->source=source;lex->memory_input=0;lex->error=ARK_ERR_IO;
+        lex->offset=0;lex->line=1;lex->column=1;lex->last_line=0;
+        lex->current=make_token(TOK_EOF,1);lex->ahead=lex->current;
+        lex->lookahead_tokens=2;
+        return ARK_ERR_IO;
+    }
+    lex->source=source;lex->memory_input=0;
+    lex->offset=0;lex->line_start=0;lex->line=1;lex->column=1;
+    lex->line_blank=1;lex->previous_cr=0;lex->utf8_remaining=0;
+    lex->error=0;lex->last_line=0;lex->token_length=0;lex->peak_token_bytes=0;
+    lex->token_active=0;lex->raw_token_bytes=0;
+    lex->token_start=0;lex->lookahead_tokens=2;
+    lex->current=positioned(lex);lex->ahead=positioned(lex);
+    return lex->error?lex->error:ARK_OK;
+}
+static int memory_range(void *ctx,uint32_t off,unsigned char *buf,uint32_t count) {
+    const unsigned char *src=(const unsigned char *)ctx;uint32_t i;
+    for(i=0;i<count;i++)buf[i]=src[off+i];return (int)count;
+}
+void lexer_init(Lexer *lex,const char *input) {
+    uint32_t size=0;while(input[size])size++;
+    xh_source_init(memory_range,(void *)input,size,lex->memory_window,sizeof(lex->memory_window),&lex->memory_source);
+    lexer_init_source(lex,&lex->memory_source);
+    lex->memory_input=input;
+    lex->current.src_start=input+lex->current.src_offset;
+    lex->ahead.src_start=input+lex->ahead.src_offset;
+}
+char *lexer_copy_source_span(Lexer *lex,uint32_t start,uint32_t length) {
+    char *out;uint32_t i;unsigned char c;
+    if(length>XH_LEX_ASM_MAX||start>lex->source->size||length>lex->source->size-start){lex_error(lex,"asm body exceeds bounded span limit");return 0;}
+    out=(char *)mem_pool_alloc((int)length+1);
+    for(i=0;i<length;i++){
+        if(xh_source_read_byte(lex->source,start+i,&c)!=XH_SOURCE_OK){lex_error(lex,"source reader I/O failure");lex->error=ARK_ERR_IO;return 0;}
+        out[i]=(char)c;
+    }
+    out[length]=0;return out;
+}
+Token lexer_peek(Lexer *lex){return lex->current;}
+Token lexer_peek2(Lexer *lex){return lex->ahead;}
+Token lexer_next(Lexer *lex){Token t=lex->current;lex->current=lex->ahead;lex->ahead=positioned(lex);if(t.kind!=TOK_EOF)lex->last_line=t.line;return t;}
+void lexer_advance(Lexer *lex){(void)lexer_next(lex);}
 /* Spelling of the token a caller expected, so the message reads like
  * "expected a \";\"" instead of exposing the TokenKind enum. */
 static const char *expect_name(TokenKind k) {

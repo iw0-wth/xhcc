@@ -123,7 +123,9 @@ make 子集支持 24 个文本/控制/诊断函数、变量与替换引用、`ov
 
 每个默认模块声明一个非共享 wasm32 线性内存，initial = maximum = 4 MiB，包含静态数据、C 栈、arena 与 libc 堆。运行时结构、字节码、宿主栈、WASI 和文件系统缓冲增加完整任务 RAM。该上限和桌面 RSS 均不能证明 MCU 可行性，详见 [资源测量](docs/resource-budget.md)。
 
-目前**没有 wasm32 输出后端，也未完成 Wasm 自举**，这些 Wasm 应用由宿主 Clang 构建。默认 32 KiB 源文件上限已无法容纳数个较大的编译器翻译单元，前端/sysroot/runtime 和内存工作仍待完成，见 [Wasm 后端与自举计划](docs/wasm-bootstrap-plan.md)。前端最高优先级是将预处理输入/输出及 lexer 迁移为有界流式处理；已验证的 reader 基础不等于流式编译完成，也不代表已支持大源码，见 [流式前端计划](docs/streaming-frontend-plan.md)。
+目前**没有 wasm32 输出后端，也未完成 Wasm 自举**，这些 Wasm 应用由宿主 Clang 构建，前端/sysroot/runtime 和内存工作仍待完成，见 [Wasm 后端与自举计划](docs/wasm-bootstrap-plan.md)。
+
+默认 XHCC 文件路径已将源文件/include 经有界预处理 sink 写入宿主/SD 文件系统 spool，再由窗口 lexer 读取。该路径启用后已通过四应用完整兼容回归，专项测试还覆盖超过 1 MiB 的主文件/include 尾部在 ARM/RV32 执行，以及超过 1 MiB 的预处理输出。该路径需要可写临时存储，token、宏和 asm span 仍有上限，AST/IR 内存仍随程序复杂度增长。大翻译单元只是最高优先目标——通过 MicroPython 原始 Makefile 构建仓库——的前置条件；完整仓库工作流尚不支持、正在审计，项目需要的宿主 Python 生成步骤允许保留。见 [流式前端与原始 Makefile 验收计划](docs/streaming-frontend-plan.md)。
 
 ## 验证与许可
 

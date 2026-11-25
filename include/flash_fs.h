@@ -36,6 +36,35 @@ int fs_file_size(const char *path);
  */
 int fs_write_file(const char *path, const unsigned char *data, int len);
 
+/* Bounded temporary storage used by the file frontend. No source-sized RAM.
+ * Internal spools use XHCC_TMPDIR, or the current writable directory by default.
+ * Publication spools always share the output directory for atomic rename.
+ * create is exclusive (never overwrites a user file); append retries short
+ * writes; finish flushes/closes before range reads or publication. Total size
+ * is limited to INT_MAX bytes. destroy is required on every exit, including
+ * after failures. Disk space must hold the entire preprocessed translation
+ * unit in addition to existing outputs; AST/IR memory still grows with code.
+ * Host/WASI also cleans active spools on exit(), including fatal arena errors.
+ * Abrupt termination (_Exit, a runtime trap, or power loss) cannot run cleanup.
+ * The host/WASI adapter implements these operations. */
+#define FS_SPOOL_PATH_MAX 1024
+typedef struct {
+    void *handle;
+    uint32_t size;
+    uint32_t cursor;
+    int finished;
+    int failed;
+    char path[FS_SPOOL_PATH_MAX];
+} FsSpool;
+int fs_spool_create(FsSpool *spool, const char *input, const char *publish_path);
+int fs_spool_append(FsSpool *spool, const unsigned char *data, uint32_t count);
+int fs_spool_finish(FsSpool *spool);
+int fs_spool_range(void *spool, uint32_t offset, unsigned char *buf, uint32_t count);
+int fs_spool_rewind(FsSpool *spool);
+int fs_spool_read(FsSpool *spool, unsigned char *buf, uint32_t count);
+int fs_spool_publish(FsSpool *spool, const char *path);
+void fs_spool_destroy(FsSpool *spool);
+
 /* Why the most recent fs_read_file / fs_write_file failed, as a short phrase
  * ("No such file or directory"). Never NULL; backends that cannot know the
  * reason return a generic phrase rather than an empty string. Diagnostics

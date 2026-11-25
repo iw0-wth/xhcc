@@ -27,6 +27,8 @@
 #include "xh_request.h"
 #include "xh_relocation.h"
 #include "xh_target_rules.h"
+#include "xh_source_reader.h"
+#include "xh_pp_stream.h"
 #endif
 /* Note: <stdio.h> intentionally NOT included - all file I/O goes through
  * fs_read_file/fs_write_file (flash_fs abstraction) to avoid pulling in
@@ -38,7 +40,9 @@
 
 /* Place large buffers in .ark_buf section so the linker script can put them
  * in AXI SRAM (0x24000000) on STM32H743. On host builds this is a no-op. */
+#ifndef XHCC
 static char          g_src[ARK_SRC_BUF_SIZE]   ARK_BUFFER_SECTION;
+#endif
 static char          g_asm[ARK_ASM_BUF_SIZE]   ARK_BUFFER_SECTION;
 static unsigned char g_code[ARK_CODE_BUF_SIZE] ARK_BUFFER_SECTION;
 
@@ -49,7 +53,11 @@ static unsigned char g_code[ARK_CODE_BUF_SIZE] ARK_BUFFER_SECTION;
  */
 unsigned long arkcc_buf_addr(void)
 {
+#ifdef XHCC
+    return (unsigned long)(void *)g_asm;
+#else
     return (unsigned long)(void *)g_src;
+#endif
 }
 
 static int derive_output(const char *input, char *out, int cap, const char *ext) {
@@ -1734,8 +1742,25 @@ static void format_epoch_utc(long long epoch, char *date_out, char *time_out) {
  * The caller owns the memory pool: ark_compile() and ark_ipo_compile() each
  * call mem_pool_reset() once before the first unit, and never between units
  * when the IR is shared. */
+#ifdef XHCC
+/* The wrapper owns scratch storage across every frontend early return. */
+typedef struct {
+    FsSpool spool;
+    XhSourceReader reader;
+    unsigned char window[XH_SOURCE_WINDOW_DEFAULT];
+} XhFrontendStream;
+
+static int frontend_spool_sink(void *context, const char *data, int count) {
+    if (count < 0) return -1;
+    return fs_spool_append((FsSpool *)context, (const unsigned char *)data, (uint32_t)count);
+}
+
+static int ark_frontend_unit_impl(const ArkOptions *opts, IrProgram *shared,
+                      IrProgram **out_ir, const ArkBackend **out_be, XhFrontendStream *stream)
+#else
 int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
                       IrProgram **out_ir, const ArkBackend **out_be)
+#endif
 {
     int src_len;
     Lexer lex;
@@ -1743,7 +1768,9 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     int sema_errs;
     IrProgram *ir = 0;
     const ArkBackend *be = 0;
+#ifndef XHCC
     char *preprocessed;
+#endif
     int i;
 
     if (out_ir) *out_ir = 0;
@@ -2003,6 +2030,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * state.  Zero by default: every existing command line is unchanged. */
     g_arm_vt_reserve = (opts->vector_table != 0) ? 1 : 0;
 
+#ifndef XHCC
     {
         /* fs_read_file() truncates at ARK_SRC_BUF_SIZE-1 without saying so,
          * which turns a too-small buffer into a stream of bogus syntax errors
@@ -2035,6 +2063,17 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     /* Preprocessing diagnoses against the raw text: that is what the user sees
      * in their editor, and its line numbers are the ones the directives are on. */
     diag_init(opts->input_path, g_src);
+#else
+    src_len = fs_file_size(opts->input_path);
+    diag_init(opts->input_path, 0);
+    diag_set_source_file(opts->input_path, opts->input_path);
+    if (src_len < 0) {
+        DiagLoc loc;
+        loc.file = DIAG_NO_SOURCE_TEXT; loc.line = 0; loc.col = 0;
+        diag_report(5, DIAG_SEV_ERROR, &loc, "source", opts->input_path, fs_last_error());
+        return ARK_ERR_IO;
+    }
+#endif
     /* Tell the preprocessor which backend will emit this unit before anything
      * is expanded: headers (stdatomic.h first among them) need to know whether
      * the target has the ARM PRIMASK critical section, and the armcc
@@ -2045,14 +2084,40 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
         preproc_set_target(tbe ? tbe->name : "arm");
     }
 #ifdef XHCC
-    preprocessed = preproc_process_forced(g_src, opts->forced_includes, opts->forced_include_count);
+    {
+        const char *publication = 0;
+        int pp_rc;
+        if (opts->preprocess_only && !opts->dump_macros && !opts->deps_only &&
+            opts->output_path && !ark_streq(opts->output_path, "-"))
+            publication = opts->output_path;
+        if (fs_spool_create(&stream->spool, opts->input_path, publication)) {
+            diag_tool(DIAG_SEV_ERROR, opts->input_path,
+                      "cannot create preprocessing temporary: %s", fs_last_error(),0,0,0,0,0);
+            return ARK_ERR_IO;
+        }
+        pp_rc = preproc_stream_file(opts->input_path, opts->forced_includes,
+                    opts->forced_include_count, frontend_spool_sink, &stream->spool, 0, 0);
+        if (stream->spool.failed) {
+            diag_tool(DIAG_SEV_ERROR, opts->input_path,
+                      "cannot append preprocessing temporary: %s", fs_last_error(),0,0,0,0,0);
+            return ARK_ERR_IO;
+        }
+        if (pp_rc < 0 || diag_errors() > 0) return ARK_ERR_PARSE;
+        if (fs_spool_finish(&stream->spool)) {
+            diag_tool(DIAG_SEV_ERROR, opts->input_path,
+                      "cannot finish preprocessing temporary: %s", fs_last_error(),0,0,0,0,0);
+            return ARK_ERR_IO;
+        }
+        diag_set_source_file(opts->input_path, stream->spool.path);
+        if (xh_source_init(fs_spool_range, &stream->spool, stream->spool.size,
+                           stream->window, sizeof(stream->window), &stream->reader) < 0)
+            return ARK_ERR_IO;
+    }
 #else
     preprocessed = preproc_process(g_src);
-#endif
-    /* Line numbers in every later diagnostic refer to the *preprocessed*
-     * buffer (that is what the lexer counts), so the echo buffer must be the
-     * same text or the caret would point at a different line. */
+    /* Later diagnostics use the same preprocessed lines counted by the lexer. */
     diag_set_source(preprocessed);
+#endif
 
     /* -MMD/--depend: generate dependency file (Makefile style, gcc -MMD compatible).
      * Format: "<output>: <source> <header1> <header2> ...\n"
@@ -2177,7 +2242,23 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
         const char *target = opts->output_path ? opts->output_path : "-";
 #ifdef XHCC
         if(opts->dump_macros)return preproc_write_macros(target)==0?ARK_OK:ARK_ERR_IO;
-#endif
+        if (!ark_streq(target, "-")) {
+            if (fs_spool_publish(&stream->spool, target)) {
+                diag_tool(DIAG_SEV_ERROR, target, "cannot publish preprocessed output: %s",
+                          fs_last_error(),0,0,0,0,0);
+                return ARK_ERR_IO;
+            }
+            return ARK_OK;
+        }
+        {
+            unsigned char chunk[1024];
+            int n;
+            if (fs_spool_rewind(&stream->spool)) return ARK_ERR_IO;
+            while ((n = fs_spool_read(&stream->spool, chunk, sizeof(chunk))) > 0)
+                if (fs_write_file("-", chunk, n) != n) return ARK_ERR_IO;
+            return n < 0 ? ARK_ERR_IO : ARK_OK;
+        }
+#else
         int e_len = ark_strlen(preprocessed);
         if (ark_streq(target, "-")) {
             if (fs_write_file("-", (const unsigned char *)preprocessed, e_len) != e_len)
@@ -2185,6 +2266,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
             return ARK_OK;
         }
         return write_text(target, preprocessed);
+#endif
     }
 
     be = opts->target ? ark_backend_find(opts->target) : ark_backend_default();
@@ -2238,8 +2320,20 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
      * parser must start from the default alignment no matter what the
      * preprocessor (or a previous translation unit) left behind. */
     type_pack_reset();
+#ifdef XHCC
+    { int lex_rc=lexer_init_source(&lex, &stream->reader); if(lex_rc!=ARK_OK)return lex_rc; }
+#else
     lexer_init(&lex, preprocessed);
+#endif
     ast = parse_program(&lex);
+#ifdef XHCC
+    if (stream->reader.error < 0) {
+        diag_tool(DIAG_SEV_ERROR, opts->input_path, "cannot read preprocessing temporary: %s",
+                  fs_last_error(),0,0,0,0,0);
+        return ARK_ERR_IO;
+    }
+    if(lex.error!=ARK_OK)return lex.error;
+#endif
     if (!ast) return ARK_ERR_PARSE;      /* diagnostics were already printed */
     /* A frontend error means the tree we would hand to sema/codegen is not the
      * program the user wrote. armcc stops here too; continuing only adds
@@ -2308,6 +2402,19 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
     if (out_be) *out_be = be;
     return ARK_OK;
 }
+
+#ifdef XHCC
+int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
+                      IrProgram **out_ir, const ArkBackend **out_be) {
+    XhFrontendStream stream = {0};
+    int rc;
+    rc = ark_frontend_unit_impl(opts, shared, out_ir, out_be, &stream);
+    diag_clear_source_provider();
+    xh_source_close(&stream.reader);
+    fs_spool_destroy(&stream.spool);
+    return rc;
+}
+#endif
 
 #if ARKCC_FEATURE_SCATTER
 /* Pointers the scatter/-T bridge installed into g_config on the previous call.

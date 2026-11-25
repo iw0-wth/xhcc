@@ -156,13 +156,24 @@ class SourceReaderTests(unittest.TestCase):
                     target.write(part)
                     remaining -= len(part)
             source.write_text(HARNESS, encoding='utf-8')
-            command = [cc] + ([] if native else ['--target=wasm32-wasip1']) + ['-std=c99', '-Wall', '-Wextra', '-Werror',
-                       '-D_POSIX_C_SOURCE=200809L', '-Dmalloc=xh_forbidden_malloc',
-                       '-Dcalloc=xh_forbidden_calloc', '-Drealloc=xh_forbidden_realloc',
-                       '-I' + str(ROOT / 'include'),
-                       str(source), str(ROOT / 'src/frontend/c/source_reader.c'),
-                       str(ROOT / 'src/platform/wasi/flash_fs_host.c'), '-o', str(binary)]
-            built = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+            compiler = [cc] + ([] if native else ['--target=wasm32-wasip1'])
+            flags = ['-std=c99', '-Wall', '-Wextra', '-Werror',
+                     '-D_POSIX_C_SOURCE=200809L', '-I' + str(ROOT / 'include')]
+            # Poison only the reader TU. The real filesystem backend may own
+            # spool-registry allocations, independent of reader memory bounds.
+            poison = ['-Dmalloc=xh_forbidden_malloc', '-Dcalloc=xh_forbidden_calloc',
+                      '-Drealloc=xh_forbidden_realloc']
+            objects = []
+            units = [(source, []), (ROOT / 'src/frontend/c/source_reader.c', poison),
+                     (ROOT / 'src/platform/wasi/flash_fs_host.c', [])]
+            for index, (unit, extra) in enumerate(units):
+                obj = directory / ('unit' + str(index) + '.o')
+                command = compiler + flags + extra + ['-c', str(unit), '-o', str(obj)]
+                built = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+                objects.append(str(obj))
+            built = subprocess.run(compiler + objects + ['-o', str(binary)], env=env,
+                                   capture_output=True, text=True, timeout=60)
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
             execute = [str(binary)] if native else [runtime, 'run', '--dir=.', str(binary)]
             result = subprocess.run(execute, cwd=directory, env=env,
