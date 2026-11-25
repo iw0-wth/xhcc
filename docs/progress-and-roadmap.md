@@ -26,6 +26,7 @@ arkcc 有 legacy 内置链接器；xhcc/xhccm 保留私有对象链接、部分�
 
 | 优先级 | 工作 | 完成验收 |
 | --- | --- | --- |
+| P0 最高优先 | [真实流式前端](streaming-frontend-plan.md) | reader/range 基础已独立验证；下一步同时迁移主文件与 include 输入、预处理输出、lexer 与诊断 span；当前不能宣称整份前端已流式化 |
 | 已验证，持续维护 | 原子输出、make 重复依赖和 RV32 系统指令外置 | 本批故障注入、GNU 行为对照、规则变体同 SHA 执行、完整回归及 SD 测试均通过；不代表完整 GNU make 或完整目标 ISA |
 | 已实现首版，继续扩展 | [ARM/RV32 共享标准 ELF 链接器](elf-linker-first-stage.md) | 显式对象、符号解析、受检脚本布局、ARM REL/RV32 RELA、ET_EXEC/binary 已接入；后续扩展目标/重定位/归档/运行库及脚本语法，各项单独验收 |
 | P1 | [未来 wasm 后端自举条件](wasm-bootstrap-plan.md) | 双 Python/无 Python 构建入口可用；补 wasm 输出引擎、WASI ABI、模块链接、编译自身源码所需语言/头文件与容量；目前不能自举 |

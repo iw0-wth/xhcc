@@ -6,11 +6,19 @@
 #define ARK_FLASH_FS_H
 
 #include "common.h"
+#include <stdint.h>
 
 /* Read the entire file into buf. Returns byte count read; -1 on failure.
  * If file is larger than max_len-1, it is truncated and buf is guaranteed NUL-terminated.
  */
 int fs_read_file(const char *path, char *buf, int max_len);
+
+/* Read at most count bytes without loading the entire file or adding NUL.
+ * Returns actual bytes (including short/zero EOF), or -1 with fs_last_error.
+ * path must be nonempty, buf may be NULL only for count=0. offset/count and
+ * offset+count must fit INT_MAX (current <=2 GiB archive/file contract).
+ * Bytes beyond the returned count are untouched on successful reads. */
+int fs_read_range(const char *path, uint32_t offset, unsigned char *buf, uint32_t count);
 
 /* Size of the file in bytes, or -1 if it cannot be opened / is unknown.
  * Callers use it to tell "the buffer was big enough" from "the file was cut

@@ -420,7 +420,11 @@ static const char *cbranch_mnemonic(XhIrBinaryOp base_op, int is_unsigned, int w
 #endif
 
 static void emit_binary(AsmBuffer *b,const IrInst *inst) {
-    const char *name=arm_integer_rule(xh_ir_legacy_binary(inst),(inst->aux&0x100)!=0);char key[48];
+    XhIrBinaryOp op=xh_ir_legacy_binary(inst);
+    const char *name=arm_integer_rule(op,(inst->aux&0x100)!=0);char key[48];
+    if(xh_arm_thumb1_enabled()&&(op==XH_IR_BIN_DIV||op==XH_IR_BIN_REM)){
+        xh_arm_semantic(b,"integerdiv",op==XH_IR_BIN_DIV?"div":"mod",32,(inst->aux&0x100)?"u":"s","thumb1_regs",0,0);return;
+    }
     if(!name){diag_tool(DIAG_SEV_ERROR,"ARM IR","invalid integer binary operation",0,0,0,0,0,0);return;}
     snprintf(key,sizeof key,"binary.%s",name);xh_arm_rule(b,key);
 }
@@ -6502,7 +6506,7 @@ static char *codegen_arm(IrProgram *prog) {
              * so drop the push and let IR_DIV/IR_MOD emit the magic sequence.
              * Anything divconst_prepare() refuses keeps both the push and the
              * hardware divide, i.e. the image is untouched. */
-            if (g_config.enable_divconst && I->op == IR_PUSH_INT) {
+            if (!xh_arm_thumb1_enabled() && g_config.enable_divconst && I->op == IR_PUSH_INT) {
                 /* A negative constant divisor arrives as PUSH_INT k followed by
                  * the unary minus (`x / -5` -> PUSH 5, UNARY MINUS, DIV), so
                  * both shapes are recognised here and the NEG is skipped with
@@ -8259,6 +8263,7 @@ static char *codegen_arm(IrProgram *prog) {
                  * Cortex-M4 (ARMv7E-M) has hardware SDIV/UDIV; use them instead of __aeabi_idiv
                  * so single-file .bin output works without linking libgcc. */
                 case IR_DIV:
+                    if(xh_arm_thumb1_enabled()){xh_arm_semantic(&buf,"integerdiv","div",32,I->aux?"u":"s","thumb1_stack",2,1);break;}
 #if ARKCC_FEATURE_DIVCONST
                     if (divconst_live) {
                         divconst_live = 0;
@@ -8272,6 +8277,7 @@ static char *codegen_arm(IrProgram *prog) {
                     emit_push_r0(&buf);
                     break;
                 case IR_MOD:
+                    if(xh_arm_thumb1_enabled()){xh_arm_semantic(&buf,"integerdiv","mod",32,I->aux?"u":"s","thumb1_stack",2,1);break;}
 #if ARKCC_FEATURE_DIVCONST
                     if (divconst_live) {
                         divconst_live = 0;

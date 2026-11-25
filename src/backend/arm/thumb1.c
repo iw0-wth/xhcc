@@ -31,7 +31,7 @@ int xh_arm_thumb1_legalize(const char*input,AsmBuffer*out){
   if(!strcmp(op,"BX")){if(strcmp(q,"BX lr"))return error(q);line(out,q);continue;}
   if(!strcmp(op,"NOP")){line(out,q);continue;}
   if(sscanf(q,"%31s sp, sp, #%d",op,&v)==2&&(!strcmp(op,"ADD")||!strcmp(op,"SUB"))){if(v<0||v>4096||(v&3))return error(q);while(v){int piece=v>508?508:v;char x[64];snprintf(x,sizeof x,"%s sp, sp, #%d",op,piece);line(out,x);v-=piece;}continue;}
-  if(!strcmp(op,"MOV")){if(sscanf(q,"MOV r%d, #%d",&r,&v)==2){if(r>7||r<0)return error(q);if(v<0||v>255)number(out,r,(unsigned)v);else{char x[64];snprintf(x,sizeof x,"MOVS r%d, #%d",r,v);line(out,x);}continue;}if(!strcmp(q,"MOV r6, sp")||!strcmp(q,"MOV sp, r6")){line(out,q);continue;}if(sscanf(q,"MOV r%d, r%d",&r,&a)==2&&r>=0&&r<=7&&a>=0&&a<=7){line(out,q);continue;}return error(q);}
+  if(!strcmp(op,"MOV")){if(sscanf(q,"MOV r%d, #%d",&r,&v)==2){if(r>7||r<0)return error(q);if(v<0||v>255)number(out,r,(unsigned)v);else{char x[64];snprintf(x,sizeof x,"MOVS r%d, #%d",r,v);line(out,x);}continue;}if(!strcmp(q,"MOV r6, sp")||!strcmp(q,"MOV r4, sp")||!strcmp(q,"MOV r5, sp")||!strcmp(q,"MOV sp, r6")||!strcmp(q,"MOV sp, r4")||!strcmp(q,"MOV sp, r5")){line(out,q);continue;}if(sscanf(q,"MOV r%d, r%d",&r,&a)==2&&r>=0&&r<=7&&a>=0&&a<=7){line(out,q);continue;}return error(q);}
   if(!strcmp(op,"LDR")||!strcmp(op,"STR")||!strcmp(op,"LDRB")||!strcmp(op,"STRB")||!strcmp(op,"LDRH")||!strcmp(op,"STRH")){
    char base[16];int count=sscanf(q,"%31s r%d, [%15[^],], #%d]",op,&r,base,&v);if(count<3||r<0||r>7||strchr(q,'=')||strchr(q,'!'))return error(q);if(count==3)v=0;
    if(!strcmp(base,"sp")){if(strcmp(op,"LDR")&&strcmp(op,"STR"))return error(q);if(v<0||v>1020||(v&3))return error(q);}

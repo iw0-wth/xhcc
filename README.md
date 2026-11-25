@@ -105,7 +105,7 @@ Machine-target `-c` emits standard ELF `ET_REL`; C output emits source for anoth
 | AMD64 | LP64, scalar SysV/SSE, tested varargs and opt-in limited aggregates | Not complete native SysV aggregate interoperability |
 | C | IR translated to C text | Not a wasm32 output backend |
 
-The initial Thumb-1 path uses low registers, byte-built constants, local scalar operations, short control flow and direct calls. Production `-S` has GNU Cortex-M0 assembler/CPU execution checks; `-c` emits Thumb-1 objects with ARMv6-M attributes. DIV, globals, strings, floating point and long branches outside this subset fail explicitly. This is not complete Thumb-1 support or a claim that every ARM architecture has an integrated firmware workflow. Thumb-2 retains base AAPCS and checked soft/softfp support.
+The initial Thumb-1 path uses low registers, byte-built constants, local scalar operations, short control flow and direct calls. Production `-S` has GNU Cortex-M0 assembler/CPU execution checks; `-c` emits Thumb-1 objects with ARMv6-M attributes. Signed/unsigned integer division and remainder lower to AEABI helper calls, tested with GNU Cortex-M0 assembly, an external ARMv6-M libgcc and CPU execution. Provide the helper runtime explicitly; built-in archive extraction is not supported. Raw SDIV/UDIV instructions remain invalid on M0; globals, strings, floating point and long branches outside this subset fail explicitly. This is not complete Thumb-1 support or a claim that every ARM architecture has an integrated firmware workflow. Thumb-2 retains base AAPCS and checked soft/softfp support.
 
 The frontend derives from arkcc's C99 implementation with ARMCC extensions and a limited C11 keyword subset: `_Alignas`, `_Alignof`, `_Static_assert`, `_Generic`, `_Thread_local`, `_Atomic`. Native TLS is rejected and atomics have target/runtime limits. Basic/ARMCC asm depends on the target. GNU extended asm supports one 32-bit `=r` output, up to two `r/i` inputs and `memory/cc` clobbers. See [targets](docs/targets.md), [feature limits](docs/feature-parity.md) and [object documentation](object/README.md).
 
@@ -123,7 +123,7 @@ Tests cover Clang interoperability in both directions, register-bank exhaustion 
 
 Each default module declares one non-shared wasm32 linear memory with initial = maximum = 4 MiB, including static data, C stack, arena and libc heap. Runtime structures, bytecode, host stacks, WASI and filesystem buffers add to total task RAM. Neither this cap nor desktop RSS proves MCU feasibility. See [resource measurement](docs/resource-budget.md).
 
-There is currently **no wasm32 output backend and no completed Wasm self-hosting**. Host Clang builds these Wasm applications. The default 32 KiB source cap already excludes several large compiler translation units; frontend/sysroot/runtime and memory work remain. See the [Wasm backend and bootstrap plan](docs/wasm-bootstrap-plan.md).
+There is currently **no wasm32 output backend and no completed Wasm self-hosting**. Host Clang builds these Wasm applications. The default 32 KiB source cap already excludes several large compiler translation units; frontend/sysroot/runtime and memory work remain. See the [Wasm backend and bootstrap plan](docs/wasm-bootstrap-plan.md). The highest-priority frontend work is migrating preprocessor input/output and the lexer to bounded streaming: the tested reader foundation alone does not complete streaming compilation or enable large sources. See the [streaming frontend plan](docs/streaming-frontend-plan.md).
 
 ## Verification and license
 

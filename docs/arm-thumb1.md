@@ -56,9 +56,21 @@ unconditional branches must fit their signed 11-bit halfword displacement.
 Out-of-range branches fail. There is no long-branch trampoline implementation
 in this first step.
 
-Division/remainder helper lowering, global objects and global addresses,
-strings, floating/complex operations, 64-bit operations, unsupported high
-register forms and unsupported memory shapes are outside this subset. They
+Signed and unsigned 32-bit division/remainder lower through external semantic
+records to `__aeabi_idiv`, `__aeabi_uidiv`, `__aeabi_idivmod` and
+`__aeabi_uidivmod`. Both dedicated division IR and neutral integer binary IR
+use these records. The helper receives operands in r0/r1; quotient comes from
+r0, remainder from r1. The sequence preserves r4/r5 and aligns SP to eight
+bytes across the call. A compatible external runtime is required; validation
+links the GNU Cortex-M0/v6-M libgcc through GNU ld. This does not claim that the
+internal linker can consume runtime archives directly. Division by zero and
+`INT_MIN / -1` are not compiler-defined arithmetic extensions: runtime hooks
+and C's undefined-operation rules still apply. Arbitrary raw SDIV/UDIV assembly
+is rejected rather than mechanically rewritten around possibly live registers.
+
+Global objects and global addresses, strings, floating/complex operations,
+64-bit operations, unsupported high-register forms and unsupported memory
+shapes are outside this subset. They
 must produce a diagnostic rather than silently emit Thumb-2 instructions.
 This includes cases where the selected CPU is recognized but the program uses
 an operation not implemented by this initial path.
@@ -71,7 +83,12 @@ C case compiles local variables, a while loop, branches, a direct helper call
 and a large constant through the actual `-mcpu=cortex-m0 -O0 -S` entry point.
 The generated output is passed unchanged to GNU assembler with
 `-mcpu=cortex-m0 -mthumb`, then GNU ld, then Unicorn. Its result is
-`0x12345678 + 45 == 0x123456a5`. The unsupported division case is rejected.
+`0x12345678 + 45 == 0x123456a5`. Additional production C tests link the GNU
+v6-M runtime and check signed quotient/remainder `-17 / 5 == -3`,
+`-17 % 5 == -2`, unsigned `0xffffffff / 2 == 2147483647`, unsigned remainder
+`1`, and nested expression/call stack preservation with result `105`. The
+neutral IR helper path also executes. Raw hardware-division assembly remains
+a rejection test.
 
 GNU's Cortex-M0 assembler is the independent instruction-legality check.
 Unicorn's Thumb/MCLASS execution alone is insufficient because its instruction
@@ -89,7 +106,6 @@ suites remain necessary for the unaffected Thumb-2 path.
   while retaining strict operand validation.
 - Add long conditional/unconditional branch sequences and validate their
   layout, scratch registers and relocations.
-- Lower divide and remainder to ABI-correct software helpers.
 - Implement global/string address materialization, literal pools and matching
   object/link relocations.
 - Extend frame, high-register and memory-offset handling with explicit limits.

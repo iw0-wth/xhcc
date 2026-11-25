@@ -105,7 +105,7 @@ make 子集支持 24 个文本/控制/诊断函数、变量与替换引用、`ov
 | AMD64 | LP64、标量 SysV/SSE、已测变参及可选有限聚合 | 非完整原生 SysV 聚合互操作 |
 | C | IR 生成 C 文本 | 不是 wasm32 输出后端 |
 
-首阶段 Thumb-1 路径使用低寄存器、按字节构造常量、局部标量运算、短控制流与直接调用。生产 `-S` 已有 GNU Cortex-M0 汇编器及 CPU 执行检查，`-c` 输出带 ARMv6-M 属性的 Thumb-1 对象。DIV、全局变量、字符串、浮点及超出子集的长分支明确失败。这不代表完整 Thumb-1，也不代表所有 ARM 架构已具备固件全流程。Thumb-2 保留 base AAPCS 与受检 soft/softfp 支持。
+首阶段 Thumb-1 路径使用低寄存器、按字节构造常量、局部标量运算、短控制流与直接调用。生产 `-S` 已有 GNU Cortex-M0 汇编器及 CPU 执行检查，`-c` 输出带 ARMv6-M 属性的 Thumb-1 对象。有符号/无符号整数除法与取模通过 AEABI helper 调用实现，已有 GNU Cortex-M0 汇编、外部 ARMv6-M libgcc 及 CPU 执行测试。helper 运行库须显式提供，内置归档提取尚不支持。原始 SDIV/UDIV 指令在 M0 上仍非法；全局变量、字符串、浮点及超出子集的长分支明确失败。这不代表完整 Thumb-1，也不代表所有 ARM 架构已具备固件全流程。Thumb-2 保留 base AAPCS 与受检 soft/softfp 支持。
 
 前端继承 arkcc 的 C99 实现，带 ARMCC 扩展及有限 C11 关键词子集：`_Alignas`、`_Alignof`、`_Static_assert`、`_Generic`、`_Thread_local`、`_Atomic`。原生 TLS 明确拒绝，原子操作有目标/运行库边界。基本/ARMCC asm 按目标支持；GNU 扩展 asm 支持一个 32 位 `=r` 输出、最多两个 `r/i` 输入及 `memory/cc` clobber。详见 [目标](docs/targets.md)、[功能限制](docs/feature-parity.md) 与 [对象文档](object/README.md)。
 
@@ -123,7 +123,7 @@ make 子集支持 24 个文本/控制/诊断函数、变量与替换引用、`ov
 
 每个默认模块声明一个非共享 wasm32 线性内存，initial = maximum = 4 MiB，包含静态数据、C 栈、arena 与 libc 堆。运行时结构、字节码、宿主栈、WASI 和文件系统缓冲增加完整任务 RAM。该上限和桌面 RSS 均不能证明 MCU 可行性，详见 [资源测量](docs/resource-budget.md)。
 
-目前**没有 wasm32 输出后端，也未完成 Wasm 自举**，这些 Wasm 应用由宿主 Clang 构建。默认 32 KiB 源文件上限已无法容纳数个较大的编译器翻译单元，前端/sysroot/runtime 和内存工作仍待完成，见 [Wasm 后端与自举计划](docs/wasm-bootstrap-plan.md)。
+目前**没有 wasm32 输出后端，也未完成 Wasm 自举**，这些 Wasm 应用由宿主 Clang 构建。默认 32 KiB 源文件上限已无法容纳数个较大的编译器翻译单元，前端/sysroot/runtime 和内存工作仍待完成，见 [Wasm 后端与自举计划](docs/wasm-bootstrap-plan.md)。前端最高优先级是将预处理输入/输出及 lexer 迁移为有界流式处理；已验证的 reader 基础不等于流式编译完成，也不代表已支持大源码，见 [流式前端计划](docs/streaming-frontend-plan.md)。
 
 ## 验证与许可
 

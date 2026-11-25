@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <string.h>
 #include <fcntl.h>
+#include <limits.h>
 #ifdef _WIN32
 #include <io.h>
 #include <process.h>
@@ -74,6 +75,28 @@ int fs_read_file(const char *path, char *buf, int max_len) {
     return n;
 }
 
+int fs_read_range(const char *path, uint32_t offset, unsigned char *buf, uint32_t count) {
+    FILE *fp;
+    size_t n;
+    int error = 0;
+    g_fs_error[0] = 0;
+    if (!path || !*path || (!buf && count)) { set_error(EINVAL); return -1; }
+    /* Keep the bounded file API consistent on Windows/WASI long32 and hosts. */
+    if (offset > (uint32_t)INT_MAX || count > (uint32_t)INT_MAX ||
+        count > (uint32_t)INT_MAX - offset) { set_error(EOVERFLOW); return -1; }
+    fp = fopen(path, "rb");
+    if (!fp) { set_error(errno ? errno : EIO); return -1; }
+    if (fseek(fp, (long)offset, SEEK_SET)) {
+        error = errno ? errno : EIO;
+        fclose(fp); set_error(error); return -1;
+    }
+    n = count ? fread(buf, 1, (size_t)count, fp) : 0;
+    if (ferror(fp)) error = errno ? errno : EIO;
+    if (fclose(fp) && !error) error = errno ? errno : EIO;
+    if (error) { set_error(error); return -1; }
+    return (int)n;
+}
+
 int fs_file_size(const char *path) {
     FILE *fp;
     long sz;
@@ -85,6 +108,7 @@ int fs_file_size(const char *path) {
     sz = ftell(fp);
     fclose(fp);
     if (sz < 0) { set_error(errno); return -1; }
+    if (sz > INT_MAX) { set_error(EOVERFLOW); return -1; }
     return (int)sz;
 }
 
