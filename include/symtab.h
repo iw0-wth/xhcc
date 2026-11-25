@@ -56,6 +56,10 @@ Symbol *sym_find_current(const char *name);
 Symbol *sym_find_typedef(const char *name);
 Symbol *sym_find_tag(const char *name);
 Symbol *sym_add(SymKind kind, const char *name, Type *type, int offset);
+/* Borrow an immutable AST-owned name in the current arena generation. Caller
+ * keeps it valid and unchanged for the symbol lifetime, through pool reset.
+ * Scope exit/sym_init do not free names. Use sym_add for temporary buffers. */
+Symbol *sym_add_borrowed(SymKind kind, char *name, Type *type, int offset);
 int     sym_is_typedef(const char *name);
 
 #endif /* ARK_SYMTAB_H */

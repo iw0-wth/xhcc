@@ -68,11 +68,11 @@ Symbol *sym_find_current(const char *name) {
     return 0;
 }
 
-Symbol *sym_add(SymKind kind, const char *name, Type *type, int offset) {
+static Symbol *sym_add_impl(SymKind kind, const char *name, Type *type, int offset, int copy_name) {
     unsigned h = sym_hash(name);
     Symbol *s = (Symbol *)mem_pool_alloc(sizeof(Symbol));
     s->kind = kind;
-    s->name = mem_strdup(name);
+    s->name = copy_name ? mem_strdup(name) : (char *)name;
     s->type = type;
     s->scope_level = g_current_scope;
     s->offset = offset;
@@ -102,6 +102,14 @@ Symbol *sym_add(SymKind kind, const char *name, Type *type, int offset) {
     s->next = g_table[h];
     g_table[h] = s;
     return s;
+}
+
+Symbol *sym_add(SymKind kind, const char *name, Type *type, int offset) {
+    return sym_add_impl(kind, name, type, offset, 1);
+}
+
+Symbol *sym_add_borrowed(SymKind kind, char *name, Type *type, int offset) {
+    return sym_add_impl(kind, name, type, offset, 0);
 }
 
 int sym_is_typedef(const char *name) {

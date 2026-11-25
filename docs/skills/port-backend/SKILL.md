@@ -151,6 +151,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 随后独立开发 attempt10 采用 16 MiB linear/4 MiB arena，未改变默认或 SD 预算；同一 MicroPython `obj.c` exit=0，峰值 2154808B（超过 2 MiB 57656B），首次产生 25492B 对象。readelf/nm 均返回 0，确认 ELF32 little-endian ET_REL、EM_ARM=40、EABI5 flags=0x05000000，`.text`=9946B、`.data`=72B；六个核心真实 GLOBAL FUNC 位于 text 且带 Thumb bit，但符号 st_size=0 的限制需保留。192 条标准 ARM relocation 包括 76 CALL、51 MOVW、51 MOVT、14 ABS32。该结果只验对象结构，没有链接或运行，不是固件成功，也未达到原目标 RAM。下一阶段沿 host GNU make/host Python/直接 CC/LD 主线扩大真实 TU，继续记录资源与失败边界，不以开发 profile 成功代替默认预算优化。
 
+最新成熟批次默认四应用 973836/1008682/911837/296452 字节完整回归与新部署 SD 七项均通过，默认仍为 4 MiB linear/1 MiB arena。宏最多 64 参数、参数聚合 8 KiB 与受限 unistd/ssize_t 四项 native/WASI 测试通过；这不是所有 GNU 扩展兼容。symbol borrowed-name unit 及真实同 PP 反事实验证减少 arena 峰值 29056B（2154808→2125752，1.35%），对象 SHA 相同，sema/IR 阶段增量分别保持 14496/14560B；借用必须满足 AST 名字生命周期，不以复制到其它未计内存挪账。真实 host GNU make attempt2 fresh 八个 TU 仍仅 5/8 成功，GNU 对照为 8/8；旧三类 PP 错误已消失，但 flexible global initializer、GNU 零长度数组及 aggregate/表达式诊断的三个新根因仅完成审计、未实施源码修复。增量构建只重试三项失败、五个成功对象 SHA 稳定。真实 `obj.c` 三条小整数路径的隔离测试共 66 xhcc/66 GNU 个 oracle/ABI 检查通过，但全对象严格链接仍因 unresolved symbols 失败；no-inhibit 诊断映像不算完整链接或固件。报告须同时保留成功、失败、诊断与资源数据，不能用隔离函数成功或小范围头文件兼容替代整个原工程验收。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

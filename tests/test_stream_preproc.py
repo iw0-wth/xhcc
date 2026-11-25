@@ -97,7 +97,8 @@ class StreamPreprocTests(unittest.TestCase):
             run('fail','small0.c',False)
             (d/'comments.c').write_bytes(b'#define A(x) ((x)+1)\nint x=A(2 /* , ) */);\nint a=__LINE__;\\\nint b=__LINE__;\n')
             out,_=run('stream','comments.c');self.assertIn(b'int x=((2  )+1);',out);self.assertIn(b'int b=4;',out)
-            (d/'argcap.c').write_bytes(b'#define A(x) x\nA('+b'x'*1100+b')\n');run('stream','argcap.c',False)
+            (d/'argcap.c').write_bytes(b'#define A(x) x\nA('+b'x'*1100+b')\n');run('stream','argcap.c')
+            (d/'argcap.c').write_bytes(b'#define A(x) x\nA('+b'x'*8200+b')\n');run('stream','argcap.c',False)
             for edge in range(8185,8198):
                 (d/'commentedge.c').write_bytes(b'/*'+b'x'*edge+b'*/int tail=7;\n')
                 old,_=run('legacy','commentedge.c');new,_=run('stream','commentedge.c');self.assertEqual(new,old)

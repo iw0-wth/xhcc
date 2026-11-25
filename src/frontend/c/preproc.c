@@ -290,6 +290,9 @@ static const char *g_blue_stack[PP_BLUE_STACK];
 #define PP_RESCAN_MAX_SLOTS  128
 static int pp_rescan_capacity(void) { return pp_stream_mode ? XH_PP_STREAM_SCRATCH : PP_RESCAN_BUF_SIZE; }
 static char *g_rescan_buf[PP_RESCAN_MAX_SLOTS];
+/* One aggregate argument buffer per live process(), never bytes x arg count. */
+static char *pp_stream_args[PP_RESCAN_MAX_SLOTS];
+#define PP_MACRO_MAX_ARGS 64
 static int   g_rescan_gen = -1;   /* pool generation the cache belongs to */
 static int   g_rescan_top;        /* live process() nesting levels */
 static int   g_buf_dropped;       /* buf_putc() had to drop a byte */
@@ -311,7 +314,10 @@ static char *pp_rescan_buf(int slot) {
     int gen = mem_pool_generation();
     int i;
     if (gen != g_rescan_gen) {
-        for (i = 0; i < PP_RESCAN_MAX_SLOTS; i++) g_rescan_buf[i] = 0;
+        for (i = 0; i < PP_RESCAN_MAX_SLOTS; i++) {
+            g_rescan_buf[i] = 0;
+            pp_stream_args[i] = 0;
+        }
         g_rescan_gen = gen;
     }
     if (slot < 0 || slot >= PP_RESCAN_MAX_SLOTS) return 0;
@@ -565,6 +571,7 @@ static void emit_int(char *buf, int *plen, int cap, int v) {
 }
 
 void preproc_reset(void) {
+    pp_stream_failed = 0;
     g_macros = 0;
 #ifdef XHCC
     xh_macro_actions = 0; xh_macro_defines = 0;
@@ -1105,94 +1112,68 @@ int preproc_set_build_time(const char *date, const char *time) {
 static void process(const char *src, char *out, int *out_len, int out_cap,
                     int is_file);
 
-/* Parse macro arguments: p must point at '('. Returns pointer past matching ')'.
- * Args are stored in args[] (max_args entries, currently 16). */
-static char *pp_stream_args[PP_RESCAN_MAX_SLOTS];
-static const char *parse_macro_args(const char *p, char **args, int *parg_count, int max_args) {
-    int paren = 1;
-    int stream_used=0;
-    char *stream_args = 0;
-    if(pp_stream_mode && g_rescan_top>0 && g_rescan_top<=PP_RESCAN_MAX_SLOTS) {
-        int slot=g_rescan_top-1;
-        if(!pp_stream_args[slot])pp_stream_args[slot]=(char*)mem_pool_alloc(XH_PP_STREAM_SCRATCH);
-        stream_args=pp_stream_args[slot];
+/* One aggregate byte buffer per live process() keeps outer arguments stable
+ * during nested rescans. Byte storage never multiplies by argument count. */
+static const char *parse_macro_args(const char *p, char **args, int *parg_count,
+                                    int max_args, const char *macro_name) {
+    int paren = 1, n = 0, used = 0, slot = g_rescan_top - 1;
+    int quote = 0, escaped = 0;
+    char *storage;
+    *parg_count = 0;
+    if (*p != '(') return p;
+    if (slot < 0 || slot >= PP_RESCAN_MAX_SLOTS) {
+        pp_report_scratch_exhausted(); return p;
     }
-    int n = 0;
-    char buf[1024];
-    int bl = 0;
-    if (*p != '(') { *parg_count = 0; return p; }
-    p++;
-    while (*p && paren > 0) {
-        if(pp_stream_mode && (bl>=1023 || n>=max_args)) {
-            pp_stream_failed=1;
-            pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro argument exceeds 1023 bytes or 16 arguments",0,0);
-            *parg_count=n;return p;
-        }
-        if(pp_stream_mode && p[0]=='/' && (p[1]=='*' || p[1]=='/')) {
-            int block=p[1]=='*';p+=2;
-            if(block){while(*p && !(p[0]=='*' && p[1]=='/'))p++;if(*p)p+=2;}
-            else while(*p && *p!='\n')p++;
-            if(bl<1023)buf[bl++]=' ';
-            continue;
-        }
-        if (*p == '(') { paren++; if (bl < 1023) buf[bl++] = *p; p++; continue; }
-        if (*p == ')') {
-            paren--;
-            if (paren == 0) {
-                buf[bl] = 0;
-                if (n < max_args) {
-                    if(stream_args && stream_used+bl+1<XH_PP_STREAM_SCRATCH) {
-                        int ai;args[n++]=stream_args+stream_used;
-                        for(ai=0;ai<=bl;ai++)stream_args[stream_used++]=buf[ai];
-                    } else if(stream_args) { pp_stream_failed=1; pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro arguments exceed 8192 bytes",0,0); }
-                    else args[n++]=mem_strdup(buf);
-                }
-                bl = 0;
-                p++;
-                break;
+    if (!pp_stream_args[slot])
+        pp_stream_args[slot] = (char *)mem_pool_alloc(XH_PP_STREAM_SCRATCH);
+    storage = pp_stream_args[slot]; args[0] = storage; p++;
+    while (*p) {
+        char c = *p++;
+        int delimiter = 0;
+        if (quote) {
+            if (escaped) escaped = 0;
+            else if (c == '\\') escaped = 1;
+            else if (c == quote) quote = 0;
+        } else if (c == '/' && (*p == '*' || *p == '/')) {
+            int block = *p++ == '*';
+            if (block) {
+                while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+                if (*p) p += 2;
+            } else while (*p && *p != '\n') p++;
+            c = ' ';
+        } else if (c == '"' || c == '\'') quote = c;
+        else if (c == '(') paren++;
+        else if (c == ')') { paren--; delimiter = paren == 0; }
+        else if (c == ',' && paren == 1) delimiter = 1;
+        if (delimiter) {
+            if (used >= XH_PP_STREAM_SCRATCH) goto byte_limit;
+            storage[used++] = 0; n++;
+            if (paren == 0) { *parg_count = n; return p; }
+            if (n >= max_args) {
+                char limit[12]; pp_stream_failed = 1;
+                pp_diag_msg(g_pp_line, 0, DIAG_SEV_ERROR,
+                    "macro argument exceeds count limit: macro '%s' requires more than %s arguments",
+                    macro_name, diag_num(limit, max_args));
+                return p;
             }
-            if (bl < 1023) buf[bl++] = *p; p++; continue;
-        }
-        if (*p == ',' && paren == 1) {
-            buf[bl] = 0;
-            if (n < max_args) {
-                    if(stream_args && stream_used+bl+1<XH_PP_STREAM_SCRATCH) {
-                        int ai;args[n++]=stream_args+stream_used;
-                        for(ai=0;ai<=bl;ai++)stream_args[stream_used++]=buf[ai];
-                    } else if(stream_args) { pp_stream_failed=1; pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro arguments exceed 8192 bytes",0,0); }
-                    else args[n++]=mem_strdup(buf);
-                }
-            bl = 0;
-            p++;
+            args[n] = storage + used;
             while (*p == ' ' || *p == '\t') p++;
             continue;
         }
-        if (*p == '"' || *p == '\'') {
-            char q = *p;
-            if (bl < 1023) buf[bl++] = *p;
-            p++;
-            while (*p && *p != q) {
-                if (*p == '\\' && p[1]) { if (bl < 1022) { buf[bl++] = *p; buf[bl++] = p[1]; } p += 2; continue; }
-                if (bl < 1023) buf[bl++] = *p;
-                p++;
-            }
-            if (*p) { if (bl < 1023) buf[bl++] = *p; p++; }
-            continue;
-        }
-        if (bl < 1023) buf[bl++] = *p;
-        p++;
+        if (used >= XH_PP_STREAM_SCRATCH - 1) goto byte_limit;
+        storage[used++] = c;
     }
-    if (pp_stream_mode && bl >= 1023) {
-        pp_stream_failed=1;
-        pp_diag_msg(g_pp_line,0,DIAG_SEV_ERROR,"macro argument exceeds 1023 bytes",0,0);
+    pp_stream_failed = 1;
+    pp_diag_msg(g_pp_line, 0, DIAG_SEV_ERROR,
+                "unterminated macro argument list for '%s'", macro_name, 0);
+    return p;
+byte_limit:
+    {
+        char limit[12]; pp_stream_failed = 1;
+        pp_diag_msg(g_pp_line, 0, DIAG_SEV_ERROR,
+            "macro arguments exceed %s bytes of aggregate storage for '%s'",
+            diag_num(limit, XH_PP_STREAM_SCRATCH), macro_name);
     }
-    if (bl >= 1023 && !pp_stream_mode) {
-        /* arkc limit, not an armcc behaviour: no code to borrow, and no column
-         * worth guessing (the argument may span lines). */
-        pp_diag_msg(g_pp_line, 0, DIAG_SEV_WARNING,
-                    "macro argument truncated at 1023 bytes", 0, 0);
-    }
-    *parg_count = n;
     return p;
 }
 
@@ -2222,12 +2203,13 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                     const char *r = p;
                     while (*r == ' ' || *r == '\t' || (stream && (*r=='\n' || *r=='\r'))) r++;
                     if (*r == '(') {
-                        char *args[16] = {0};
+                        char *args[PP_MACRO_MAX_ARGS] = {0};
                         int argc = 0;
                         char *temp = pp_rescan_buf(scratch);
                         int temp_len = 0;
                         int drop0 = g_buf_dropped;
-                        r = parse_macro_args(r, args, &argc, 16);
+                        r = parse_macro_args(r, args, &argc, PP_MACRO_MAX_ARGS, m->name);
+                        if (pp_stream_failed) { p = r; continue; }
                         if (temp == 0) {
                             pp_report_scratch_exhausted();
                             p = r;
@@ -2308,13 +2290,14 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                         const char *r2 = p;
                         while (*r2 == ' ' || *r2 == '\t' || (stream && (*r2=='\n' || *r2=='\r'))) r2++;
                         if (*r2 == '(') {
-                            char *args[16] = {0};
+                            char *args[PP_MACRO_MAX_ARGS] = {0};
                             int argc = 0;
                             char *temp = pp_rescan_buf(scratch);
                             int temp_len = 0;
                             int drop0 = g_buf_dropped;
                             const char *saved_blue = 0;
-                            r2 = parse_macro_args(r2, args, &argc, 16);
+                            r2 = parse_macro_args(r2, args, &argc, PP_MACRO_MAX_ARGS, fm->name);
+                            if (pp_stream_failed) { p = r2; continue; }
                             if (temp == 0) {
                                 pp_report_scratch_exhausted();
                                 p = r2;

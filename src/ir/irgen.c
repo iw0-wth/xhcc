@@ -1336,7 +1336,7 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
             d->kind == AST_ASM_FUNC) {
             Symbol *existing = sym_find(d->u.func.name);
             if (!existing) {
-                Symbol *s = sym_add(SYM_FUNC, d->u.func.name, d->u.func.ret_type, 0);
+                Symbol *s = sym_add_borrowed(SYM_FUNC, d->u.func.name, d->u.func.ret_type, 0);
                 s->param_count = d->u.func.param_count;
                 s->is_variadic = d->u.func.is_variadic;
                 /* Store parameter types for 64-bit arg promotion at call sites */
@@ -1376,7 +1376,7 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
             Symbol *existing = sym_find(d->u.var.name);
             if (!existing) {
                 IrGlobal *gv = ir_program_add_global(out, d->u.var.name, d->u.var.var_type);
-                Symbol *s = sym_add(SYM_GLOBAL, d->u.var.name, d->u.var.var_type, 0);
+                Symbol *s = sym_add_borrowed(SYM_GLOBAL, d->u.var.name, d->u.var.var_type, 0);
                 (void)s;
                 gv->is_static = d->u.var.is_static;
                 gv->is_extern = d->u.var.is_extern;
@@ -1551,7 +1551,7 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
                 }
             }
         } else if (d->kind == AST_TYPEDEF) {
-            if (d->u.var.name) sym_add(SYM_TYPEDEF, d->u.var.name, d->u.var.var_type, 0);
+            if (d->u.var.name) sym_add_borrowed(SYM_TYPEDEF, d->u.var.name, d->u.var.var_type, 0);
         } else if (d->kind == AST_BLOCK) {
             /* Reference to a global variable or enum constant: emit the name. */
             int j;
@@ -1561,7 +1561,7 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
                     Symbol *existing_c = sym_find(c->u.var.name);
                     if (!existing_c) {
                         IrGlobal *gc = ir_program_add_global(out, c->u.var.name, c->u.var.var_type);
-                        sym_add(SYM_GLOBAL, c->u.var.name, c->u.var.var_type, 0);
+                        sym_add_borrowed(SYM_GLOBAL, c->u.var.name, c->u.var.var_type, 0);
                         gc->is_static = c->u.var.is_static;
                         gc->is_extern = c->u.var.is_extern;
                         gc->is_const = c->u.var.is_const;
@@ -1900,7 +1900,7 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
                     if (sz <= 0) sz = 4;
                     off = alloc_local(&g, sz);
                     {
-                        Symbol *s = sym_add(SYM_PARAM, pp->u.var.name, ptype, off);
+                        Symbol *s = sym_add_borrowed(SYM_PARAM, pp->u.var.name, ptype, off);
                         (void)s;
                     }
                     /* For struct-by-value parameters (size > 8), the caller pushes
@@ -2552,7 +2552,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
              * Parameter types are copied for the same reason as in the
              * pre-pass: 64-bit argument promotion is driven by them. */
             if (node->u.func.name && !sym_find(node->u.func.name)) {
-                Symbol *s = sym_add(SYM_FUNC, node->u.func.name, node->u.func.ret_type, 0);
+                Symbol *s = sym_add_borrowed(SYM_FUNC, node->u.func.name, node->u.func.ret_type, 0);
                 int pi;
                 s->param_count = node->u.func.param_count;
                 s->is_variadic = node->u.func.is_variadic;
@@ -2609,7 +2609,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
                 gv->is_const = node->u.var.is_const;
                 gv->section  = node->u.var.section;
                 {
-                    Symbol *ss = sym_add(SYM_GLOBAL, node->u.var.name,
+                    Symbol *ss = sym_add_borrowed(SYM_GLOBAL, node->u.var.name,
                                          node->u.var.var_type, 0);
                     ss->is_static = 1;
                     (void)ss;
@@ -2679,7 +2679,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
             sz = type_size(node->u.var.var_type);
             if (sz <= 0) sz = 4;
             off = alloc_local(g, sz);
-            s = sym_add(SYM_VAR, node->u.var.name, node->u.var.var_type, off);
+            s = sym_add_borrowed(SYM_VAR, node->u.var.name, node->u.var.var_type, off);
             (void)s;
 #if ARKCC_FEATURE_VLA
             /* B3: variable-length array. var_type is already a pointer flagged is_vla;
@@ -3000,7 +3000,7 @@ static void irgen_stmt(IrGen *g, AstNode *node) {
         }
         case AST_TYPEDEF:
             if (node->u.var.name)
-                sym_add(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
+                sym_add_borrowed(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
             break;
         case AST_RETURN:
             if (node->u.unary.operand) {

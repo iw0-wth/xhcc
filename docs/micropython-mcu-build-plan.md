@@ -52,6 +52,14 @@ SD 副本新增可选 `XHCC_MCU_ONLY=1` profile 关闭冻结，默认 profile �
 
 先以主机 GNU make＋Python＋xhcc/xhlinker 推进真实 TU 和固件链，再逐步完善 xhccm 的流式长列表/大图。用户允许独立 expanded 开发 profile 临时增加 arena 与线性内存以先跑通，再按阶段测量优化回目标；默认受限配置及 SD 产物必须保留，不能用扩大预算后的成功冒充原 RAM 目标已达成。每次新 TU 尝试保存独立 artifact 和编译器摘要，不能覆盖旧失败证据。
 
+## 主机 make 批次与隔离执行
+
+第一批实际通过原 GNU make 对象规则调用 Python CC 启动器和 Wasmtime：八个目标中 `obj/nlr/map/lexer/argcheck` 五个产出非空 ARM ET_REL，`objint/runtime/parse` 三个因宏参数上限或缺 `unistd.h` 失败；GNU 同配置八个均通过。相同目标增量重跑仅重试三个失败目标，五个成功对象 SHA 不变，生成的 `.P` 依赖可被原 make 再次读取。宿主先生成且校验头文件，再在对象批次中固定终端生成头；不是 xhcc 独立完成生成链或固件。
+
+真实 `obj.c` 三条合法 tagged-small-int 路径另做隔离执行：xhcc 和 GNU 对象各 66 个案例与独立数值预期一致，检查返回值、输出指针、callee-saved 寄存器及 SP。此测试的完整对象严格链接仍因未解析外部目标失败，诊断映像使用 `--noinhibit-exec` 保留，仅允许执行已定义白名单函数及已验证内部重定位，未解析路径不执行。它不是完整链接、整个 TU 运行或固件正确性证明。
+
+第二批在新 BUILD 重新生成头并编译八个对象：64 参数／每层 8 KiB 总 scratch 与受限 `unistd.h` 已消除旧预处理阻碍，但仍为 5/8。新失败分别为 `objint` 的类型初始化器 designator、`runtime` 的 GNU 零长度字段、`parse` 的 ELF 对象写出泛化错误（peak=3205744 小于 4 MiB，不能称 arena OOM）。GNU 同配置仍 8/8，原五个成功对象逐字节不变。符号名字借用的同预处理器反事实测试独立减少 `obj.c` arena peak 29056 字节（2154808→2125752）；不是整个工程 RAM 目标已达成。首两批证据均保留，后续按新的语言和对象写出缺口推进。
+
 ## 下一批实施顺序
 
 - 完成默认流式前端的旧功能兼容回归与输出故障清理。

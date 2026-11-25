@@ -577,7 +577,7 @@ static void sema_func(AstNode *node) {
         }
         s = existing;
     } else {
-        s = sym_add(SYM_FUNC, name, node->u.func.ret_type, 0);
+        s = sym_add_borrowed(SYM_FUNC, name, node->u.func.ret_type, 0);
     }
     s->param_count = node->u.func.param_count;
     s->is_variadic = node->u.func.is_variadic;
@@ -628,7 +628,7 @@ static void sema_func(AstNode *node) {
             if (sym_find_current(pp->u.var.name)) {
                 err_code(pp, 100, pp->u.var.name);
             } else {
-                Symbol *psym = sym_add(SYM_PARAM, pp->u.var.name, pp->u.var.var_type, 0);
+                Symbol *psym = sym_add_borrowed(SYM_PARAM, pp->u.var.name, pp->u.var.var_type, 0);
                 (void)psym;
             }
         }
@@ -677,7 +677,7 @@ static void sema_decl(AstNode *node) {
                 return;
             }
             {
-                Symbol *sym = sym_add(SYM_GLOBAL, name, node->u.var.var_type, 0);
+                Symbol *sym = sym_add_borrowed(SYM_GLOBAL, name, node->u.var.var_type, 0);
                 sym->is_extern = node->u.var.is_extern;
             }
             node->u.var.is_global = 1;
@@ -701,7 +701,7 @@ static void sema_decl(AstNode *node) {
         }
         case AST_TYPEDEF:
             if (node->u.var.name)
-                sym_add(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
+                sym_add_borrowed(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
             break;
         case AST_BLOCK: {
             int i;
@@ -741,7 +741,7 @@ static void sema_stmt(AstNode *node) {
             if (sym_find_current(name)) {
                 err_code(node, 101, name);
             } else {
-                sym_add(SYM_VAR, name, node->u.var.var_type, 0);
+                sym_add_borrowed(SYM_VAR, name, node->u.var.var_type, 0);
             }
             if (node->u.var.init) {
                 sema_expr(node->u.var.init);
@@ -763,7 +763,7 @@ static void sema_stmt(AstNode *node) {
         }
         case AST_TYPEDEF:
             if (node->u.var.name)
-                sym_add(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
+                sym_add_borrowed(SYM_TYPEDEF, node->u.var.name, node->u.var.var_type, 0);
             break;
         case AST_IF:
             sema_expr(node->u.if_stmt.cond);
