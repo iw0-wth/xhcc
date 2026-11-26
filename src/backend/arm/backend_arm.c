@@ -6640,6 +6640,9 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
                 case IR_FUNC_END:
                     break;
                 case IR_GETARG: {
+                    /* A certified naked/basic-asm body owns entry registers and
+                     * has no compiler frame in which to home parameters. */
+                    if(f->is_naked)break;
                     /* AAPCS: first 4 args in r0-r3, args 5+ on caller's stack.
                      * For sret functions, r0 holds the hidden sret pointer;
                      * real args start at r1. The aapcs_map[] (precomputed above)
@@ -13163,6 +13166,19 @@ static int arm_emit(IrProgram *m, char *out, int cap) {
     if(xh_arm_thumb1_enabled()&&m->global_count){diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","global objects are outside initial scalar subset",0,0,0,0,0,0);if(cap>0)out[0]=0;return -1;}
     for(fi=0;fi<m->func_count;fi++)for(ii=0;ii<m->funcs[fi]->code_count;ii++){
         const IrInst*inst=&m->funcs[fi]->code[ii];
+        if(m->funcs[fi]->is_naked){
+            int allowed=inst->op==IR_FUNC_BEGIN||inst->op==IR_FUNC_END||inst->op==IR_GETARG||inst->op==IR_LABEL||inst->op==IR_LABEL_NAMED;
+            if(inst->op==IR_ASM)allowed=!(inst->aux&0x40000000)&&inst->val==0;
+            /* Frame-free literal return tails retain the historical naked
+             * fallback used by old GNU compatibility branches. */
+            if(inst->op==IR_PUSH_INT){
+                allowed=inst->aux==0&&ii+1<m->funcs[fi]->code_count&&m->funcs[fi]->code[ii+1].op==IR_RETURN;
+                if(!allowed&&inst->aux==0&&ii+2<m->funcs[fi]->code_count){const IrInst*t=&m->funcs[fi]->code[ii+1];allowed=t->op==IR_TRUNC&&(t->val==8||t->val==16||t->val==32)&&(t->aux==0||t->aux==1)&&m->funcs[fi]->code[ii+2].op==IR_RETURN;}
+            }
+            if(inst->op==IR_TRUNC)allowed=ii>0&&ii+1<m->funcs[fi]->code_count&&m->funcs[fi]->code[ii-1].op==IR_PUSH_INT&&m->funcs[fi]->code[ii-1].aux==0&&(inst->val==8||inst->val==16||inst->val==32)&&(inst->aux==0||inst->aux==1)&&m->funcs[fi]->code[ii+1].op==IR_RETURN;
+            if(inst->op==IR_RETURN)allowed=ii>0&&((m->funcs[fi]->code[ii-1].op==IR_PUSH_INT&&m->funcs[fi]->code[ii-1].aux==0)||(ii>1&&m->funcs[fi]->code[ii-1].op==IR_TRUNC&&m->funcs[fi]->code[ii-2].op==IR_PUSH_INT&&m->funcs[fi]->code[ii-2].aux==0));
+            if(!allowed){diag_tool(DIAG_SEV_ERROR,"ARM naked function","ordinary C frame access or unsupported operation in naked function '%s'",m->funcs[fi]->name,0,0,0,0,0);out[0]=0;return -1;}
+        }
         if(xh_arm_thumb1_enabled()&&(inst->op==IR_PUSH_FLOAT||inst->op==IR_PUSH_STR||inst->op==IR_PUSH_GLOBAL||inst->op==IR_PUSH_GLOBAL_ADDR||inst->op==IR_FADD||inst->op==IR_FSUB||inst->op==IR_FMUL||inst->op==IR_FDIV||inst->op==IR_FCMP||inst->op==IR_F2I||inst->op==IR_I2F||inst->op==IR_F2F||inst->op==IR_64BINARY||inst->op==IR_64CMP)){
             diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","initial scalar subset excludes floating/complex/64-bit/global address operations",0,0,0,0,0,0);if(cap>0)out[0]=0;return -1;
         }

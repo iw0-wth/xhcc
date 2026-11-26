@@ -175,6 +175,10 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 148 输入 link5 的 LD make 与 size 均返回 0，requested heap=2735016/4194304B，产生 1351124B ELF 和实际 xhlinker 527728B BIN；PT_LOAD flatten 逐字节一致。GNU objcopy 为 527724B，严格全等仍为 false，尾四字节为动态 ALIGN 零填充，保留不截断。新 ELF 从真实 vector Reset 到 main 的 Unicorn probe 通过（128853 hooks、7.533 秒）：不造 r6、不预先复制 data、不 patch ROM；8016B data 都有 CPU write 覆盖且与 Flash/LMA 逐字节一致，2512B BSS 都由 CPU 写入并全零，真实 `_start`/stm32/gpio 路径只使用精确 MMIO 白名单的零读写模型。到 main 时 PC=134709536、SP=0x2001ffd0、r0=r1=0。此证据完成该适配 profile 的 host 编译链接与启动到 main 阶段，不等于 REPL 行为、真实外设或板上验收。下一步仍须验证基础 REPL，再优化总 RAM 至 5–6 MiB，不能将阶段成功标为整体目标完成。
 
+今天仅编译修复的最终检查点：ARM naked 入口保留 raw asm、拒绝不受支持的混合形状，两项 focused 用例验证 CPU 结果 38、SP 回收与阴性拒绝。默认四应用 992303/1027159/927054/299562 字节（4 MiB linear/1 MiB arena）完整回归及新 SD 七项/247 managed resources 均通过。固定开发 compiler 927500 字节下 fresh 140/140 CC 通过，nlr 首指令为原期望 c460，startup 七个符号引用完整；相同 148 输入 link6 的 LD make/size 均 exit 0，ELF=1351124B、实际 BIN=527728B，PT_LOAD flatten exact。GNU objcopy=527724B，公共前缀相同、末四个 ALIGN padding 仍使 strict equal=false，保持原结果不截断。
+
+新 ROM 在相同 Unicorn 模型中六个 REPL 阶段全部通过（68463 blocks、14.069 秒）：cold prompt、`print(3)`、变量值 7、输出 42、`1/0` 得到 TypeError 后恢复 prompt、再输出 6。TypeError 与 GNU minimal profile 的无浮点配置一致，不冒称 ZeroDivisionError，也不据此证明完整 Python 语义。ROM 前后 SHA 相同，无 fault/timeout、ROM patch、函数替换或寄存器补值；这是基本 REPL 的真实执行证据，仍非板上或全部外设验收。本日范围到此冻结，后端开放、RAM 5–6 MiB 和内置 make 等后续工作推迟，不混入本次提交，也不能把这个编译修复检查点写成整体目标完成。旁路后端报告和 RAM 原稿不作为本批实现或验收证据。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。
