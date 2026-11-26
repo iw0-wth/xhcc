@@ -161,6 +161,8 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 真实 host GNU make 原入口已在固定开发 compiler 925719 字节、8 MiB arena/32 MiB linear、asm 2 MiB/code 1 MiB 下完成 fresh 139/139 CC；模块、配置、资源及 GNU 对照保持可核验，原工程源码只读。最大 TU arena 峰值 6042144B 仅是 arena，不含 heap/runtime/stack，不能宣称总 RAM 已满足 5–6 MiB。下一真实 project linker 296531 字节已读入全部 139 对象、1948 sections、22284 symbols，requested heap 峰值 1227839/4194304B；原 `-nostdlib` 等 CLI 先被拒后，显式 `-T` 且不声称 GNU GC/map/cref 的适配调用仍在未修改的原脚本 `AT(_sidata)`（line 38、byte 1320）解析失败，无输出。AT 表达式支持当时仅在审计、未实施；全 TU 编译成功不等于完整链接或固件。保留原参数失败与适配参数边界，下一阶段继续原脚本链接验收，不暂停在“139 编译完成”，也不以更大开发预算替代后续目标 RAM 优化。
 
+后续 AT 表达式小范围检查点已构建默认四应用 988656/1023505/925277/297724 字节（4 MiB linear/1 MiB arena），focused AT/parser/ARM/RV 共二十五项含 GNU oracle 通过，SD 七项与 247 managed resources 通过；本批没有重跑整套 tools，上一大批的完整回归证据应独立保留。regionless 输出仅验证非 alloc ARM attributes、不转发也不生成 PT_LOAD；explicit LMA 必须受 MEMORY 区域包含与非重叠约束。实际 link2 已用相同 139 对象/原脚本越过 `AT(_sidata)`，扫描 1948 sections/22284 symbols，requested heap 峰值 2594183/4194304B，仍 out=0 并在首个 undefined `__builtin_clz` 失败。原 `-nostdlib` 等 flags 拒绝与 `-T`/不提供 GC、map、cref 的适配调用须分别报告；入口阶段尚未触及，不能伪补 Reset_Handler 调用或声称入口已验证。真正 alloc 引用缺口为八个名称/四十一个引用（clz、expect 及六个 AEABI 名称），不是任意 libc/port 符号清单；内建实现与外部 GNU libgcc 对象/许可闭包此时尚未生产接入，不能假称已解决或混入项目 MIT 源码。该链接检查点没有固件，下一批须继续明确实现、外部 runtime 来源/许可及严格链接证据。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

@@ -166,6 +166,12 @@ static int patterns(Parser *p,int sec,int keep) {
         if(event(p,XH_LD_PATTERN,(int)i,sec))return -1;
     }return take(p,')');
 }
+static int metadata_constant(const XhLdScript *s,int id) {
+    const XhLdExpr *e;if(id<0||(unsigned)id>=s->expr_count)return 0;e=&s->exprs[id];
+    if(e->kind==XH_LD_VALUE||e->kind==XH_LD_ORIGIN||e->kind==XH_LD_LENGTH)return 1;
+    if(e->kind==XH_LD_DOT||e->kind==XH_LD_ALIGN||e->kind==XH_LD_SYMBOL||e->kind==XH_LD_ADDR||e->kind==XH_LD_LOADADDR||e->kind==XH_LD_SIZEOF)return 0;
+    return metadata_constant(s,e->left) && (e->kind==XH_LD_NEG||e->kind==XH_LD_NOT||metadata_constant(s,e->right));
+}
 static int sections(Parser *p) {
     XhLdSection *s;char n[XH_LD_NAME];int sec;unsigned i;
     next(p);if(take(p,'{'))return -1;
@@ -177,12 +183,15 @@ static int sections(Parser *p) {
         if(name(p,n))return -1;if(n[0]!='.'||!strcmp(n,"."))return fail(p,"unsupported output section");
         if(p->ir->section_count==XH_LD_MAX_SECTIONS)return fail(p,"section limit");
         for(i=0;i<p->ir->section_count;i++)if(!strcmp(n,p->ir->sections[i].name))return fail(p,"duplicate output section");
-        sec=(int)p->ir->section_count++;s=&p->ir->sections[sec];strcpy(s->name,n);s->region=s->load_region=-1;s->address_expr=s->align_expr=-1;
+        sec=(int)p->ir->section_count++;s=&p->ir->sections[sec];strcpy(s->name,n);s->region=s->load_region=-1;s->address_expr=s->align_expr=s->load_address_expr=XH_LD_NONE;
         if(p->tok==NAME&&is(p,"ALIGN"))s->address_expr=expr(p,0,0);
         else if(p->tok!= ':' && p->tok!='(')s->address_expr=expr(p,0,0);
         if(p->tok=='(') {next(p);if(!is(p,"NOLOAD"))return fail(p,"unsupported section type");s->noload=1;next(p);if(take(p,')'))return -1;}
         if(take(p,':'))return -1;
-        if(is(p,"ALIGN"))s->align_expr=expr(p,0,0);
+        while(is(p,"ALIGN")||is(p,"AT")) {
+            if(is(p,"ALIGN")) {if(s->align_expr!=XH_LD_NONE)return fail(p,"duplicate section ALIGN");s->align_expr=expr(p,0,0);}
+            else {if(s->load_address_expr!=XH_LD_NONE)return fail(p,"duplicate section AT");next(p);if(take(p,'('))return -1;s->load_address_expr=expr(p,0,0);if(take(p,')'))return -1;}
+        }
         if(take(p,'{'))return -1;s->first_event=p->ir->event_count;
         while(p->tok!='}'&&!p->failed) {
             if(p->tok=='*') {if(patterns(p,sec,0))return -1;}
@@ -192,8 +201,15 @@ static int sections(Parser *p) {
             else return fail(p,"unsupported section statement");
         }
         s->event_count=p->ir->event_count-s->first_event;
-        if(take(p,'}')||take(p,'>')||name(p,n))return -1;s->region=region(p,n);if(s->region<0)return -1;s->load_region=s->region;
-        if(is(p,"AT")) {next(p);if(take(p,'>')||name(p,n))return -1;s->load_region=region(p,n);if(s->load_region<0)return -1;}
+        if(take(p,'}'))return -1;
+        if(p->tok=='>') {
+            next(p);if(name(p,n))return -1;s->region=region(p,n);if(s->region<0)return -1;s->load_region=s->region;
+            if(is(p,"AT")) {if(s->load_address_expr!=XH_LD_NONE)return fail(p,"duplicate section AT");next(p);if(take(p,'>')||name(p,n))return -1;s->load_region=region(p,n);if(s->load_region<0)return -1;}
+        } else {
+            uint32_t v;
+            if(s->noload||s->align_expr!=XH_LD_NONE||s->load_address_expr!=XH_LD_NONE||!metadata_constant(p->ir,s->address_expr)||eval(p->ir,s->address_expr,0,0,0,&v,0)||v)return fail(p,"regionless metadata requires constant zero address and no modifiers");
+            for(i=s->first_event;i<p->ir->event_count;i++)if(p->ir->events[i].kind!=XH_LD_PATTERN||p->ir->patterns[p->ir->events[i].index].common)return fail(p,"regionless metadata requires pure non-COMMON patterns");
+        }
         if(p->tok==';')next(p);
     }return take(p,'}');
 }

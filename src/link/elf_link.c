@@ -252,6 +252,14 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
             else if(ev->kind==XH_LD_ASSERT)s->assert_dot[ev->index]=dot;
             else if(ev->kind==XH_LD_SET_DOT){uint32_t next;if(script_expr(l,ev->index,dot,&next))return -1;if(next<dot)return fail(l,"script location counter moves backwards");dot=next;}
         }
+        if(sec->region==XH_LD_NONE) {
+            /* Checked ignored metadata; never claim inputs or emit PT_LOAD. */
+            for(i=0;i<n;i++)for(j=1;j<l->obj[i].ns;j++) {
+                Sec *in=&l->obj[i].sec[j];unsigned ev;
+                for(ev=sec->first_event;ev<end;ev++)if(xh_ld_script_match(&s->ir.patterns[s->ir.events[ev].index],l->obj[i].names+in->name,0) && ((in->flags&2u)||in->type!=0x70000003u))return fail(l,"regionless metadata matches non-attribute/alloc input: %s",l->obj[i].names+in->name);
+            }
+            e=end;continue;
+        }
         /* Precompute group alignment so both VMA and AT> LMA honor inputs. */
         for(i=0;i<n;i++)for(j=1;j<l->obj[i].ns;j++) {
             Sec *in=&l->obj[i].sec[j];unsigned ev;
@@ -266,7 +274,8 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
         if(sec->align_expr>=0 && script_expr(l,sec->align_expr,start,&start))return -1;
         if(aligned(start,maxalign,&start))return fail(l,"script section address overflow");
         g->addr=start;g->align=maxalign;dot=start;
-        if(sec->load_region==sec->region)g->lma=start;
+        if(sec->load_address_expr!=XH_LD_NONE) {if(script_expr(l,sec->load_address_expr,start,&g->lma))return -1;}
+        else if(sec->load_region==sec->region)g->lma=start;
         else if(aligned(cursor[sec->load_region],maxalign,&g->lma))return fail(l,"script LMA alignment overflow");
         while(e<end) {
             XhLdEvent *ev=&s->ir.events[e++];
@@ -297,9 +306,17 @@ static int script_layout(Link *l,unsigned n,unsigned *outsec,uint32_t *commonidx
         }
         g->size=dot-start;if(sec->noload)g->filesz=0;if(!g->flags)g->flags=sec->noload?6u:4u;
         if(start<s->ir.regions[sec->region].origin || (uint64_t)dot>(uint64_t)s->ir.regions[sec->region].origin+s->ir.regions[sec->region].length)return fail(l,"script VMA region overflow");
-        if(plus(g->lma,g->filesz,&loadend) || g->lma<s->ir.regions[sec->load_region].origin || (uint64_t)loadend>(uint64_t)s->ir.regions[sec->load_region].origin+s->ir.regions[sec->load_region].length)return fail(l,"script LMA region overflow");
-        cursor[sec->region]=dot;
-        if(sec->load_region!=sec->region && loadend>cursor[sec->load_region])cursor[sec->load_region]=loadend;
+        if(plus(g->lma,g->filesz,&loadend))return fail(l,"script LMA overflow");
+        {
+            int load_region=sec->load_region;
+            if(sec->load_address_expr!=XH_LD_NONE) {
+                load_region=XH_LD_NONE;
+                for(i=0;i<s->ir.region_count;i++)if(g->lma>=s->ir.regions[i].origin && (uint64_t)g->lma<(uint64_t)s->ir.regions[i].origin+s->ir.regions[i].length && (uint64_t)loadend<=(uint64_t)s->ir.regions[i].origin+s->ir.regions[i].length){load_region=(int)i;break;}
+            }
+            if(load_region==XH_LD_NONE || g->lma<s->ir.regions[load_region].origin || (uint64_t)loadend>(uint64_t)s->ir.regions[load_region].origin+s->ir.regions[load_region].length)return fail(l,"script LMA region overflow");
+            cursor[sec->region]=dot;
+            if(load_region!=sec->region && loadend>cursor[load_region])cursor[load_region]=loadend;
+        }
         s->ready[k]=1;
     }
     while(e<s->ir.event_count){XhLdEvent *ev=&s->ir.events[e++];if(ev->kind==XH_LD_DEFINE){s->dot[ev->index]=dot;s->state[ev->index]=0;}else if(ev->kind==XH_LD_ASSERT)s->assert_dot[ev->index]=dot;else if(ev->kind==XH_LD_SET_DOT && script_expr(l,ev->index,dot,&dot))return -1;}
@@ -330,7 +347,7 @@ int xh_elf_link_report(XhElfTarget target,const char *const *inputs,unsigned n,c
     Link l;unsigned i,j,pass,outsec=1,locals=1,nsym=1;int result=-1;
     uint32_t text,data,lma,flashend,dataend,bssend,ramalign=1,flashsize,datasize,memsize;
     uint32_t dataoff,stroff,strsize=1,symoff,shoff,total,entry=0,common_addr;
-    uint32_t symtabidx,strtabidx,commonidx=0,flatlen=0,flatbase=0,headerbytes=116;unsigned char *image=NULL;size_t imagebytes=0;
+    uint32_t symtabidx,strtabidx,commonidx=0,flatlen=0,flatbase=0,headerbytes=116,phnum=2;unsigned char *image=NULL;size_t imagebytes=0;
     const char *entryname;
     memset(&l,0,sizeof(l));l.err=err;l.errcap=errcap;l.limit=XH_ELF_LINK_MAX_MEMORY;
     if(report)memset(report,0,sizeof(*report));
@@ -347,7 +364,8 @@ int xh_elf_link_report(XhElfTarget target,const char *const *inputs,unsigned n,c
     if(opt->script_path) {
         if(script_load(&l,opt->script_path) || script_layout(&l,n,&outsec,&commonidx))goto done;
         if(!opt->entry_name && l.script->ir.entry[0])entryname=l.script->ir.entry;
-        headerbytes=52u+l.script->ir.section_count*32u;
+        phnum=0;for(i=0;i<l.script->ir.section_count;i++)if(l.script->ir.sections[i].region!=XH_LD_NONE)phnum++;
+        headerbytes=52u+phnum*32u;
         common_addr=l.script->common_start;bssend=l.script->common_end;
         flashsize=datasize=memsize=0;lma=0;
         goto layout_ready;
@@ -451,8 +469,8 @@ object_bad:drop(&l,p,(size_t)len+1u);goto done;
     if(l.script && opt->output_format==1u){total=flatlen;goto write_output;}
     /* ELF header and load segments. Segment alignment one is valid ELF and
        avoids padding the file by the MCU's address-space alignment. */
-    memcpy(image,"\177ELF\1\1\1",7);w16(image+16,2);w16(image+18,l.target->machine);w32(image+20,1);w32(image+24,entry);w32(image+28,52);w32(image+32,shoff);w32(image+36,l.target->flags);w16(image+40,52);w16(image+42,32);w16(image+44,l.script?l.script->ir.section_count:2u);w16(image+46,40);w16(image+48,outsec);w16(image+50,strtabidx);
-    if(l.script)for(i=0;i<l.script->ir.section_count;i++){Group *g=&l.script->groups[i];phdr(image+52u+i*32u,g->off,g->addr,g->lma,g->filesz,g->size,g->flags);}
+    memcpy(image,"\177ELF\1\1\1",7);w16(image+16,2);w16(image+18,l.target->machine);w32(image+20,1);w32(image+24,entry);w32(image+28,52);w32(image+32,shoff);w32(image+36,l.target->flags);w16(image+40,52);w16(image+42,32);w16(image+44,phnum);w16(image+46,40);w16(image+48,outsec);w16(image+50,strtabidx);
+    if(l.script){unsigned p=0;for(i=0;i<l.script->ir.section_count;i++)if(l.script->ir.sections[i].region!=XH_LD_NONE){Group *g=&l.script->groups[i];phdr(image+52u+p++*32u,g->off,g->addr,g->lma,g->filesz,g->size,g->flags);}}
     else {phdr(image+52,116,text,text,flashsize,flashsize,5);phdr(image+84,dataoff,data,lma,datasize,memsize,6);}
     {
         uint32_t cursor=1,symcursor=1,commonname,symnameoff,strname;

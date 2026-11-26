@@ -20,7 +20,7 @@ enum { XH_LD_VALUE, XH_LD_DOT, XH_LD_SYMBOL, XH_LD_ADD, XH_LD_SUB,
        XH_LD_AND, XH_LD_OR, XH_LD_NOT };
 enum { XH_LD_PATTERN, XH_LD_DEFINE, XH_LD_SET_DOT, XH_LD_ASSERT };
 typedef struct { char name[XH_LD_NAME]; uint32_t origin,length; unsigned attrs; int origin_expr,length_expr; } XhLdRegion;
-typedef struct { char name[XH_LD_NAME]; int region,load_region,noload,address_expr,align_expr; unsigned first_event,event_count; } XhLdSection;
+typedef struct { char name[XH_LD_NAME]; int region,load_region,noload,address_expr,align_expr,load_address_expr; unsigned first_event,event_count; } XhLdSection;
 typedef struct { char name[XH_LD_NAME]; unsigned keep,common; } XhLdPattern;
 typedef struct { char name[XH_LD_NAME]; int expr,section; unsigned event; } XhLdSymbol;
 typedef struct { int kind,left,right; uint32_t value; char name[XH_LD_NAME]; } XhLdExpr;
@@ -42,7 +42,15 @@ typedef struct {
  * Names <64 bytes, text <=64KiB, expression nesting <=16, 128 AST nodes total.
  * Expressions are checked unsigned 32-bit arithmetic (including intermediate
  * results). Regions must resolve during parse, possibly using earlier regions.
- * Every section must select >region; omitted AT> uses its VMA region.
+ * Alloc sections select >region; omitted AT uses its VMA region. Header
+ * AT(expr) selects an exact LMA (evaluated at aligned VMA start), mutually
+ * exclusive with trailing AT>region. Consumers require its entire file span
+ * inside one declared MEMORY region, regardless of region attributes.
+ * region==XH_LD_NONE denotes a checked, ignored metadata declaration: explicit
+ * constant address zero, pure patterns, no load/align/type modifiers. Consumers
+ * MUST check every matching input is nonalloc SHT_ARM_ATTRIBUTES (0x70000003).
+ * Such declarations do not advance dot/cursors or create load segments; input
+ * attributes were already ignored and are NOT merged/preserved in output ELF.
  * Events retain script order. Match patterns in order, each input at most once;
  * KEEP is retained for consumers with GC. COMMON is a separate input class.
  * DEFINE evaluates at its event's dot; deferred address expressions may require
