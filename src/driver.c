@@ -341,7 +341,6 @@ static int warning_flag(const char *a) {
     g_config.enable_enumcheck = 1;
     g_config.enable_unused_result = 1;
     g_config.enable_warn_unused_static = 1;
-    g_config.enable_warn_unreachable = 1;
     return 1;
   }
   if (!strcmp(a, "-Wextra")) {
@@ -913,7 +912,7 @@ int xh_driver_main(int argc, char **argv) {
       goto done;
     }
     if (strlen(a)>=3 && !strcmp(a+strlen(a)-2,".o")) {
-      if(driver.object_count==(int)XH_ELF_LINK_MAX_OBJECTS){result=fail("ARM/RV32 ELF link object limit is 32",0);goto done;}
+      if(driver.object_count==(int)XH_ELF_LINK_MAX_OBJECTS){result=fail("ARM/RV32 ELF link object limit exceeded",0);goto done;}
       driver.objects[driver.object_count++]=a;continue;
     }
     if (strlen(a) < 3 || strcmp(a + strlen(a) - 2, ".c")) {

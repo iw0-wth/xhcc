@@ -66,6 +66,12 @@ class LargeMacroArgumentsTests(unittest.TestCase):
                 '#define X expanded\n#define CAT(a,b) a ## b\nCAT(X, tail)\n',
                 '#define preX 73\n#define CAT(a,b) a##b\nCAT(pre, X)\n',
                 '#define S(x) # x\nS(hello world)\n',
+                '#define D(x) do { \\\n /*// inside block */ \\\n x++; \\\n } while(0)\nD(value);\n',
+                '#define D(x) do { /*// legal */ x++; } while(0)\nD(value);\n',
+                '#define SEPARATE a/**/b\nSEPARATE\n',
+                '#define F(x) x/**/+/**/1\nF(7)\n',
+                '#define D(x) do { /*// first */ x++; /* second */ x--; /* third */ } while(0)\nD(value);\n',
+                '#define URL "http://example.test/escaped\\\\\\"/*text*/"\nURL\n',
                 '#define X expanded\n#define CAT(a,b,c) a##b##c\nCAT(pre, X, tail)\n',
                 '#define CAT(a,b) a##b\nCAT(, tail)\nCAT(head, )\nCAT(, )\n',
                 '#define CAT(a,b) a##b\n#define WRAP(a,b) CAT(a,b)\n#define X middle\nWRAP(pre, X)\n',
@@ -82,6 +88,10 @@ class LargeMacroArgumentsTests(unittest.TestCase):
                 lines = (mpy/'obj.h').read_text(encoding='utf8').splitlines()
                 definitions = '\n'.join(line for line in lines if line.startswith('#define MP_DEFINE_CONST_OBJ_TYPE') or line.startswith('#define _MP_OBJ_TYPE_SLOT_TYPE_'))
                 paste_cases.append(definitions+'\nMP_DEFINE_CONST_OBJ_TYPE(mp_type_int, MP_QSTR_int, FLAGS, make_new, fn_make, print, fn_print, unary_op, fn_unary, binary_op, fn_binary, locals_dict, &int_locals_dict)\n')
+                bc = (mpy/'bc.h').read_text(encoding='utf8')
+                begin = bc.index('#define MP_BC_PRELUDE_SIG_ENCODE(')
+                end = bc.index('\n\n', begin)
+                paste_cases.append(bc[begin:end]+'\nMP_BC_PRELUDE_SIG_ENCODE(stack, exc, scope, emit_byte, env);\n')
             for text in paste_cases:
                 (d/'reference.c').write_text(text, encoding='utf8')
                 ref = subprocess.run([cc, '-E', '-P', '-x', 'c', str(d/'reference.c')], env=env, capture_output=True, text=True, timeout=30)
@@ -90,7 +100,7 @@ class LargeMacroArgumentsTests(unittest.TestCase):
                     out, _, _ = run(text, mode)
                     # Keep string literal bytes and token boundaries significant.
                     tokens = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_][A-Za-z_0-9]*|[0-9]+|[^\s]'
-                    self.assertEqual(re.findall(tokens, out), re.findall(tokens, ref.stdout), text+'\nACTUAL:\n'+out)
+                    self.assertEqual(re.findall(tokens, out), re.findall(tokens, ref.stdout), mode+'\n'+text+'\nACTUAL:\n'+out)
             payload = 'word '*650
             for mode in ('legacy', 'stream'):
                 out, _, _ = run('#define ID(x) x\nID('+payload+')\n', mode)

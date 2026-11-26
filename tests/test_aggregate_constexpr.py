@@ -23,6 +23,8 @@ HARNESS = r'''
 void *mem_pool_alloc(int size) { return calloc(1,(size_t)size); }
 static Type int_t = {.kind=TYPE_INT};
 Type *type_int(void) { return &int_t; }
+int type_ptr_size(void) { return 4; }
+int type_is_integer(Type *t) { return t && t->kind!=TYPE_PTR && t->kind!=TYPE_FLOAT && t->kind!=TYPE_DOUBLE; }
 int type_size(Type *t) {
     if (!t) return 4;
     if (t->kind == TYPE_ARRAY) return t->size * type_size(t->base);
@@ -65,7 +67,6 @@ CHECKED_HARNESS = HARNESS.split('int main(void)')[0] + r'''
 static Type uint_t={.kind=TYPE_INT,.is_unsigned=1};
 static Type ll_t={.kind=TYPE_LLONG};
 static Type ull_t={.kind=TYPE_LLONG,.is_unsigned=1};
-int type_is_integer(Type *t) { return t && t->kind!=TYPE_PTR && t->kind!=TYPE_FLOAT && t->kind!=TYPE_DOUBLE; }
 Type *usual_arith_conv(Type *a,Type *b) {
     int wide=type_size(a)==8 || type_size(b)==8;
     int u=(type_size(a)==type_size(b)) ? a->is_unsigned||b->is_unsigned :

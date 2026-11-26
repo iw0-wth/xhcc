@@ -99,7 +99,20 @@ static int apply_trigraphs(char *src) {
 
 /* File mode owns only bounded frames and scratch; legacy memory fragments keep
  * their original interface. Sink state is installed only for the public call. */
+/* Conservative observer: only a whole-file #ifndef/#define wrapper qualifies.
+ * It consumes the same sequential logical units, never retains file content. */
+typedef struct PpGuardScan {
+    int state, depth, prefix, directive, length, block, line_comment;
+    int slash, star, quote, escape;
+    char guard[64], line[160];
+} PpGuardScan;
+#define PP_GUARD_CACHE_MAX 128
+typedef struct PpGuardEntry { char *path, *guard; } PpGuardEntry;
+static PpGuardEntry pp_guard_cache[PP_GUARD_CACHE_MAX];
+static int pp_guard_count;
+
 typedef struct PpStreamFrame {
+    PpGuardScan guard_scan;
     XhSourceReader reader;
     unsigned char window[XH_PP_STREAM_WINDOW];
     char path[512];
@@ -572,6 +585,7 @@ static void emit_int(char *buf, int *plen, int cap, int v) {
 
 void preproc_reset(void) {
     pp_stream_failed = 0;
+    pp_guard_count = 0;
     g_macros = 0;
 #ifdef XHCC
     xh_macro_actions = 0; xh_macro_defines = 0;
@@ -791,7 +805,7 @@ static int pp_expr_col(const char *at) {
  *   -2    found but larger than the buffer (already reported) */
 #define READ_INCLUDE_CUT (-2)
 
-static char xh_resolved_include[PP_MAX_INC_DEPTH][512];
+static char xh_resolved_include[PP_MAX_INC_DEPTH + 1][512];
 #ifndef XHCC
 static int xh_current_system, xh_lookup_system, xh_forced_lookup;
 #endif
@@ -885,6 +899,128 @@ static int read_include(const char *name, char *buf, int cap, int quoted) {
         }
     }
     return -1;
+}
+
+/* Remove only /./ components: do not collapse .., symlinks or mount roots. */
+static void pp_guard_path(const char *src, char *dst) {
+    int n=0;
+    while (src[0]=='.' && src[1]=='/') src+=2;
+    while (*src && n<511) {
+        if (src[0]=='/' && src[1]=='.' && src[2]=='/') { src+=2; continue; }
+        dst[n++]=*src++;
+    }
+    dst[n]=0;
+}
+static int pp_guard_skip(const char *path) {
+    char key[512]; int i;
+    pp_guard_path(path,key);
+    for(i=0;i<pp_guard_count;i++)
+        if(ark_streq(key,pp_guard_cache[i].path))
+            return find_macro(pp_guard_cache[i].guard)!=0;
+    return 0;
+}
+static void pp_guard_save(const char *path, const char *guard) {
+    char key[512]; int i;
+    pp_guard_path(path,key);
+    for(i=0;i<pp_guard_count;i++)if(ark_streq(key,pp_guard_cache[i].path))return;
+    if(pp_guard_count==PP_GUARD_CACHE_MAX)return;
+    pp_guard_cache[pp_guard_count].path=mem_strdup(key);
+    pp_guard_cache[pp_guard_count].guard=mem_strdup(guard);
+    pp_guard_count++;
+}
+static int pp_guard_space(int c) { return c==' ' || c=='\t' || c=='\r' || c=='\n'; }
+static void pp_guard_directive(PpGuardScan *g) {
+    const char *p=g->line; char cmd[16], id[64]; int n=0;
+    while(pp_guard_space(*p))p++;
+    while(is_alpha(*p) && n<15)cmd[n++]=*p++;
+    cmd[n]=0;
+    while(pp_guard_space(*p))p++;
+    n=0;
+    if(is_alpha(*p))while(is_alnum(*p) && n<63)id[n++]=*p++;
+    id[n]=0;
+    while(pp_guard_space(*p))p++;
+    if(g->state==0) {
+        if(!ark_streq(cmd,"ifndef") || !n || *p) {g->state=-1;return;}
+        for(n=0;id[n];n++)g->guard[n]=id[n];g->guard[n]=0;
+        g->state=1;g->depth=1;
+    } else if(g->state==1) {
+        if(!ark_streq(cmd,"define") || !ark_streq(id,g->guard) || *p)g->state=-1;
+        else g->state=2;
+    } else if(g->state==2) {
+        if(ark_streq(cmd,"if") || ark_streq(cmd,"ifdef") || ark_streq(cmd,"ifndef"))g->depth++;
+        else if(ark_streq(cmd,"endif")) {
+            if(--g->depth==0) {
+                /* The outer #endif itself must contain no extra tokens. */
+                const char *q=g->line;
+                while(pp_guard_space(*q))q++;
+                while(is_alpha(*q))q++;
+                while(pp_guard_space(*q))q++;
+                g->state=*q ? -1 : 3;
+            }
+        } else if(g->depth==1 && (ark_streq(cmd,"else") || ark_streq(cmd,"elif")))g->state=-1;
+    } else g->state=-1;
+}
+static void pp_guard_token(PpGuardScan *g, int c) {
+    if(c=='\n') {
+        if(g->directive && g->state>=0) {
+            g->line[g->length]=0;pp_guard_directive(g);
+        }
+        g->directive=0;g->length=0;g->prefix=1;return;
+    }
+    if(g->directive) {
+        if(g->length<(int)sizeof(g->line)-1)g->line[g->length++]=(char)c;
+        else {
+            /* In the wrapped body only the directive keyword affects nesting.
+             * Long macro replacements/conditional expressions need no storage.
+             * Keep the entire outer endif observable so trailing tokens cannot
+             * disappear behind this bounded prefix. */
+            const char *q=g->line;
+            char cmd[16]; int n=0;
+            g->line[g->length]=0;
+            while(pp_guard_space(*q))q++;
+            while(is_alpha(*q) && n<15)cmd[n++]=*q++;
+            cmd[n]=0;
+            if(g->state!=2 || (ark_streq(cmd,"endif") && g->depth==1))g->state=-1;
+        }
+        return;
+    }
+    if(g->prefix && pp_guard_space(c))return;
+    if(g->prefix && c=='#') {g->directive=1;g->prefix=0;return;}
+    if(!pp_guard_space(c)) {
+        g->prefix=0;
+        if(g->state!=2)g->state=-1;
+    }
+}
+static void pp_guard_feed(PpGuardScan *g, const char *p) {
+    if(g->state<0)return;
+    while(*p && g->state>=0) {
+        int c=(unsigned char)*p++;
+        if(g->block) {
+            if(g->star && c=='/') {g->block=0;g->star=0;}
+            else g->star=c=='*';
+            if(c=='\n')pp_guard_token(g,c);
+            continue;
+        }
+        if(g->line_comment) {
+            if(c=='\n') {g->line_comment=0;pp_guard_token(g,c);} continue;
+        }
+        if(g->quote) {
+            pp_guard_token(g,c);
+            if(g->escape)g->escape=0;
+            else if(c=='\\')g->escape=1;
+            else if(c==g->quote)g->quote=0;
+            continue;
+        }
+        if(g->slash) {
+            g->slash=0;
+            if(c=='*') {g->block=1;pp_guard_token(g,' ');continue;}
+            if(c=='/') {g->line_comment=1;pp_guard_token(g,' ');continue;}
+            pp_guard_token(g,'/');
+        }
+        if(c=='/') {g->slash=1;continue;}
+        if(c=='"' || c=='\'')g->quote=c;
+        pp_guard_token(g,c);
+    }
 }
 
 /* === Integer constant expression evaluator (C99 6.10.1). === */
@@ -1373,6 +1509,7 @@ static int pp_stream_fill(PpStreamFrame *f) {
     f->unit_line_prefix=f->physical_nonspace;
     f->directive=0;f->splice_count=0;f->spliced=0;
     while((c=f->raw_pending ? f->raw_pending : pp_stream_char(f))>=0) {
+        closed_comment=0;
         f->raw_pending=0;
         if(f->spliced) {
             if(f->splice_count>=1024){f->failed=2;break;}
@@ -1408,7 +1545,8 @@ static int pp_stream_fill(PpStreamFrame *f) {
             if(c=='\n') { f->line_comment=0; }
         } else if(f->block_comment) {
             if(prev=='*' && c=='/') { f->block_comment=0; closed_comment=1; }
-            if(f->directive) { prev=c; continue; }
+            /* A closing comment slash cannot start a new comment opener. */
+            if(f->directive) { prev=closed_comment ? 0 : c; continue; }
         } else if(f->quote) {
             if(f->escape) f->escape=0;
             else if(c=='\\') f->escape=1;
@@ -1421,14 +1559,22 @@ static int pp_stream_fill(PpStreamFrame *f) {
                 if(n>XH_PP_STREAM_SCRATCH/2)n=0;
             }
             if(c=='"' || c=='\'') f->quote=c;
-            if(prev=='/' && c=='*') f->block_comment=1;
-            if(prev=='/' && c=='/') f->line_comment=1;
+            if(prev=='/' && (c=='*' || c=='/')) {
+                if(c=='*')f->block_comment=1;
+                else f->line_comment=1;
+                if(f->directive) {
+                    if(n)n--;
+                    f->text[n++]=' ';
+                    /* Neither opener byte belongs to the comment's content. */
+                    prev=0;
+                    continue;
+                }
+            }
             if(c=='(') f->balance++;
             if(c==')' && f->balance>0) f->balance--;
         }
         if(c!=' ' && c!='\t' && c!='\r') only_ws=0;
         if(f->directive && (f->block_comment || f->line_comment)) {
-            if(prev=='/') { if(n) n--; f->text[n++]=' '; }
             prev=c; continue;
         }
         if(n>=XH_PP_STREAM_SCRATCH-2) { f->failed=2; break; }
@@ -1457,6 +1603,12 @@ static int pp_stream_fill(PpStreamFrame *f) {
     }
     f->start=(f->block_comment || f->line_comment) ? prev : 0;
     f->text[n]=0;
+    {
+        const char *observed=f->text;
+        if(f->origin==0 && (unsigned char)observed[0]==0xef &&
+            (unsigned char)observed[1]==0xbb && (unsigned char)observed[2]==0xbf)observed+=3;
+        pp_guard_feed(&f->guard_scan,observed);
+    }
     return n;
 }
 static void pp_stream_run(const char *path, char *out, int *out_len, int cap);
@@ -1596,6 +1748,20 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                         if (!body_put(&body, &bl, &bcap, &body_heap, ' ')) { truncated = 1; break; }
                         continue;
                     }
+                    /* Literal contents are not comment openers. */
+                    if (*q == '"' || *q == '\'') {
+                        char literal_quote = *q;
+                        if (!body_put(&body, &bl, &bcap, &body_heap, *q++)) { truncated=1; break; }
+                        while (*q && *q != '\n') {
+                            char literal_char = *q++;
+                            if (!body_put(&body, &bl, &bcap, &body_heap, literal_char)) { truncated=1; break; }
+                            if (literal_char == '\\' && *q) {
+                                if (!body_put(&body, &bl, &bcap, &body_heap, *q++)) { truncated=1; break; }
+                            } else if (literal_char == literal_quote) break;
+                        }
+                        if (truncated) break;
+                        continue;
+                    }
                     /* Strip comments from macro body (C99 phase 3: comments -> space).
                      * Without this, a body like "1 / star comment star /" would leave
                      * the slash-star sequence in the body, which eval_pp_expr later
@@ -1669,30 +1835,34 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                     while (*q && *q != quote && pl < 255) path[pl++] = *q++;
                     path[pl] = 0;
                     if (*q == quote) q++;
-                    if (g_inc_depth >= PP_MAX_INC_DEPTH) {
+                    if (pp_stream_mode) {
+                        int rd=read_include(path,0,0,quote=='"');
+                        if(rd<0) pp_diag(g_pp_line,pp_col(q),5,DIAG_SEV_ERROR,"source",path,fs_last_error());
+                        else {
+                            const char *caller=g_pp_file;
+                            int saved_system=xh_current_system;
+                            char resolved[512]; int ri;
+                            for(ri=0;ri<512;ri++){resolved[ri]=xh_resolved_include[g_inc_depth][ri];if(!resolved[ri])break;}
+                            dep_file_record(resolved);
+                            if(!pp_guard_skip(resolved)) {
+                                if(g_inc_depth>=PP_MAX_INC_DEPTH) {
+                                    char d1[12],d2[12];
+                                    pp_diag_msg(g_pp_line,pp_col(q),DIAG_SEV_ERROR,
+                                        "include nested too deeply (%s levels, limit %s)",
+                                        diag_num(d1,g_inc_depth),diag_num(d2,PP_MAX_INC_DEPTH));
+                                } else {
+                                    xh_current_system=xh_lookup_system;
+                                    g_inc_depth++;pp_stream_run(resolved,out,out_len,out_cap);g_inc_depth--;
+                                }
+                            }
+                            xh_current_system=saved_system;g_pp_file=caller;
+                        }
+                    } else if (g_inc_depth >= PP_MAX_INC_DEPTH) {
                         char d1[12], d2[12];
-                        /* armcc has no depth limit (400 levels compile
-                         * silently), so there is no code to borrow: this is an
-                         * arkc limit and is reported as one. */
                         pp_diag_msg(g_pp_line, pp_col(q), DIAG_SEV_ERROR,
                                     "include nested too deeply (%s levels, limit %s)",
-                                    diag_num(d1, g_inc_depth),
-                                    diag_num(d2, PP_MAX_INC_DEPTH));
+                                    diag_num(d1, g_inc_depth),diag_num(d2, PP_MAX_INC_DEPTH));
                     } else {
-                        if (pp_stream_mode) {
-                            int rd=read_include(path,0,0,quote=='"');
-                            if(rd<0) pp_diag(g_pp_line,pp_col(q),5,DIAG_SEV_ERROR,"source",path,fs_last_error());
-                            else {
-                                const char *caller=g_pp_file;
-                                int saved_system=xh_current_system;
-                                char resolved[512]; int ri;
-                                for(ri=0;ri<512;ri++){resolved[ri]=xh_resolved_include[g_inc_depth][ri];if(!resolved[ri])break;}
-                                dep_file_record(resolved);
-                                xh_current_system=xh_lookup_system;
-                                g_inc_depth++; pp_stream_run(resolved,out,out_len,out_cap); g_inc_depth--;
-                                xh_current_system=saved_system;g_pp_file=caller;
-                            }
-                        } else {
                         char *inc_buf = g_inc_bufs[g_inc_depth];
                         int rd = read_include(path, inc_buf, PP_INC_BUF, quote == '"');
                         if (rd == READ_INCLUDE_CUT) {
@@ -1745,7 +1915,6 @@ static void process(const char *src, char *out, int *out_len, int out_cap,
                             }
                         }
                     }
-                }
                 }
             }
             else if (ark_streq(cmd, "if")) {
@@ -2669,6 +2838,9 @@ static void pp_stream_run(const char *path, char *out, int *out_len, int cap) {
     PpStreamFrame *saved=pp_stream_current, *f=&pp_stream_frames[g_inc_depth];
     const char *saved_file=g_pp_file;
     int k;
+    { unsigned char *z=(unsigned char*)&f->guard_scan;
+      for(k=0;k<(int)sizeof(f->guard_scan);k++)z[k]=0;
+      f->guard_scan.prefix=1; }
     if(ark_strlen(path)>=512) { pp_stream_failed=1; return; }
     for(k=0;path[k];k++) f->path[k]=path[k]; f->path[k]=0;
     f->block_comment=f->line_comment=f->quote=f->escape=f->balance=0;
@@ -2694,6 +2866,12 @@ static void pp_stream_run(const char *path, char *out, int *out_len, int cap) {
             "stream preprocessing source read failed or embedded NUL",0,0);
         pp_stream_failed=1;
     }
+    if(!f->failed && !pp_stream_failed) {
+        PpGuardScan *g=&f->guard_scan;
+        if(g->slash) {g->slash=0;pp_guard_token(g,'/');}
+        if(g->directive)pp_guard_token(g,'\n');
+        if(g->state==3 && !g->block && !g->quote)pp_guard_save(f->path,g->guard);
+    }
     xh_source_close(&f->reader);
     pp_stream_current=saved;g_pp_file=saved_file;
     if(saved)diag_set_source_file(saved->path,saved->path);
@@ -2704,6 +2882,7 @@ int preproc_stream_file(const char *path, const char *const *forced_files,
                         XhPpMap map, void *map_context) {
     int i,n=0,result;
     if(!path || !sink || forced_count<0) return -1;
+    pp_guard_count=0;
     pp_stream_mode=1; pp_stream_failed=0;pp_stream_emitted=0;pp_stream_output_length=0;
     pp_stream_sink=sink;pp_stream_context=context;
     pp_stream_map=map;pp_stream_map_context=map_context;

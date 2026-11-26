@@ -484,9 +484,12 @@ static int ark_agg_value(ArkAgg *c, Type *t, unsigned char *buf, int gsz, int of
             /* Not an integer constant: an address element of an aggregate
              * initialiser (`int (*tab[2])(int,int) = { add, sub };`, a struct
              * field holding a callback) reaches the caller's hook.  Only a
-             * pointer can hold one; asking about anything else would let a
-             * float or a bitfield slip through as "handled". */
-            if (c->addr_hook && t && (t->kind == TYPE_PTR || t->kind == TYPE_FUNC)) {
+             * pointer or pointer-width integer can hold a recorded address.
+             * The hook must certify this exact offset; narrow integers,
+             * floats and bitfields cannot reserve a full address slot. */
+            if (c->addr_hook && t &&
+                (t->kind == TYPE_PTR || t->kind == TYPE_FUNC ||
+                 (type_is_integer(t) && type_size(t) == type_ptr_size()))) {
                 if (c->addr_hook(c->addr_ud, off, t)) {
                     /* The caller placed this address itself.  Its text was not
                      * parsed here, so step over it: advance to the next ',' or

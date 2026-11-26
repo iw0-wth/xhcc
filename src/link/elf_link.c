@@ -339,7 +339,7 @@ int xh_elf_link_report(XhElfTarget target,const char *const *inputs,unsigned n,c
     if(err && errcap)err[0]=0;
     if(!inputs || !n || n>XH_ELF_LINK_MAX_OBJECTS || !opt || !opt->output_path || !opt->output_path[0] || !strcmp(opt->output_path,"-"))return fail(&l,"invalid ELF link arguments/output");
     if(opt->output_format>1u)return fail(&l,"unsupported output format");
-    if(opt->max_memory){if(opt->max_memory>XH_ELF_LINK_MAX_MEMORY)return fail(&l,"ELF memory budget exceeds 512 KiB");l.limit=opt->max_memory;}
+    if(opt->max_memory){if(opt->max_memory>XH_ELF_LINK_MAX_MEMORY)return fail(&l,"ELF memory budget exceeds configured linker maximum");l.limit=opt->max_memory;}
     text=opt->text_addr?opt->text_addr:0x08000000u;data=opt->data_addr?opt->data_addr:0x20000000u;
     entryname=opt->entry_name?opt->entry_name:"_start";
     for(i=0;i<n;i++){if(!inputs[i] || scan(&l,inputs[i],&l.obj[i]))goto done;l.objects++;}

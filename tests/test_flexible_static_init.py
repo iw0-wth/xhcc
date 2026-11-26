@@ -20,6 +20,8 @@ HARNESS = r'''
 void *mem_pool_alloc(int n) { return calloc(1,(size_t)n); }
 static Type integer={.kind=TYPE_INT};
 Type *type_int(void) { return &integer; }
+int type_ptr_size(void) { return 4; }
+int type_is_integer(Type *t) { return t && (t->kind==TYPE_CHAR || t->kind==TYPE_SHORT || t->kind==TYPE_INT || t->kind==TYPE_LONG || t->kind==TYPE_LLONG || t->kind==TYPE_BOOL || t->kind==TYPE_ENUM); }
 int type_size(Type *t) {
  if (!t) return 4;
  if (t->kind==TYPE_ARRAY) return t->is_zero_array?0:type_size(t->base)*(t->size>0?t->size:1);

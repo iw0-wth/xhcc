@@ -49,6 +49,11 @@ class ExpandedBuildPlan(unittest.TestCase):
   for args in [('--code-kib','0'),('--code-kib','1048577'),('--arena-kib','3072','--asm-kib','512','--code-kib','512','--memory-mib','4')]:self.assertNotEqual(self.run_plan('--print-artifacts',*args).returncode,0)
   with tempfile.TemporaryDirectory() as tmp:
    source=Path(tmp)/'source.c';source.write_text('int f(void){return 1;}');identity={'path':'fixture','sha256':'0','version':'fixture'};a=cachemodule.object_key(source,['-DARK_CODE_BUF_SIZE=32768'],identity,'headers',{});b=cachemodule.object_key(source,['-DARK_CODE_BUF_SIZE=262144'],identity,'headers',{});self.assertNotEqual(a,b)
+ def test_project_linker_profile_isolated_and_bounded(self):
+  import json
+  p=self.run_plan('--app','xhlinker','--print-artifacts');self.assertEqual(p.returncode,0,p.stderr);default=json.loads(p.stdout);self.assertEqual(default['linker_profile'],'default');self.assertEqual(default['linker_compile_defines'],[]);self.assertEqual(default['linker_limits']['objects'],32);self.assertEqual(default['linker_limits']['heap_bytes'],524288)
+  p=self.run_plan('--app','xhlinker','--linker-profile','project','--memory-mib','32','--print-artifacts');self.assertEqual(p.returncode,0,p.stderr);project=json.loads(p.stdout);self.assertEqual(project['profile'],'expanded');self.assertFalse(project['publish_production']);self.assertEqual(project['linker_limits'],{'objects':256,'sections':2048,'symbols':32768,'names_bytes':1048576,'heap_bytes':4194304,'output_bytes':2097152});self.assertEqual(len(project['linker_compile_defines']),6);self.assertIn('-DXH_ELF_LINK_MAX_MEMORY=4194304',project['linker_compile_defines'])
+  self.assertNotEqual(self.run_plan('--linker-profile','unbounded','--print-artifacts').returncode,0)
  def test_arena_compile_flag_changes_object_cache_key(self):
   with tempfile.TemporaryDirectory() as tmp:
    source=Path(tmp)/'source.c';source.write_text('int f(void){return 1;}');identity={'path':'fixture','sha256':'0','version':'fixture'}

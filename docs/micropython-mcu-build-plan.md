@@ -64,6 +64,10 @@ SD 副本新增可选 `XHCC_MCU_ONLY=1` profile 关闭冻结，默认 profile �
 
 当前新增受限 ARM Thumb-2 `alloca`、原始 token-paste 后重扫描，以及独立 `--asm-kib` 开发容量配置。第五批在 4 MiB arena／16 MiB linear／512 KiB 汇编文本预算下推进到 7/8：`objint` 首次成功，`.text` 8818、`.data` 152 字节；`runtime` 已通过 emit，下一阻碍是 assemble 的输出/重定位缓冲范围错误，并非 arena OOM。原 139 对象的 keep-going 全编已完成：xhcc 120/139，GNU 同配置 139/139。19 个失败为 include 深度 8 项、IR arena 容量 2 项、alloca CFG 2 项、汇编/重定位 2 项、泛 ELF 写出 2 项，以及 extended asm、parser、重复声明各 1 项。61 个 GNU 空对象在 xhcc 仅多出弱 memcpy helper，未发现被关闭模块函数误发射。完整批次模块、配置和 235 项包资源哈希前后一致；未混用 GNU 对象，也未用缺失对象尝试固件链接。链接端 32 对象上限与未引用 extern 符号冗余另有明确扩展需求。未完成对象集合、链接和执行前，不称完整固件成功。
 
+第六批全新构建已到 128/139；第七批修正真实 include guard 观察、宏注释、void/comma 栈平衡、暂定定义、聚合地址、reserved unreachable 和 GNU 警告/asm 输入后，**原 GNU make 的 139 个对象全部实际编译成功，make exit 0**。开发配置为 arena 8 MiB、linear 32 MiB、ASM 2 MiB、code buffer 1 MiB；最大单 TU arena 为 `compile.o` 的 6042144 字节，不代表总任务 RAM 已到 5～6 MiB。所有对象来自同一固定模块，未复用旧 xhcc 对象或混入 GNU 对象，源与生成头参考校验、包资源前后哈希均通过。
+
+独立 project linker 已读入该 139 对象集合：1948 sections、22284 symbols，请求 heap peak 1227839/4194304 字节。原 GNU 参数因 `-nostdlib` 被明确拒绝；声明 no-GC/no-map/no-cref 的 `-T` 适配后，首个真实链接缺口是原 STM32F405 脚本 `.data : AT(_sidata)`（line 38），尚无 firmware 输出。原脚本和对象顺序未改，未添加伪运行库或覆盖原仓。下一步补显式加载地址脚本语义并继续符号、重定位和启动验证。
+
 ## 下一批实施顺序
 
 - 完成默认流式前端的旧功能兼容回归与输出故障清理。

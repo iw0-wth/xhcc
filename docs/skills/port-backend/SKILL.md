@@ -157,6 +157,10 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 固定 expanded 4 MiB arena/16 MiB linear、asm 512 KiB 的 920769 字节模块封存了真实原入口 139 TU 检查点：xhcc 120/139（120 个非空对象），GNU 139/139（71 非空、68 零代码）。模块/配置及 235 个资源在批次前后保持一致。全部 GNU 零代码对照中，61 个 xhcc 成功对象仅多出无条件复制 helper 相关 `.Lmcpyloop`/`.Lmcpydone`/`__aeabi_memcpy` 符号，另七项无对象；不能把 helper 冗余误判为 disabled 模块 PP 错误。十九项失败分类为 include 8、arena/IR 2、alloca CFG 2、ELF generic 2、extended asm 1、parser 1、declaration 1、runtime code-cap 1、vm 1。runtime 在该 profile 中 emit 通过，但 assemble 出现 site-outside-buffer 与汇编错误，无输出，非 arena OOM。`code-kib=256` 工具七项测试通过但尚未实际构建，不能声称已解除该失败。此检查点没有完整链接或固件；后续清除失败须保留原入口、原 TU、同配置/GNU 对照和严格链接证据，不用诊断映像或单函数执行代替。
 
+新的成熟编译检查点已用默认四应用 987369/1022220/925277/296468 字节通过完整回归和 SD 七项，默认仍为 4 MiB linear/1 MiB arena；guard cache、宏注释、容量错误、void/unreachable、tentative-global、aggregate address、ARM pointer asm input 和 warning policy 等新增专项均通过，开发 profile 工具八项通过。const global 沿用现有 writer 的 `.data` 布局限制，不将该历史布局称为 const 语义丢失或已修只读节。
+
+真实 host GNU make 原入口已在固定开发 compiler 925719 字节、8 MiB arena/32 MiB linear、asm 2 MiB/code 1 MiB 下完成 fresh 139/139 CC；模块、配置、资源及 GNU 对照保持可核验，原工程源码只读。最大 TU arena 峰值 6042144B 仅是 arena，不含 heap/runtime/stack，不能宣称总 RAM 已满足 5–6 MiB。下一真实 project linker 296531 字节已读入全部 139 对象、1948 sections、22284 symbols，requested heap 峰值 1227839/4194304B；原 `-nostdlib` 等 CLI 先被拒后，显式 `-T` 且不声称 GNU GC/map/cref 的适配调用仍在未修改的原脚本 `AT(_sidata)`（line 38、byte 1320）解析失败，无输出。AT 表达式支持当时仅在审计、未实施；全 TU 编译成功不等于完整链接或固件。保留原参数失败与适配参数边界，下一阶段继续原脚本链接验收，不暂停在“139 编译完成”，也不以更大开发预算替代后续目标 RAM 优化。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

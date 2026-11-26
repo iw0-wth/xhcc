@@ -4,19 +4,31 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "xh_elf_read.h"
+#ifndef XH_ELF_LINK_MAX_OBJECTS
 #define XH_ELF_LINK_MAX_OBJECTS 32u
+#endif
+#ifndef XH_ELF_LINK_MAX_SECTIONS
 #define XH_ELF_LINK_MAX_SECTIONS 512u
+#endif
+#ifndef XH_ELF_LINK_MAX_SYMBOLS
 #define XH_ELF_LINK_MAX_SYMBOLS 8192u
+#endif
+#ifndef XH_ELF_LINK_MAX_NAMES
 #define XH_ELF_LINK_MAX_NAMES (128u*1024u)
+#endif
+#ifndef XH_ELF_LINK_MAX_MEMORY
 #define XH_ELF_LINK_MAX_MEMORY (512u*1024u)
+#endif
+#ifndef XH_ELF_LINK_MAX_OUTPUT
 #define XH_ELF_LINK_MAX_OUTPUT (512u*1024u)
+#endif
 typedef struct {
     const char *output_path;
     const char *entry_name; /* NULL selects script ENTRY, then _start. */
     uint32_t text_addr; /* Zero selects 0x08000000. */
     uint32_t data_addr; /* Zero selects 0x20000000. */
     uint32_t data_lma; /* Zero places initialized RAM immediately after Flash. */
-    size_t max_memory; /* Zero selects 512 KiB; includes all requested heap bytes. */
+    size_t max_memory; /* Zero selects configured XH_ELF_LINK_MAX_MEMORY; includes all requested heap bytes. */
     const char *script_path; /* Optional bounded MEMORY/SECTIONS script. */
     unsigned output_format; /* 0: ELF; 1: flat binary in Flash LMA order. */
 } XhElfLinkOptions;

@@ -494,15 +494,22 @@ static int irgen_agg_addr_scalar(AstNode *init, int off, IrGlobal *g, int *found
     long long add = 0;
     Type *lt = 0;
     int isf = 0;
+    AstNode *string_init = init;
     if (init && init->kind == AST_INIT_LIST) return 0;   /* brace elision */
-    if (init && init->kind == AST_STR) {
+    /* Pointer casts retain the literal's static storage. Keep the original
+     * expression for other address forms, whose casts determine the stride. */
+    while (string_init && string_init->kind == AST_CAST &&
+           string_init->type && string_init->type->kind == TYPE_PTR)
+        string_init = string_init->u.unary.operand;
+    if (string_init && string_init->kind == AST_STR) {
         /* `char *cs[2] = { "ab", "cd" };` -- the element is the address of a
          * string literal (C11 6.7.9p14: a static pointer may hold one).  The
          * literal has no name yet, so record its text and let the backend pool
          * it next to the other string labels.  A wide literal would need each
          * byte widened, which the initialiser text does not carry. */
-        if (init->type && init->type->kind == TYPE_PTR && init->type->base &&
-            init->type->base->kind == TYPE_WCHAR) {
+        if (string_init->type &&
+            (string_init->type->kind == TYPE_PTR || string_init->type->kind == TYPE_ARRAY) &&
+            string_init->type->base && string_init->type->base->kind == TYPE_WCHAR) {
             diag_tool(DIAG_SEV_ERROR, "arkcc",
                       "an element of the initialiser of the global '%s' is a wide "
                       "string literal; only narrow string literals can be pooled "
@@ -512,7 +519,7 @@ static int irgen_agg_addr_scalar(AstNode *init, int off, IrGlobal *g, int *found
             *found = 1;
             return 1;
         }
-        irgen_add_ref_ex(g, off, 0, 0, 0, init->u.name ? init->u.name : "");
+        irgen_add_ref_ex(g, off, 0, 0, 0, string_init->u.name ? string_init->u.name : "");
         *found = 1;
         return 1;
     }
@@ -2395,11 +2402,15 @@ static int irgen_compound_literal(IrGen *g, AstNode *node) {
 static void irgen_discard_result(IrGen *g, AstNode *node) {
     Type *et;
     int words = 1;
-    /* A cast to void currently leaves its operand's representation on the IR
-     * stack. Classify that operand (including a nested void call) for discard. */
-    while (node && node->kind == AST_CAST && node->type &&
-           node->type->kind == TYPE_VOID) node = node->u.unary.operand;
-    et = node ? node->type : 0;
+    /* A comma expression retains exactly its right operand's representation.
+     * In particular ((void)n, void_function()) has no direct-call result. */
+    while (node && node->kind == AST_COMMA) node = node->u.binary.right;
+    if (!node) return;
+    /* Void casts and void conditionals discard within their own lowering,
+     * where the actual operand/selected branch representation is available. */
+    if (node->type && node->type->kind == TYPE_VOID &&
+        (node->kind == AST_CAST || node->kind == AST_TERNARY)) return;
+    et = node->type;
     /* C's ordinal 8-byte slot is one union element for every scalar/complex
      * value. Machine backends retain word pairs even on AMD64; pointer slot64
      * is a separate representation and must not enable this scalar shortcut. */
@@ -2481,7 +2492,7 @@ static void irgen_store_small_agg(IrGen *g, int off, int sz) {
  * as source text: only scalar 32-bit identifiers/constants are admitted until
  * expression typing and lvalue lowering can share the full sema machinery. */
 static int xh_asm_operand_list(const char *raw, int output, AstNode **exprs,
-                               int *immediate, int *count) {
+                               int *immediate, int *count, int pointer_inputs) {
     Lexer lex;
     int n = 0;
     if (!raw || !*raw) { *count = 0; return 1; }
@@ -2503,7 +2514,8 @@ static int xh_asm_operand_list(const char *raw, int output, AstNode **exprs,
                 value > 2147483647LL) return 0;
         } else if (expr->kind == AST_VAR) {
             sym = sym_find(expr->u.name);
-            if (!sym || !type_is_integer(sym->type) || type_size(sym->type) != 4 ||
+            if (!sym || (!type_is_integer(sym->type) &&
+                !(pointer_inputs && !output && sym->type && sym->type->kind==TYPE_PTR)) || type_size(sym->type) != 4 ||
                 sym->type->is_atomic || (output && (sym->type->is_const ||
                 sym->is_static || (sym->kind != SYM_VAR && sym->kind != SYM_PARAM)))) return 0;
             expr->type = sym->type;
@@ -2530,8 +2542,8 @@ static int xh_lower_asm_operands(IrGen *g, const char *text,
     StrBuf b;
     const char *p;
     if (!g_irgen_native_asm ||
-        !xh_asm_operand_list(outs, 1, out, oi, &no) ||
-        !xh_asm_operand_list(ins, 0, in, ii, &ni)) return 0;
+        !xh_asm_operand_list(outs, 1, out, oi, &no, 0) ||
+        !xh_asm_operand_list(ins, 0, in, ii, &ni, g_irgen_arm_asm_immediates)) return 0;
     if (!no && !ni) return 0;
     if (no) map[0] = 0;
     for (i = 0; i < ni; ++i) {
@@ -4249,6 +4261,10 @@ static void irgen_expr(IrGen *g, AstNode *node) {
         }
         case AST_CAST:
             irgen_expr(g, node->u.unary.operand);
+            if (node->type && node->type->kind == TYPE_VOID) {
+                irgen_discard_result(g, node->u.unary.operand);
+                break;
+            }
             /* Float <-> int conversion: emit IR_F2I / IR_I2F per source/dest type.
              * aux high bit 0x200 marks double precision so the ARM backend uses the
              * double helpers (__aeabi_d2iz / __aeabi_i2d) instead of the single ones.
@@ -4369,7 +4385,7 @@ static void irgen_expr(IrGen *g, AstNode *node) {
             break;
         case AST_COMMA:
             irgen_expr(g, node->u.binary.left);
-            ir_emit(g->fn, IR_POP, 0, 0, 0);
+            irgen_discard_result(g, node->u.binary.left);
             irgen_expr(g, node->u.binary.right);
             break;
         case AST_BINARY: {
@@ -5501,6 +5517,17 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                 g_irgen_errors++;
             }
 
+            /* Reserved intrinsic: reaching it is undefined in C. A local
+             * nonreturning loop implements that promise on every target without
+             * an external symbol, new opcode, or target-dependent stack effect. */
+            if (!is_indirect && !node->u.call.callee &&
+                ark_streq(node->u.call.name, "__builtin_unreachable")) {
+                int stop_l = alloc_label(g);
+                ir_emit(g->fn, IR_LABEL, stop_l, 0, 0);
+                ir_emit(g->fn, IR_JMP, stop_l, 0, 0);
+                break;
+            }
+
             /* The existing VLA lowering moves the physical value stack and
              * cannot preserve live operands in general call expressions.  Keep
              * this reserved intrinsic explicit until dynamic-stack lowering is
@@ -6262,9 +6289,13 @@ static void irgen_expr(IrGen *g, AstNode *node) {
             irgen_cond_to_bool(g, node->u.ternary.cond);
             ir_emit(g->fn, IR_JZ, false_l, 0, 0);
             irgen_expr(g, node->u.ternary.true_expr);
+            if (node->type && node->type->kind == TYPE_VOID)
+                irgen_discard_result(g, node->u.ternary.true_expr);
             ir_emit(g->fn, IR_JMP, end_l, 0, 0);
             ir_emit(g->fn, IR_LABEL, false_l, 0, 0);
             irgen_expr(g, node->u.ternary.false_expr);
+            if (node->type && node->type->kind == TYPE_VOID)
+                irgen_discard_result(g, node->u.ternary.false_expr);
             ir_emit(g->fn, IR_LABEL, end_l, 0, 0);
             break;
         }

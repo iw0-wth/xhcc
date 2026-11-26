@@ -9339,6 +9339,8 @@ typedef struct {
     unsigned char *out;
     int            pc;
     int            out_cap;
+    long long      planned_bytes;
+    int            overflow;
     AsmLabel      *labels;
     int            label_count, label_cap;
     AsmRef        *refs;
@@ -9594,10 +9596,21 @@ static void eat_comma_a(const char **p) {
     skip_space_a(p);
 }
 
-static void out16(ArmAsm *a, unsigned v) {
-    if (a->pc + 2 > a->out_cap) { a->error_count++; a->hard_errors++; return; }
-    a->out[a->pc++] = (unsigned char)(v & 0xFF);
-    a->out[a->pc++] = (unsigned char)((v >> 8) & 0xFF);
+static int arm_output_room(ArmAsm*a,int count){
+    if(a->overflow)return 0;
+    if(count<0||a->pc<0||a->pc>a->out_cap||count>a->out_cap-a->pc){
+        a->overflow=1;a->hard_errors++;a->error_count++;return 0;
+    }return 1;
+}
+static void out8(ArmAsm*a,unsigned v){if(arm_output_room(a,1))a->out[a->pc++]=(unsigned char)v;}
+static void out16(ArmAsm*a,unsigned v){
+    if(!arm_output_room(a,2))return;
+    a->out[a->pc++]=(unsigned char)v;a->out[a->pc++]=(unsigned char)(v>>8);
+}
+static void out32(ArmAsm*a,unsigned v){
+    if(!arm_output_room(a,4))return;
+    a->out[a->pc++]=(unsigned char)v;a->out[a->pc++]=(unsigned char)(v>>8);
+    a->out[a->pc++]=(unsigned char)(v>>16);a->out[a->pc++]=(unsigned char)(v>>24);
 }
 
 static unsigned arm_encoding(ArmAsm *a,const char *key,int x,int y,int z,int t,int count){
@@ -9620,6 +9633,7 @@ static void arm_encode32_args(ArmAsm *a,const char *key,const int *args,int coun
 }
 
 static int arm_patch_narrow_a(ArmAsm*a,int site,const char*key,int target){
+    if(a->overflow)return -1;
     XhRelocContext ctx={0};ctx.symbol=(uint64_t)(int64_t)target;ctx.place=(uint64_t)(int64_t)site;
     if(xh_relocation_apply("arm",key,a->out,(size_t)a->out_cap,(size_t)site,&ctx)){
         a->hard_errors++;a->error_count++;return -1;
@@ -10306,7 +10320,7 @@ static void pass1_a(ArmAsm *a) {
     /* The reserved vector-table area counts as part of the section, so labels
      * inside it (there are none) and after it keep the addresses the final
      * image will really have. */
-    int pc = g_arm_vt_reserve ? ARM_VT_SIZE : 0;
+    long long pc = g_arm_vt_reserve ? ARM_VT_SIZE : 0;
     a->label_count = 0;
     a->set_count = 0;
     a->literal_count = 0;
@@ -10315,6 +10329,7 @@ static void pass1_a(ArmAsm *a) {
     a->align_count = 0;
 #endif
     while (*p) {
+        if(pc>2147483647LL){a->planned_bytes=pc;return;}
         char first[64];
         int n;
         skip_space_a(&p);
@@ -10364,12 +10379,14 @@ static void pass1_a(ArmAsm *a) {
                         /* For alias functions, defer to resolve_refs via BL lookup */
                     }
                 }
+            } else if(strieq_a(first,".org")){
+                diag_tool(DIAG_SEV_ERROR,"ARM assembler",".org is not supported by this assembler",0,0,0,0,0,0);a->hard_errors++;a->planned_bytes=pc;return;
             } else if (strieq_a(first, ".zero") || strieq_a(first, ".skip") || strieq_a(first, ".space")) {
-                /* .zero N - reserve N bytes */
-                int sz = 0;
+                /* Saturating size parsing prevents signed overflow before preflight. */
+                long long sz = 0;
                 skip_space_a(&p);
                 if (*p == '#') p++;
-                while (*p >= '0' && *p <= '9') { sz = sz * 10 + (*p - '0'); p++; }
+                while (*p >= '0' && *p <= '9') { if(sz<=2147483647LL)sz=sz*10+(*p-'0');p++; }
                 pc += sz;
             } else if (strieq_a(first, ".word") || strieq_a(first, ".long")) {
                 /* .word value - 4 bytes (may have multiple comma-separated values) */
@@ -10701,6 +10718,7 @@ static void pass1_a(ArmAsm *a) {
     }
     /* LDR =label uses MOVW+MOVT (8 bytes), no literal pool needed */
     a->literal_pool_start = -1;
+    a->planned_bytes=pc;
 }
 
 static int parse_reglist_a(ArmAsm *a, const char **p, int *has_lr, int *has_pc) {
@@ -10787,7 +10805,7 @@ static void emit_branch_vm_a(ArmAsm *a,int kind,int cond,int target){
     if(kind==1){arm_encode16(a,"FIXED_F000",0,0,0,0,0);arm_encode16(a,"FIXED_D000",0,0,0,0,0);}
     else if(kind==2){arm_encode16(a,"FIXED_F000",0,0,0,0,0);arm_encode16(a,"FIXED_9000",0,0,0,0,0);}
     else arm_encode32(a,"BCC_PLACEHOLDER",cond,0,0,0,1);
-    if(arm_patch_branch(a->out,a->out_cap,site,kind,target,site)){a->hard_errors++;a->error_count++;}
+    if(!a->overflow&&arm_patch_branch(a->out,a->out_cap,site,kind,target,site)){a->hard_errors++;a->error_count++;}
 }
 static void emit_bl_a(ArmAsm*a,int target){emit_branch_vm_a(a,1,0,target);}
 static void emit_b_w_a(ArmAsm*a,int target){emit_branch_vm_a(a,2,0,target);}
@@ -11069,7 +11087,7 @@ static void pass2_a(ArmAsm *a) {
     const char *p = a->src;
     a->pc = g_arm_vt_reserve ? ARM_VT_SIZE : 0;
     a->ref_count = 0;
-    while (*p) {
+    while (*p && !a->overflow) {
         char first[64];
         int n;
         skip_space_a(&p);
@@ -11101,7 +11119,8 @@ static void pass2_a(ArmAsm *a) {
                 skip_space_a(&p);
                 if (*p == '#') p++;
                 while (*p >= '0' && *p <= '9') { sz = sz * 10 + (*p - '0'); p++; }
-                while (sz > 0 && a->pc < a->out_cap) { a->out[a->pc++] = 0; sz--; }
+                if(!arm_output_room(a,sz))return;
+                while(sz-->0)out8(a,0);
             } else if (strieq_a(first, ".word") || strieq_a(first, ".long")) {
                 /* Output 4-byte values (comma-separated).
                  * Bug-A5 FIX: Also resolve symbol names (e.g. .word funcname
@@ -11157,12 +11176,8 @@ static void pass2_a(ArmAsm *a) {
                             }
                         }
                     }
-                    if (a->pc + 3 < a->out_cap) {
-                        a->out[a->pc++] = (unsigned char)(val & 0xFF);
-                        a->out[a->pc++] = (unsigned char)((val >> 8) & 0xFF);
-                        a->out[a->pc++] = (unsigned char)((val >> 16) & 0xFF);
-                        a->out[a->pc++] = (unsigned char)((val >> 24) & 0xFF);
-                    }
+                    out32(a,(unsigned)val);
+                    if(a->overflow)return;
                     skip_space_a(&p);
                     if (*p == ',') p++;
                 }
@@ -11213,7 +11228,7 @@ static void pass2_a(ArmAsm *a) {
                     } else {
                         while (*p >= '0' && *p <= '9') { val = val * 10 + (*p - '0'); p++; }
                     }
-                    if (a->pc < a->out_cap) a->out[a->pc++] = (unsigned char)(val & 0xFF);
+                    out8(a,(unsigned)val);if(a->overflow)return;
                     skip_space_a(&p);
                     if (*p == ',') p++;
                 }
@@ -11259,16 +11274,16 @@ static void pass2_a(ArmAsm *a) {
                             c = (unsigned char)*p;
                             p++;
                         }
-                        if (a->pc < a->out_cap) a->out[a->pc++] = c;
+                        out8(a,c);if(a->overflow)return;
                     }
                     if (*p == '"') p++;
                 }
                 if (is_asciz) {
-                    if (a->pc < a->out_cap) a->out[a->pc++] = 0;
+                    out8(a,0);if(a->overflow)return;
                     /* Align to 2 to match pass1 */
-                    if (a->pc & 1) { if (a->pc < a->out_cap) a->out[a->pc++] = 0; }
+                    if (a->pc & 1) { out8(a,0);if(a->overflow)return; }
                 } else {
-                    if (a->pc & 1) { if (a->pc < a->out_cap) a->out[a->pc++] = 0; }
+                    if (a->pc & 1) { out8(a,0);if(a->overflow)return; }
                 }
             } else if (strieq_a(first, ".align") || strieq_a(first, ".balign")) {
                 int align = 0;
@@ -11279,7 +11294,8 @@ static void pass2_a(ArmAsm *a) {
                     int rem = a->pc % align;
                     if (rem != 0) {
                         int pad = align - rem;
-                        while (pad > 0 && a->pc < a->out_cap) { a->out[a->pc++] = 0; pad--; }
+                        if(!arm_output_room(a,pad))return;
+                        while(pad-->0)out8(a,0);
                     }
                 }
             }
@@ -13078,6 +13094,7 @@ static int mov_imm_encode_a(int is_movt, int rd, unsigned imm,
 
 int arm_patch_branch(unsigned char*,int,int,int,int,int);
 static void resolve_refs_a(ArmAsm *a) {
+    if(a->overflow)return;
     int i;
     g_arm_unresolved = 0;
     g_arm_unresolved_first = 0;
@@ -13204,12 +13221,16 @@ void arm_dump_syms_init(void) {
 #endif
 }
 
+static void arm_clear_exports(void);
 static int arm_assemble(const char *asm_text, unsigned char *out, int cap) {
     ArmAsm a;
+    if(!asm_text||cap<0||(!out&&cap))return -1;
+    arm_clear_exports();
     a.src = asm_text;
     a.out = out;
     a.pc = 0;
     a.out_cap = cap;
+    a.planned_bytes=0;a.overflow=0;
     a.labels = 0; a.label_count = 0; a.label_cap = 0;
     a.refs = 0; a.ref_count = 0; a.ref_cap = 0;
     a.error_count = 0;
@@ -13227,11 +13248,7 @@ static int arm_assemble(const char *asm_text, unsigned char *out, int cap) {
 #endif
     /* --vector-table: hand the emitter a buffer whose first ARM_VT_SIZE bytes
      * are already claimed, zeroed.  The linker only fills the table in. */
-    if (g_arm_vt_reserve) {
-        int k;
-        if (ARM_VT_SIZE > cap) return -1;
-        for (k = 0; k < ARM_VT_SIZE; k++) out[k] = 0;
-    }
+
 #if ARKCC_FEATURE_OPT_BRANCH
     if (a.plan_branches) {
         /* Round 1 measures every branch at 4 bytes and decides which ones
@@ -13247,9 +13264,22 @@ static int arm_assemble(const char *asm_text, unsigned char *out, int cap) {
 #else
     pass1_a(&a);
 #endif
+    if(a.hard_errors)return -1;
+    if(a.planned_bytes>cap||a.planned_bytes>2147483647LL){
+        char required[32],capacity[32];snprintf(required,sizeof required,"%lld",a.planned_bytes);snprintf(capacity,sizeof capacity,"%d",cap);
+        diag_tool(DIAG_SEV_ERROR,"ARM assembler","machine-code output requires %s bytes, capacity is %s bytes",required,capacity,0,0,0,0);return -1;
+    }
+    if(a.hard_errors)return -1;
+    if(g_arm_vt_reserve){int k;for(k=0;k<ARM_VT_SIZE;k++)out[k]=0;}
     a.pc = g_arm_vt_reserve ? ARM_VT_SIZE : 0;
     pass2_a(&a);
+    if(a.overflow){
+        char capacity[32];snprintf(capacity,sizeof capacity,"%d",cap);
+        diag_tool(DIAG_SEV_ERROR,"ARM assembler","machine-code output exceeded capacity %s bytes during emission",capacity,0,0,0,0,0);return -1;
+    }
+    if(a.hard_errors){char count[24];snprintf(count,sizeof count,"%d",a.hard_errors);diag_tool(DIAG_SEV_ERROR,"arkcc","%s assembly error(s), no output written",count,0,0,0,0,0);return -1;}
     resolve_refs_a(&a);
+    if(a.hard_errors){char count[24];snprintf(count,sizeof count,"%d",a.hard_errors);diag_tool(DIAG_SEV_ERROR,"arkcc","%s assembly error(s), no output written",count,0,0,0,0,0);return -1;}
     /* Save symbol table for linker */
     arm_save_syms(&a);
     /* Bug-A2: Save unresolved cross-object references as relocations
@@ -13352,6 +13382,12 @@ typedef struct ArmReloc {
 
 static ArmReloc g_arm_relocs[ARM_MAX_RELOCS] ARK_BUFFER_SECTION;
 static int      g_arm_reloc_count = 0;
+static void arm_clear_exports(void){g_arm_sym_count=0;g_arm_reloc_count=0;
+#ifdef XHCC
+    memset(&xh_elf_asm,0,sizeof xh_elf_asm);
+#endif
+}
+
 
 /* Save symbol table after assembly */
 static void arm_save_syms(ArmAsm *a) {

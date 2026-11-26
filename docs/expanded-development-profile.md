@@ -56,6 +56,31 @@ representative input; do not treat metadata budgets as measured peak RAM or RSS.
 Expanded arena flags participate in object-cache identity, preventing accidental
 reuse of an object compiled with the production pool size.
 
+## Bounded project linker profile
+
+`--linker-profile default|project` selects a fixed capacity set, independently
+of compiler arena/text/code budgets. Default limits remain 32 objects, 512 input
+sections, 8192 input symbols, 128 KiB names, 512 KiB requested linker heap and
+512 KiB output. Default mode adds no linker override flags.
+
+The development `project` profile sets 256 objects, 2048 sections, 32768 symbols,
+1 MiB names, 4 MiB requested linker heap and 2 MiB output. It automatically uses
+expanded isolation and never publishes over production root or SD applications.
+All six macros are passed consistently to translation units and recorded in
+`linker_limits` / `linker_compile_defines` metadata. Existing link algorithms,
+input symbol retention and target validation are unchanged; this is a bounded
+capacity increase, not a memory optimization or proof that a project links.
+
+```
+python tools/build.py --app xhlinker --profile expanded --linker-profile project --memory-mib 32
+```
+
+The standalone linker does not link the compiler arena, even though common
+build metadata records the configured arena default. Measure its requested
+heap report on actual inputs, and separately validate its declared linear
+memory and executable output. Script FLASH/RAM bounds remain enforced; a larger
+output capacity does not expand the target firmware memory map.
+
 ## Recorded development validation
 
 The 2048 KiB arena / 8 MiB linear-memory xhccn was actually built in the isolated

@@ -637,6 +637,52 @@ static void sema_func(AstNode *node) {
     }
 }
 
+/* Declaration compatibility, rather than assignment compatibility: qualifiers
+ * and array bounds matter, and two unrelated aggregate types are not the same
+ * object type. Do not walk aggregate fields (recursive structs contain cycles).
+ * Tagged references in this translation unit can carry separate layout nodes. */
+static int global_type_compatible(Type *a, Type *b) {
+    int i;
+    if (a == b) return 1;
+    if (!a || !b || a->kind != b->kind ||
+        a->is_unsigned != b->is_unsigned ||
+        a->is_const != b->is_const ||
+        a->is_volatile != b->is_volatile ||
+        a->is_atomic != b->is_atomic) return 0;
+    switch (a->kind) {
+        case TYPE_ARRAY:
+            if (a->is_zero_array != b->is_zero_array ||
+                (a->size > 0 && b->size > 0 && a->size != b->size)) return 0;
+            return global_type_compatible(a->base, b->base);
+        case TYPE_PTR:
+        case TYPE_COMPLEX:
+            return global_type_compatible(a->base, b->base);
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            if (a->tag && b->tag) return ark_streq(a->tag, b->tag);
+            return a->fields && a->fields == b->fields;
+        case TYPE_ENUM:
+            if (a->tag && b->tag) return ark_streq(a->tag, b->tag);
+            return a->enumerators && a->enumerators == b->enumerators;
+        case TYPE_FUNC:
+            if (!global_type_compatible(a->base, b->base) ||
+                a->param_count != b->param_count ||
+                a->is_variadic != b->is_variadic) return 0;
+            for (i = 0; i < a->param_count; i++) {
+                Type pa = *a->params[i], pb = *b->params[i];
+                /* Parameter top-level qualifiers do not affect a function's
+                 * compatible type (C99 6.7.5.3p15). */
+                pa.is_const = pb.is_const = 0;
+                pa.is_volatile = pb.is_volatile = 0;
+                pa.is_atomic = pb.is_atomic = 0;
+                if (!global_type_compatible(&pa, &pb)) return 0;
+            }
+            return 1;
+        default:
+            return 1;
+    }
+}
+
 static void sema_decl(AstNode *node) {
     if (!node) return;
     switch (node->kind) {
@@ -650,36 +696,64 @@ static void sema_decl(AstNode *node) {
             Symbol *existing;
             if (!name) return;
             existing = sym_find_current(name);
+            /* sema_check rebuilds symbols after parsing. A global is defined
+             * here only when it has an initializer; a non-extern declaration
+             * without one is tentative, and may repeat (C99 6.9.2). */
+            if (existing && existing->kind == SYM_VAR) {
+                existing->kind = SYM_GLOBAL;
+                existing->is_static = node->u.var.is_static;
+                existing->is_extern = node->u.var.is_extern;
+                existing->is_defined = 0;
+            }
             if (existing) {
-                /* Parser pre-registers globals as SYM_VAR at parse time so
-                 * sizeof(var)/sizeof(var[i]) can be resolved. Upgrade it to
-                 * SYM_GLOBAL here (the canonical kind for downstream irgen). */
-                if (existing->kind == SYM_VAR) {
-                    existing->kind = SYM_GLOBAL;
-                    existing->is_extern = node->u.var.is_extern;
-                    node->u.var.is_global = 1;
-                    if (node->u.var.init) {
-                        sema_expr(node->u.var.init);
-                        /* Bug-I1: Apply initialization conversion (C99 6.7.8):
-                         * cast the initializer to the variable's type. */
-                        node->u.var.init =
-                            sema_implicit_cast(node->u.var.init,
-                                               node->u.var.var_type);
-                    }
-                    break;
+                if (existing->kind != SYM_GLOBAL) {
+                    err_code(node, 101, name);
+                    return;
                 }
-                /* Allow extern declaration after any prior declaration (redundant but legal).
-                 * Allow definition after extern declaration (standard header/source pattern).
-                 * Only error on actual redefinition (two non-extern definitions). */
-                if (node->u.var.is_extern) return;
-                if (existing->is_extern) return;
-                err_code(node, 101, name);
-                return;
+                if (!global_type_compatible(existing->type, node->u.var.var_type)) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                                    "conflicting types for global '%s'", name, 0, 0);
+                    g_errors++;
+                    return;
+                }
+                /* An extern declaration inherits the visible declaration's
+                 * linkage. Plain/static declarations must agree with it. */
+                if (node->u.var.is_extern) {
+                    node->u.var.is_static = existing->is_static;
+                } else if (existing->is_static != node->u.var.is_static) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                                    "conflicting linkage for global '%s'", name, 0, 0);
+                    g_errors++;
+                    return;
+                }
+                if (existing->is_defined && node->u.var.init) {
+                    err_code(node, 101, name);
+                    return;
+                }
+                /* Preserve a completed bound/layout when a later tentative
+                 * declaration is incomplete; irgen merges these AST nodes. */
+                if (node->u.var.var_type && existing->type &&
+                    ((node->u.var.var_type->kind == TYPE_ARRAY &&
+                      node->u.var.var_type->size == 0 && existing->type->size > 0) ||
+                     ((node->u.var.var_type->kind == TYPE_STRUCT ||
+                       node->u.var.var_type->kind == TYPE_UNION) &&
+                      !node->u.var.var_type->fields && existing->type->fields))) {
+                    node->u.var.var_type = existing->type;
+                } else {
+                    existing->type = node->u.var.var_type;
+                }
+            } else {
+                existing = sym_add_borrowed(SYM_GLOBAL, name, node->u.var.var_type, 0);
+                existing->is_static = node->u.var.is_static;
+                existing->is_extern = node->u.var.is_extern;
             }
-            {
-                Symbol *sym = sym_add_borrowed(SYM_GLOBAL, name, node->u.var.var_type, 0);
-                sym->is_extern = node->u.var.is_extern;
-            }
+            /* `extern int x = 1` is a definition too. Normalize it for irgen's
+             * existing definition merge, without changing its linkage. */
+            if (node->u.var.init) node->u.var.is_extern = 0;
+            if (!node->u.var.is_extern) existing->is_extern = 0;
+            if (node->u.var.init) existing->is_defined = 1;
             node->u.var.is_global = 1;
             if (node->u.var.init) {
                 sema_expr(node->u.var.init);
@@ -1233,6 +1307,20 @@ static Type *sema_expr(AstNode *node) {
         case AST_FUNC_CALL: {
             Symbol *s = sym_find(node->u.call.name);
             int i;
+            /* Reserved even under -fno-builtin; execution cannot return. */
+            if (!node->u.call.callee && node->u.call.name &&
+                ark_streq(node->u.call.name, "__builtin_unreachable")) {
+                for (i = 0; i < node->u.call.arg_count; i++)
+                    sema_expr(node->u.call.args[i]);
+                if (node->u.call.arg_count != 0) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                        "__builtin_unreachable requires exactly zero arguments", 0, 0, 0);
+                    g_errors++;
+                }
+                node->type = type_void();
+                return node->type;
+            }
             /* A reserved compiler intrinsic, independent of libc declarations
              * and -fno-builtin.  Its result is always void *, never the implicit
              * int result used for an undeclared ordinary function. */
