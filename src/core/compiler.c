@@ -2377,6 +2377,7 @@ int ark_frontend_unit(const ArkOptions *opts, IrProgram *shared,
 #endif
     {
         int diag_before_irgen = diag_errors();
+        irgen_set_dynamic_stack_target(ark_streq(be->name,"arm"));
         memory_phase_begin(opts, "IR");
         ir = shared ? irgen_program_into(ast, shared) : irgen_program(ast);
         memory_phase_end(opts);

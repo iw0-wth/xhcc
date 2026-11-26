@@ -168,7 +168,7 @@ class IrContract(unittest.TestCase):
         targets = {
             'x86_64': ([], ['src/backend/x86_64/backend_x86_64.c', 'src/backend/rules/x86_rules.c',
                            'src/backend/rules/sysv_plan.c', 'src/backend/rules/abiplan.c', 'src/backend/rules/typeclass.c']),
-            'arm': (['-DTEST_ARM'], ['src/backend/arm/backend_arm.c', 'src/backend/arm/thumb1.c', 'src/backend/rules/arm_rules.c', 'src/core/scatter.c']),
+            'arm': (['-DTEST_ARM'], ['src/ir/stack_depth.c', 'src/backend/arm/backend_arm.c', 'src/backend/arm/thumb1.c', 'src/backend/rules/arm_rules.c', 'src/core/scatter.c']),
             'riscv32': (['-DTEST_RV'], ['src/backend/riscv32/backend_riscv32.c', 'src/backend/rules/rv_rules.c']),
             'c': (['-DTEST_C'], ['src/backend/c/backend_c.c', 'src/backend/rules/c_rules.c', 'src/backend/rules/target_rules.c'])}
         selected = os.environ.get('XH_IR_TEST_TARGETS', 'x86_64,arm,riscv32,c').split(',')

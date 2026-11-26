@@ -510,7 +510,7 @@ static int rv_emit(IrProgram *prog, char *out, int cap) {
         for (i = 0; i < prog->global_count; i++) {
             IrGlobal *g = prog->globals[i];
             Type *t = g->type;
-            int gsz = t ? type_size(t) : 4;
+            int gsz = t ? ark_agg_storage_size(t, g->init_aggregate) : 4;
             int al = t ? type_align(t) : 4;
             int kind = t ? t->kind : TYPE_INT;
             int is_agg;

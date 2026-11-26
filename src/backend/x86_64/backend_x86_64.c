@@ -256,7 +256,7 @@ static void x86_emit_agg_bytes(AsmBuffer *b, const unsigned char *p, int n,
 static void x86_emit_aggregate_init(AsmBuffer *b, IrGlobal *g) {
     Type *t = g->type;
     const char *be = (type_ptr_size() == 8) ? "x86-64" : "x86";
-    int sz = t ? type_size(t) : 4;
+    int sz = t ? ark_agg_storage_size(t, g->init_aggregate) : 4;
     unsigned char *bytes;
     int i, bad = 0;
     if (sz <= 0) sz = 4;

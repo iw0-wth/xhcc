@@ -50,7 +50,9 @@ int xhcc_arm_write_elf(const char *path,unsigned char *code,int code_len){
     }
     for(i=0;i<p->global_count;i++){
         IrGlobal *g=p->globals[i];unsigned al=g->align_bytes>8?(unsigned)g->align_bytes:8u;int k=xh_sym(s,&n,cap,g->name);if(k<0)goto fail;gidx[i]=k;
-        s[k].type=1;s[k].bind=g->is_static?0:1;s[k].size=(unsigned)(g->type?type_size(g->type):4);if(!s[k].size)s[k].size=4;
+        {int extent=g->type?ark_agg_storage_size(g->type,g->init_aggregate):4;
+        if(extent<0){diag_tool(DIAG_SEV_ERROR,path,"unsupported flexible-tail initializer for global '%s'",g->name,0,0,0,0,0);return ARK_ERR_CODEGEN;}
+        s[k].type=1;s[k].bind=g->is_static?0:1;s[k].size=(unsigned)extent;if(!s[k].size)s[k].size=4;}
         if(g->is_extern)continue;
         if(g->is_tls){diag_tool(DIAG_SEV_ERROR,path,"ELF TLS is not supported",0,0,0,0,0,0);return ARK_ERR_CODEGEN;}
         if(g->has_at){s[k].sec=0xfff1;s[k].value=g->at_addr;continue;}

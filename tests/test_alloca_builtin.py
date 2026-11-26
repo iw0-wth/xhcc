@@ -1,8 +1,7 @@
-"""Reserved alloca intrinsic semantics and the explicit execution guard.
+"""Alloca intrinsic semantics and explicit per-target execution guards.
 
-Run after the lead's production compiler build. No compiler rebuild happens in
-this suite. Dynamic-stack lowering is deliberately rejected until live operand
-preservation and target ABI alignment have been verified.
+Run after the unified compiler build. ARM Thumb-2 has verified live-stack
+lowering; other targets remain guarded. CPU execution is in test_arm_alloca.py.
 """
 from pathlib import Path
 import subprocess
@@ -83,8 +82,8 @@ int entry(int n, unsigned u, unsigned long long wide, char small) {
 }
 ''')
 
-    def test_evaluated_calls_explicitly_rejected_on_every_target(self):
-        for target in ('arm-none-eabi-gcc', 'riscv32-unknown-elf-gcc',
+    def test_evaluated_calls_explicitly_rejected_on_uncertified_targets(self):
+        for target in ('riscv32-unknown-elf-gcc',
                        'i686-linux-gnu-gcc', 'x86_64-linux-gnu-gcc', None):
             for spelling in ('alloca', '__builtin_alloca'):
                 with self.subTest(target=target, spelling=spelling):
@@ -94,14 +93,13 @@ int entry(int n, unsigned u, unsigned long long wide, char small) {
                         extra=('-fno-builtin',), success=False)
                     self.assertIn('lowering requires verified dynamic-stack support', diagnostic)
 
-    def test_live_operand_contexts_are_rejected(self):
+    def test_live_operand_contexts_compile_for_verified_arm(self):
         for expression in ('sink(alloca(n), 17)', '(p[0] = alloca(n), 0)'):
             with self.subTest(expression=expression):
                 diagnostic = self.compile('''
 #include <alloca.h>
 int sink(void *p, int n) { return n; }
-int entry(int n) { void *p[1]; return ''' + expression + '; }', success=False)
-                self.assertIn('lowering requires verified dynamic-stack support', diagnostic)
+int entry(int n) { void *p[1]; return ''' + expression + '; }')
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 """Bounded aggregate macro arguments, using standalone native/WASI frontend."""
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -59,6 +60,37 @@ class LargeMacroArgumentsTests(unittest.TestCase):
                 definitions = '\n'.join(line for line in lines if line.startswith('#define RULE_PADDING') or line.startswith('#define RULE_EXPAND'))
                 out, _, _ = run(definitions+'\nRULE_PADDING(decorated, rule(decorators), rule(decorated_body))\n')
                 self.assertIn('PAD1_decorated', out)
+            # Token pasting uses raw arguments; only the resulting token rescans.
+            paste_cases = [
+                '#define X expanded\n#define CAT(a,b) a##b\nCAT(pre, X)\n',
+                '#define X expanded\n#define CAT(a,b) a ## b\nCAT(X, tail)\n',
+                '#define preX 73\n#define CAT(a,b) a##b\nCAT(pre, X)\n',
+                '#define S(x) # x\nS(hello world)\n',
+                '#define X expanded\n#define CAT(a,b,c) a##b##c\nCAT(pre, X, tail)\n',
+                '#define CAT(a,b) a##b\nCAT(, tail)\nCAT(head, )\nCAT(, )\n',
+                '#define CAT(a,b) a##b\n#define WRAP(a,b) CAT(a,b)\n#define X middle\nWRAP(pre, X)\n',
+                '#define S(x) #x\nS(  one   two "q" )\n',
+                '#define LOG(fmt,...) call(fmt, ##__VA_ARGS__)\nLOG(1)\nLOG(1, 2, 3)\n',
+                # Self-contained selector, nested forwarding and pasted cast names.
+                '#define FIELD_KIND_open (open_fn)\n#define FIELD_KIND_close (close_fn)\n'
+                '#define BUILD_2(T,n,k1,v1,k2,v2) const T n={.index_##k1=1,.index_##k2=2,.values={(void*)FIELD_KIND_##k1 v1,(void*)FIELD_KIND_##k2 v2}}\n'
+                '#define PICK(a,b,c,d,N,...) BUILD_##N\n#define EXPAND(x) x\n'
+                '#define BUILD(n,...) EXPAND(PICK(__VA_ARGS__,2,invalid,1,invalid,0)(record,n,__VA_ARGS__))\n'
+                'BUILD(table,open,open_impl,close,&close_impl)\n',
+            ]
+            if mpy.exists():
+                lines = (mpy/'obj.h').read_text(encoding='utf8').splitlines()
+                definitions = '\n'.join(line for line in lines if line.startswith('#define MP_DEFINE_CONST_OBJ_TYPE') or line.startswith('#define _MP_OBJ_TYPE_SLOT_TYPE_'))
+                paste_cases.append(definitions+'\nMP_DEFINE_CONST_OBJ_TYPE(mp_type_int, MP_QSTR_int, FLAGS, make_new, fn_make, print, fn_print, unary_op, fn_unary, binary_op, fn_binary, locals_dict, &int_locals_dict)\n')
+            for text in paste_cases:
+                (d/'reference.c').write_text(text, encoding='utf8')
+                ref = subprocess.run([cc, '-E', '-P', '-x', 'c', str(d/'reference.c')], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(ref.returncode, 0, ref.stderr)
+                for mode in ('legacy', 'stream'):
+                    out, _, _ = run(text, mode)
+                    # Keep string literal bytes and token boundaries significant.
+                    tokens = r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_][A-Za-z_0-9]*|[0-9]+|[^\s]'
+                    self.assertEqual(re.findall(tokens, out), re.findall(tokens, ref.stdout), text+'\nACTUAL:\n'+out)
             payload = 'word '*650
             for mode in ('legacy', 'stream'):
                 out, _, _ = run('#define ID(x) x\nID('+payload+')\n', mode)

@@ -31,15 +31,29 @@ class ExpandedBuildPlan(unittest.TestCase):
  def run_plan(self,*args):return subprocess.run([sys.executable,'tools/build.py',*args],cwd=ROOT,capture_output=True,text=True)
  def test_profiles_paths_and_budget_validation_without_build(self):
   import json
-  help=self.run_plan('--help');self.assertEqual(help.returncode,0);self.assertIn('--arena-kib',help.stdout)
-  default=self.run_plan('--app','xhccn','--print-artifacts');self.assertEqual(default.returncode,0,default.stderr);a=json.loads(default.stdout);self.assertEqual(a['profile'],'default');self.assertTrue(a['publish_production']);self.assertEqual(a['arena_bytes'],1048576)
-  for options in [('--profile','expanded','--arena-kib','2048','--memory-mib','8'),('--arena-kib','2048','--memory-mib','8'),('--memory-mib','8')]:
+  help=self.run_plan('--help');self.assertEqual(help.returncode,0);self.assertIn('--arena-kib',help.stdout);self.assertIn('--asm-kib',help.stdout)
+  default=self.run_plan('--app','xhccn','--print-artifacts');self.assertEqual(default.returncode,0,default.stderr);a=json.loads(default.stdout);self.assertEqual(a['profile'],'default');self.assertTrue(a['publish_production']);self.assertEqual(a['arena_bytes'],1048576);self.assertEqual(a['asm_bytes'],131072)
+  for options in [('--profile','expanded','--arena-kib','2048','--memory-mib','8'),('--arena-kib','2048','--memory-mib','8'),('--memory-mib','8'),('--asm-kib','512')]:
    p=self.run_plan('--app','xhccn','--print-artifacts',*options);self.assertEqual(p.returncode,0,p.stderr);plan=json.loads(p.stdout);self.assertEqual(plan['profile'],'expanded');self.assertFalse(plan['publish_production']);self.assertIn('expanded',Path(plan['artifacts'][0]['path']).parts)
-  for options in [('--arena-kib','0'),('--memory-mib','0'),('--arena-kib','4096','--memory-mib','4')]:self.assertNotEqual(self.run_plan('--print-artifacts',*options).returncode,0)
+  for options in [('--arena-kib','0'),('--memory-mib','0'),('--arena-kib','4096','--memory-mib','4'),('--asm-kib','0'),('--asm-kib','1048577'),('--arena-kib','3072','--asm-kib','1024','--memory-mib','4')]:self.assertNotEqual(self.run_plan('--print-artifacts',*options).returncode,0)
+ def test_assembly_budget_isolated_plan_preserves_production(self):
+  import json,hashlib
+  protected=[ROOT/'build/wasm'/f'{app}.wasm' for app in ['xhcc','xhccm','xhccn','xhlinker']]
+  before={str(path):hashlib.sha256(path.read_bytes()).digest() for path in protected if path.exists()}
+  p=self.run_plan('--arena-kib','4096','--memory-mib','16','--asm-kib','512','--app','xhccn','--print-artifacts');self.assertEqual(p.returncode,0,p.stderr);plan=json.loads(p.stdout);self.assertEqual(plan['asm_bytes'],524288);self.assertEqual(plan['arena_bytes'],4194304);self.assertEqual(plan['memory_bytes'],16777216);self.assertFalse(plan['publish_production']);self.assertIn('expanded',Path(plan['artifacts'][0]['path']).parts)
+  self.assertEqual(before,{name:hashlib.sha256(Path(name).read_bytes()).digest() for name in before})
+ def test_machine_code_budget_plan_and_cache_identity(self):
+  import json
+  default=self.run_plan('--app','xhccn','--print-artifacts');self.assertEqual(default.returncode,0,default.stderr);self.assertEqual(json.loads(default.stdout)['code_bytes'],32768)
+  p=self.run_plan('--arena-kib','4096','--memory-mib','16','--asm-kib','512','--code-kib','256','--app','xhccn','--print-artifacts');self.assertEqual(p.returncode,0,p.stderr);plan=json.loads(p.stdout);self.assertEqual(plan['code_bytes'],262144);self.assertEqual(plan['profile'],'expanded');self.assertFalse(plan['publish_production'])
+  for args in [('--code-kib','0'),('--code-kib','1048577'),('--arena-kib','3072','--asm-kib','512','--code-kib','512','--memory-mib','4')]:self.assertNotEqual(self.run_plan('--print-artifacts',*args).returncode,0)
+  with tempfile.TemporaryDirectory() as tmp:
+   source=Path(tmp)/'source.c';source.write_text('int f(void){return 1;}');identity={'path':'fixture','sha256':'0','version':'fixture'};a=cachemodule.object_key(source,['-DARK_CODE_BUF_SIZE=32768'],identity,'headers',{});b=cachemodule.object_key(source,['-DARK_CODE_BUF_SIZE=262144'],identity,'headers',{});self.assertNotEqual(a,b)
  def test_arena_compile_flag_changes_object_cache_key(self):
   with tempfile.TemporaryDirectory() as tmp:
    source=Path(tmp)/'source.c';source.write_text('int f(void){return 1;}');identity={'path':'fixture','sha256':'0','version':'fixture'}
    a=cachemodule.object_key(source,['-DARK_POOL_SIZE=1048576'],identity,'headers',{});b=cachemodule.object_key(source,['-DARK_POOL_SIZE=2097152'],identity,'headers',{});self.assertNotEqual(a,b)
+   c=cachemodule.object_key(source,['-DARK_ASM_BUF_SIZE=131072'],identity,'headers',{});d=cachemodule.object_key(source,['-DARK_ASM_BUF_SIZE=524288'],identity,'headers',{});self.assertNotEqual(c,d)
 class NoPythonDependencies(unittest.TestCase):
  def test_make_profiles_sdk_headers_and_tool_timestamps(self):
   import shutil,time

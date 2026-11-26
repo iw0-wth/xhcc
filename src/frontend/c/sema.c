@@ -1083,7 +1083,7 @@ static Type *sema_expr(AstNode *node) {
                     }
                     sz = 4;
                 }
-                if (sz <= 0) {
+                if (sz <= 0 && !(ot && ot->kind == TYPE_ARRAY && ot->is_zero_array)) {
                     DiagLoc loc = loc_of(node);
                     diag_report_msg(DIAG_SEV_ERROR, &loc,
                         "'sizeof' applied to an incomplete or untyped operand", 0, 0, 0);

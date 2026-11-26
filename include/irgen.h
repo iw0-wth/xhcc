@@ -7,6 +7,8 @@
 #include "ast.h"
 #include "ir.h"
 
+/* Explicit per-TU target certification, reset by compiler before lowering. */
+void irgen_set_dynamic_stack_target(int supported);
 IrProgram *irgen_program(AstNode *prog);
 /* 0.8.7 --ipo: append this unit's IR into an existing program instead of
  * starting a new one (see src/ipo.c).  `out` NULL keeps the single-unit

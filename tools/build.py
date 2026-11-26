@@ -13,6 +13,8 @@ p.add_argument('--cc');p.add_argument('--native',action='store_true');p.add_argu
 p.add_argument('--target',choices=TARGETS,default='all');p.add_argument('--all',action='store_true')
 p.add_argument('--memory-mib',type=int,default=4)
 p.add_argument('--arena-kib',type=int,default=1024)
+p.add_argument('--asm-kib',type=int,default=128)
+p.add_argument('--code-kib',type=int,default=32)
 p.add_argument('--profile',choices=['default','expanded'],default='default')
 p.add_argument('--print-artifacts',action='store_true',help='print planned artifact paths as JSON without building')
 p.add_argument('--app',choices=['xhcc','xhccm','xhccn','xhlinker','both','all-apps'],default='all-apps')
@@ -22,9 +24,11 @@ p.add_argument('--wasm-validate',default=os.environ.get('WASM_VALIDATE') or shut
 p.add_argument('--wasm-opt',default=os.environ.get('WASM_OPT') or shutil.which('wasm-opt') or (r'D:\binaryen-version_133\bin\wasm-opt.exe' if os.name=='nt' else 'wasm-opt'))
 a=p.parse_args()
 if a.arena_kib<1 or a.arena_kib>1024*1024:p.error('--arena-kib must be 1..1048576')
+if a.asm_kib<1 or a.asm_kib>1024*1024:p.error('--asm-kib must be 1..1048576')
+if a.code_kib<1 or a.code_kib>1024*1024:p.error('--code-kib must be 1..1048576')
 if a.memory_mib<1 or a.memory_mib>4096:p.error('--memory-mib must be 1..4096')
-if not a.native and a.arena_kib*1024>=a.memory_mib*1024*1024:p.error('arena must be smaller than declared linear memory; actual headroom still requires linking and runtime checks')
-expanded=a.profile=='expanded' or a.arena_kib!=1024 or a.memory_mib!=4
+if not a.native and (a.arena_kib+a.asm_kib+a.code_kib)*1024>=a.memory_mib*1024*1024:p.error('arena plus assembly and machine-code buffers must be smaller than declared linear memory; other static buffers and actual headroom still require linking and runtime checks')
+expanded=a.profile=='expanded' or a.arena_kib!=1024 or a.memory_mib!=4 or a.asm_kib!=128 or a.code_kib!=32
 profile='expanded' if expanded else 'default'
 selected_targets=list(TARGETS) if a.all else [a.target]
 selected_apps=['xhcc','xhccm','xhccn','xhlinker'] if a.app=='all-apps' else ['xhcc','xhccm'] if a.app=='both' else [a.app]
@@ -36,7 +40,7 @@ def artifact_dir(target,app):
 def artifact_path(target,app):
     return artifact_dir(target,app)/(app+'.exe' if a.native and os.name=='nt' else app if a.native else app+'.wasm')
 if a.print_artifacts:
-    print(json.dumps({'schema':'xhcc.build-plan.v1','profile':profile,'arena_bytes':a.arena_kib*1024,'memory_bytes':a.memory_mib*1024*1024,'publish_production':not expanded and not a.native,'artifacts':[{'target':t,'app':app,'path':str(artifact_path(t,app)),'metadata':str(artifact_dir(t,app)/'build-config.json')} for t in selected_targets for app in selected_apps]},indent=2));raise SystemExit(0)
+    print(json.dumps({'schema':'xhcc.build-plan.v1','profile':profile,'arena_bytes':a.arena_kib*1024,'asm_bytes':a.asm_kib*1024,'code_bytes':a.code_kib*1024,'memory_bytes':a.memory_mib*1024*1024,'publish_production':not expanded and not a.native,'artifacts':[{'target':t,'app':app,'path':str(artifact_path(t,app)),'metadata':str(artifact_dir(t,app)/'build-config.json')} for t in selected_targets for app in selected_apps]},indent=2));raise SystemExit(0)
 cc=a.cc or str(Path(a.sdk)/'bin'/('clang.exe' if os.name=='nt' else 'clang'))
 object_cache=ObjectCache(a.cache_dir,compiler_identity(cc),header_snapshot(ROOT,a.sdk),enabled=not a.no_cache)
 def run(cmd):
@@ -63,6 +67,8 @@ def build(target,app):
     if app!='xhlinker':sources+=sorted((ROOT/'object').glob('*.c'))
     flags=['-std=c99','-Oz','-g0','-ffunction-sections','-fdata-sections','-include',str(ROOT/'include/xh_small.h'),'-I'+str(ROOT/'include'),'-I'+str(ROOT/'object'),f'-DXH_TARGET={num}',f'-DXH_MODULE_TARGET="{target}"','-Wno-unused-value','-Wno-incompatible-pointer-types']
     if a.arena_kib!=1024:flags+=[f'-DARK_POOL_SIZE={a.arena_kib*1024}']
+    if a.asm_kib!=128:flags+=[f'-DARK_ASM_BUF_SIZE={a.asm_kib*1024}']
+    if a.code_kib!=32:flags+=[f'-DARK_CODE_BUF_SIZE={a.code_kib*1024}']
     if not a.native:flags+=['--target=wasm32-wasip1','-mno-bulk-memory','-mno-sign-ext','-mno-nontrapping-fptoint','-mno-simd128','-mno-atomics']
     objects=[]
     for source in sources:
@@ -86,7 +92,7 @@ def build(target,app):
             production=ROOT/'build/wasm'/(app+'.wasm')
             production.parent.mkdir(parents=True,exist_ok=True)
             shutil.copy2(output,production)
-    metadata={'schema':'xhcc.build-config.v1','profile':profile,'target':target,'app':app,'arena_bytes':a.arena_kib*1024,'memory_bytes':a.memory_mib*1024*1024,'stack_bytes':131072,'compiler':object_cache.identity,'compile_flags':flags,'link_command':link,'artifact':str(output),'artifact_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'artifact_bytes':output.stat().st_size,'map':str(out/'xhcc.map'),'published_production':target=='all' and not expanded and not a.native,'measurement_note':'Configured bounds only; runtime arena/heap peaks and full RSS are not inferred.'}
+    metadata={'schema':'xhcc.build-config.v1','profile':profile,'target':target,'app':app,'arena_bytes':a.arena_kib*1024,'asm_bytes':a.asm_kib*1024,'code_bytes':a.code_kib*1024,'memory_bytes':a.memory_mib*1024*1024,'stack_bytes':131072,'compiler':object_cache.identity,'compile_flags':flags,'link_command':link,'artifact':str(output),'artifact_sha256':hashlib.sha256(output.read_bytes()).hexdigest(),'artifact_bytes':output.stat().st_size,'map':str(out/'xhcc.map'),'published_production':target=='all' and not expanded and not a.native,'measurement_note':'Configured bounds only; runtime arena/heap peaks and full RSS are not inferred.'}
     (out/'build-config.json').write_text(json.dumps(metadata,indent=2)+'\n',encoding='utf-8')
     print(f'{app}/{target}: {output} ({output.stat().st_size} bytes)',flush=True)
 for target in selected_targets:

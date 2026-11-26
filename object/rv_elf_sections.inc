@@ -19,7 +19,7 @@ static int trwrite(const char*path,unsigned char*code,int len,TeSym*s,int n,TeRe
  for(i=0;i<a->sec_pc[RV_SEC_TEXT];i++){if(i>=len)goto fail;ms[i]=1;mo[i]=(unsigned)i;}
  for(i=0;i<a->sec_pc[RV_SEC_RODATA];i++){int pos=a->sec_base[RV_SEC_RODATA]+i;if(pos<0||pos>=len)goto fail;ms[pos]=4;mo[pos]=(unsigned)i;}
  for(i=0;i<p->global_count;i++){
-  IrGlobal*g=p->globals[i];RvLabel*l=0;int z=g->type?type_size(g->type):4,sc;unsigned al=(unsigned)(g->type?type_align(g->type):4),dest;
+  IrGlobal*g=p->globals[i];RvLabel*l=0;int z=g->type?ark_agg_storage_size(g->type,g->init_aggregate):4,sc;unsigned al=(unsigned)(g->type?type_align(g->type):4),dest;
   if(g->is_extern)continue;if(z<=0)z=4;if(al<4)al=4;if(al>8)al=8;if(g->align_bytes>(int)al)al=(unsigned)g->align_bytes;if(al&(al-1))goto fail;
   for(j=0;j<a->label_count;j++)if(a->labels[j].num<0&&ark_streq(a->labels[j].name,g->name)){l=&a->labels[j];break;}
   if(!l||l->sec!=RV_SEC_DATA)goto fail;sc=g->has_init?2:3;

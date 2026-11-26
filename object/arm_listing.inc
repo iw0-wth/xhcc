@@ -6,7 +6,7 @@ static void xh_listing_ref(AsmBuffer *b,const char *name,long long add){
 static void xh_listing_data(AsmBuffer *b,IrProgram *p){
     int i,j;
     for(i=0;i<p->global_count;i++){
-        IrGlobal *g=p->globals[i];int sz=g->type?type_size(g->type):4;unsigned char *bytes;
+        IrGlobal *g=p->globals[i];int sz=g->type?ark_agg_storage_size(g->type,g->init_aggregate):4;unsigned char *bytes;
         if(g->is_extern)continue;if(sz<=0)sz=4;
         if(g->is_tls){diag_tool(DIAG_SEV_ERROR,"xhcc","assembly TLS is not supported",0,0,0,0,0,0);continue;}
         if(!g->is_static){asmbuf_puts(b,".global ");asmbuf_puts(b,g->name);asmbuf_putc(b,'\n');}

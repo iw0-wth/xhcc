@@ -27,7 +27,7 @@
 
 允许宿主 GNU make 调用主机 Python 生成器，并通过 CC/LD 变量使用 xhcc/xhlinker。该路线保留原构建图和生成链，用来验证真实 MCU C、ABI、对象和链接能力；GCC 风格选项仍是受检子集，不能宣称直接替换所有 GCC 参数即可成功。
 
-主要验收仍是 xhccm 读取项目 Makefile 并驱动 MCU 对象和固件链接。宿主生成结果可以预先提供，或通过未来明确的宿主调用接口协作；必须报告哪些步骤在宿主完成，不能把 GNU make 构建成功代替 xhccm 完整工程验收。当前 xhccm 不运行任意 shell/Python 命令，未知命令继续明确拒绝。
+当前先以主机 GNU make＋宿主 Python＋xhcc/xhlinker 完成整体 MCU 固件构建，验证编译、ABI、链接及运行。固件链跑通后，集中测量并优化 RAM，先争取 5～6 MiB 总任务 RAM 的阶段目标，同时区分线性内存与运行时、宿主栈和文件系统开销；再完善 xhccm，让内置 make 接管已验证流程。宿主生成结果可预先提供，必须记录来源和配置。当前 xhccm 不运行任意 shell/Python 命令，未知命令继续明确拒绝；主机 make 成功不等于 xhccm 兼容完成。
 
 ## 按依赖排序的缺口
 
@@ -59,6 +59,10 @@ SD 副本新增可选 `XHCC_MCU_ONLY=1` profile 关闭冻结，默认 profile �
 真实 `obj.c` 三条合法 tagged-small-int 路径另做隔离执行：xhcc 和 GNU 对象各 66 个案例与独立数值预期一致，检查返回值、输出指针、callee-saved 寄存器及 SP。此测试的完整对象严格链接仍因未解析外部目标失败，诊断映像使用 `--noinhibit-exec` 保留，仅允许执行已定义白名单函数及已验证内部重定位，未解析路径不执行。它不是完整链接、整个 TU 运行或固件正确性证明。
 
 第二批在新 BUILD 重新生成头并编译八个对象：64 参数／每层 8 KiB 总 scratch 与受限 `unistd.h` 已消除旧预处理阻碍，但仍为 5/8。新失败分别为 `objint` 的类型初始化器 designator、`runtime` 的 GNU 零长度字段、`parse` 的 ELF 对象写出泛化错误（peak=3205744 小于 4 MiB，不能称 arena OOM）。GNU 同配置仍 8/8，原五个成功对象逐字节不变。符号名字借用的同预处理器反事实测试独立减少 `obj.c` arena peak 29056 字节（2154808→2125752）；不是整个工程 RAM 目标已达成。首两批证据均保留，后续按新的语言和对象写出缺口推进。
+
+第三、四批已把同一门槛推进到 6/8，`parse` 首次产出 `.text` 15090／`.data` 1188 字节的标准 ARM 对象。GNU 尾部 `[0]` 与聚合整数 AST 求值已通过专项；`runtime` 的下一阻碍是明确的动态栈支持，接入认证 CFG 栈深后又暴露独立的 128 KiB 汇编缓冲上限，不是 arena OOM。`objint` 经私有诊断确认实际类型布局完整，真正剩余阻碍是 `##` 实参过早展开损坏了初始化器；不能继续归因于柔性尾 extent。
+
+当前新增受限 ARM Thumb-2 `alloca`、原始 token-paste 后重扫描，以及独立 `--asm-kib` 开发容量配置。第五批在 4 MiB arena／16 MiB linear／512 KiB 汇编文本预算下推进到 7/8：`objint` 首次成功，`.text` 8818、`.data` 152 字节；`runtime` 已通过 emit，下一阻碍是 assemble 的输出/重定位缓冲范围错误，并非 arena OOM。原 139 对象的 keep-going 全编已完成：xhcc 120/139，GNU 同配置 139/139。19 个失败为 include 深度 8 项、IR arena 容量 2 项、alloca CFG 2 项、汇编/重定位 2 项、泛 ELF 写出 2 项，以及 extended asm、parser、重复声明各 1 项。61 个 GNU 空对象在 xhcc 仅多出弱 memcpy helper，未发现被关闭模块函数误发射。完整批次模块、配置和 235 项包资源哈希前后一致；未混用 GNU 对象，也未用缺失对象尝试固件链接。链接端 32 对象上限与未引用 extern 符号冗余另有明确扩展需求。未完成对象集合、链接和执行前，不称完整固件成功。
 
 ## 下一批实施顺序
 

@@ -327,6 +327,7 @@ static AstNode *g_vla_size_expr;
 #define VLA_CTX_LOCAL  1
 #define VLA_CTX_PARAM  2
 #define VLA_CTX_SIZEOF 3 /* array type-name within block-scope sizeof */
+#define VLA_CTX_MEMBER 4 /* permits only a constant GNU [0] struct tail */
 static int g_vla_ctx;
 static int   g_attr_is_softfp;
 static int   g_attr_is_forceinline;
@@ -1638,8 +1639,12 @@ static AstNode *parse_struct_or_union(Parser *p, int is_union) {
             }
             for (;;) {
                 char *fname = 0;
-                Type *ft = parse_declarator(p, ft_base, &fname);
+                Type *ft;
+                int save_ctx = g_vla_ctx;
                 int bit_w = -1;
+                g_vla_ctx = VLA_CTX_MEMBER;
+                ft = parse_declarator(p, ft_base, &fname);
+                g_vla_ctx = save_ctx;
                 if (g_decl_is_atomic) check_atomic_type(p, ft);
                 g_decl_is_atomic = 0;
                 /* C11 6.7.5: _Alignas on a member raises the field type's
@@ -1702,6 +1707,21 @@ static AstNode *parse_struct_or_union(Parser *p, int is_union) {
                 break;
             }
             lexer_expect(p->lex, TOK_SEMICOLON);
+        }
+        /* Validate once the complete member list is known: commas, anonymous
+         * members and static assertions make token lookahead insufficient. */
+        {
+            StructField *f;
+            for (f = t->fields; f; f = f->next) {
+                Type *a;
+                for (a = f->type; a; a = a->base) {
+                    if (a->kind == TYPE_ARRAY && a->is_zero_array &&
+                        (is_union || f->next || a != f->type)) {
+                        perror_at(p, "GNU zero-length array must be the outermost type of the last struct member");
+                        break;
+                    }
+                }
+            }
         }
         lexer_expect(p->lex, TOK_RBRACE);
         /* Merge trailing __attribute__((packed/aligned)) */
@@ -1940,10 +1960,18 @@ static void decl_parse_suffixes(Parser *p, DeclNode *n, int consume_paren) {
                 /* C99: array dimensions must be integer constant expressions. After parsing
                  * conditional expression, use eval_const_expr for compile-time evaluation;
                  * fallback to 1 on failure to avoid empty arrays. Supports 1+2, SIZE+2 (macro expansion), sizeof(int)*2 etc. */
-                AstNode *dim_expr = parse_cond_expr(p);
+                int dim_ctx = g_vla_ctx;
+                AstNode *dim_expr;
                 long long folded = 0;
+                /* A type-name inside the bound is not itself a member. */
+                g_vla_ctx = VLA_CTX_NONE;
+                dim_expr = parse_cond_expr(p);
+                g_vla_ctx = dim_ctx;
                 if (dim_expr && eval_const_expr(dim_expr, &folded)) {
-                    if (folded <= 0) {
+                    if (folded == 0 && g_vla_ctx == VLA_CTX_MEMBER &&
+                        dim_expr && !expr_mentions_float(dim_expr)) {
+                        v = -1; /* declarator-private sentinel for explicit [0] */
+                    } else if (folded <= 0) {
                         perror_at(p, "array dimension must be greater than zero");
                         v = 1; /* recovery only: the translation unit has failed */
                     } else {
@@ -2156,7 +2184,9 @@ static Type *decl_apply(Parser *p, DeclNode *n, Type *T, char **out_name) {
                 T->is_vla = 1;
                 T->vla_bound = n->vla_bound;
             } else {
-                T = type_array(T, n->dims[i]);
+                int is_zero = n->dims[i] == -1;
+                T = type_array(T, is_zero ? 0 : n->dims[i]);
+                T->is_zero_array = is_zero;
             }
         }
     } else if (n->suffix == DECL_SK_FUNC) {
@@ -3762,6 +3792,30 @@ static AstNode *parse_cast_expr(Parser *p) {
     return parse_unary_expr(p);
 }
 
+/* Resolve only type-bearing shapes needed by sizeof a GNU zero tail.
+ * No operand is evaluated, including ((struct S *)0)->tail. */
+static Type *sizeof_zero_operand_type(AstNode *e) {
+    Type *t;
+    if (!e) return 0;
+    if (e->type) return e->type;
+    if (e->kind == AST_VAR) {
+        Symbol *s = sym_find(e->u.name);
+        return s ? s->type : 0;
+    }
+    if (e->kind == AST_MEMBER) {
+        StructField *f;
+        t = sizeof_zero_operand_type(e->u.member.obj);
+        if (e->u.member.is_arrow) {
+            if (!t || t->kind != TYPE_PTR) return 0;
+            t = t->base;
+        }
+        if (!t || (t->kind != TYPE_STRUCT && t->kind != TYPE_UNION)) return 0;
+        f = type_find_field(t, e->u.member.member);
+        return f ? f->type : 0;
+    }
+    return 0;
+}
+
 static AstNode *parse_unary_expr(Parser *p) {
     Token t = lexer_peek(p->lex);
     int line = t.line;
@@ -3843,6 +3897,10 @@ static AstNode *parse_unary_expr(Parser *p) {
                  * until sema runs, and folding those to 4 is a fabricated
                  * answer -- it is what made sizeof(op->sym) report 4. */
                 int s_known = 0;
+                Type *zero_type = sizeof_zero_operand_type(e);
+                if (zero_type && zero_type->kind == TYPE_ARRAY && zero_type->is_zero_array) {
+                    return ast_sizeof_val(0, line);
+                }
                 if (e && e->kind == AST_STR) {
                     /* C11 6.5.3.4: a string literal has type char[n+1], so
                      * sizeof "abc" is 4 and sizeof("long...") is its
@@ -3920,7 +3978,8 @@ static AstNode *parse_unary_expr(Parser *p) {
                      * of silently using 4. */
                     return ast_sizeof_pending(e, line);
                 }
-                if (s <= 0) s = 4;
+                if (s <= 0 && !(e && e->type && e->type->kind == TYPE_ARRAY &&
+                                e->type->is_zero_array)) s = 4;
                 return ast_sizeof_val(s, line);
             }
         }

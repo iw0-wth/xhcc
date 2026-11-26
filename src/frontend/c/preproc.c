@@ -1177,13 +1177,26 @@ byte_limit:
     return p;
 }
 
+/* Paste operands use unexpanded tokens with argument-edge whitespace removed.
+ * Ordinary substitution is prescanned; the caller rescans the complete result. */
+static void pp_put_raw_argument(const char *arg, char *out, int *len, int cap) {
+    const char *end;
+    while (*arg == ' ' || *arg == '\t' || *arg == '\r' || *arg == '\n') arg++;
+    end = arg + ark_strlen(arg);
+    while (end > arg && (end[-1] == ' ' || end[-1] == '\t' ||
+                         end[-1] == '\r' || end[-1] == '\n')) end--;
+    while (arg < end) buf_putc(out, len, cap, *arg++);
+}
+
 /* Substitute macro body using the params (matched by name) and the actual args.
  * For variadic macros, args[param_count..] are concatenated into __VA_ARGS__. */
 static void expand_func_macro(Macro *m, char **args, int argc,
                               char *out, int *out_len, int out_cap) {
     const char *p = m->body;
+    int paste_right = 0;
     while (*p) {
         if (*p == '#' && p[1] == '#') {
+            paste_right = 1;
             /* token concatenation */
             const char *after_hash;
             p += 2;
@@ -1213,11 +1226,12 @@ static void expand_func_macro(Macro *m, char **args, int argc,
             }
             continue;
         }
-        if (*p == '#' && is_alpha(p[1])) {
-            /* Stringification (#param): emit the argument as a quoted string. */
+        if (*p == '#' && p[1] != '#') {
+            /* Whitespace between # and its parameter is permitted. */
             const char *q = p + 1;
             char nm[64];
             int nl = 0;
+            while (*q == ' ' || *q == '\t') q++;
             while (is_alnum(*q) && nl < 63) { nm[nl++] = *q++; }
             nm[nl] = 0;
             /* Try to match a parameter name. */
@@ -1242,25 +1256,31 @@ static void expand_func_macro(Macro *m, char **args, int argc,
             char nm[64];
             int nl = 0;
             int matched = -1;
-            int i;
+            int i, raw;
+            const char *next;
             while (is_alnum(*p) && nl < 63) { nm[nl++] = *p++; }
             nm[nl] = 0;
+            /* Either adjacent ## suppresses argument prescan (C99 6.10.3.1). */
+            next = p;
+            while (*next == ' ' || *next == '\t') next++;
+            raw = paste_right || (next[0] == '#' && next[1] == '#');
+            paste_right = 0;
             /* C99 variadic: __VA_ARGS__ references all args after the named ones. */
             if (m->is_variadic && ark_streq(nm, "__VA_ARGS__")) {
                 int vi;
                 for (vi = m->param_count; vi < argc; vi++) {
                     if (vi > m->param_count)
                         buf_puts(out, out_len, out_cap, ", ");
-                    /* Rescan the argument so nested macros expand. */
-                    process(args[vi], out, out_len, out_cap, 0);
+                    if (raw) pp_put_raw_argument(args[vi], out, out_len, out_cap);
+                    else process(args[vi], out, out_len, out_cap, 0);
                 }
                 continue;
             }
             for (i = 0; i < m->param_count; i++)
                 if (ark_streq(m->params[i], nm)) { matched = i; break; }
             if (matched >= 0 && matched < argc) {
-                /* Rescan substituted argument so its macros expand. */
-                process(args[matched], out, out_len, out_cap, 0);
+                if (raw) pp_put_raw_argument(args[matched], out, out_len, out_cap);
+                else process(args[matched], out, out_len, out_cap, 0);
             } else {
                 int k;
                 for (k = 0; k < nl; k++) buf_putc(out, out_len, out_cap, st[k]);

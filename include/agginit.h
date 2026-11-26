@@ -20,6 +20,15 @@
  * when the whole text was consumed, -1 when it holds something that is not
  * data this build can emit (a float, an address, a bitfield, a union, a
  * designator it does not understand, more initialisers than storage). */
+/* Derive static-object storage from a GNU initialized flexible tail. NULL/-1
+ * reports an unsupported initializer. Neither function changes the nominal type.
+ * The returned view is arena-owned. Size is the raw object extent, including
+ * initialized tail bytes, without extra struct tail rounding. Existing private
+ * IR initializer text suffices to rederive it after reading. Explicit GNU [0]
+ * remains distinct and private IR writers reject that unrepresentable type. */
+Type *ark_agg_storage_type(Type *t, const char *text);
+int ark_agg_storage_size(Type *t, const char *text);
+
 int ark_agg_fill(Type *t, const char *text, unsigned char *buf, int bufsz);
 
 /* Same walk, with a way to keep an address element as a symbol reference.

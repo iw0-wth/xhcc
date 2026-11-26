@@ -575,7 +575,8 @@ int type_size(Type *t) {
         case TYPE_PTR:    return g_ptr_size;
         case TYPE_WCHAR:  return 4;  /* B2 */
         case TYPE_COMPLEX: return 2 * type_size(t->base); /* B4: real + imaginary parts */
-        case TYPE_ARRAY:  return type_size(t->base) * (t->size > 0 ? t->size : 1);
+        case TYPE_ARRAY:  return t->is_zero_array ? 0 :
+                                 type_size(t->base) * (t->size > 0 ? t->size : 1);
         case TYPE_STRUCT: {
             /* Total size is padded to the maximum field alignment.
              * #pragma pack / __attribute__((packed)) tighten overall alignment via align_override

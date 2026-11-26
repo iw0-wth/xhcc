@@ -543,15 +543,15 @@ static void emit_c_type_walk(AsmBuffer *b,Type *t,const char *name,Type **path,i
             emit_c_type_walk(b,t->base,next,path,depth+1);return;
         }
         case TYPE_ARRAY:{
-            int dims[16],n=0,k;Type *cur=t;
+            int dims[16],zero[16],n=0,k;Type *cur=t;
             while(cur&&cur->kind==TYPE_ARRAY&&n<16){
                 for(k=0;k<depth+n;k++)if(path[k]==cur && !(n==0&&k==depth)){xh_c_rules_error("cyclic C array type");return;}
                 if(depth+n>=64){xh_c_rules_error("C type traversal depth exceeds capacity");return;}
-                path[depth+n]=cur;dims[n++]=cur->size;cur=cur->base;
+                path[depth+n]=cur;zero[n]=cur->is_zero_array;dims[n++]=cur->size;cur=cur->base;
             }
             if(cur&&cur->kind==TYPE_ARRAY){xh_c_rules_error("C array declarator exceeds dimension capacity");return;}
             emit_c_type_walk(b,cur,name,path,depth+n);
-            for(k=0;k<n;k++){char dim[24];snprintf(dim,sizeof dim,"%d",dims[k]);c_type_production(b,dims[k]>0?"ARRAY_DIM":"ARRAY_UNSIZED",dim,0);}return;
+            for(k=0;k<n;k++){char dim[24];snprintf(dim,sizeof dim,"%d",dims[k]);c_type_production(b,dims[k]>0||zero[k]?"ARRAY_DIM":"ARRAY_UNSIZED",dim,0);}return;
         }
         case TYPE_STRUCT:case TYPE_UNION:{
             StructField *field=t->fields;int count=0;

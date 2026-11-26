@@ -10,18 +10,42 @@ python tools/build.py --profile expanded --arena-kib 2048 --memory-mib 8 --app x
 python tools/build.py --profile expanded --arena-kib 2048 --memory-mib 8 --app xhccn --print-artifacts
 ```
 
-`--arena-kib` is a compile-time ARK_POOL_SIZE override. `--memory-mib` controls
+`--arena-kib` is a compile-time ARK_POOL_SIZE override. `--asm-kib` overrides
+ARK_ASM_BUF_SIZE (default 128 KiB). `--code-kib` overrides ARK_CODE_BUF_SIZE
+(default 32 KiB); default values omit override flags so the
+production compilation cache keys remain unchanged. `--memory-mib` controls
 both the Wasm initial and maximum memory. Any nondefault budget automatically
 selects the isolated expanded profile, even without `--profile expanded`.
 Explicit expanded mode is also isolated when budgets equal production defaults.
-The arena must be positive and smaller than the declared memory; actual static,
-stack and dynamic headroom is checked by linking and execution, not estimated
-from a fixed margin. Compiler stack and other buffer sizes are unchanged.
+Arena, assembly-text and machine-code buffer sizes must be positive, each
+bounded to 1 GiB, and their sum must be smaller than the declared linear memory. This is only a
+minimum feasibility check: other static buffers, stack and dynamic headroom are
+validated by linking and execution, not estimated from a fixed margin. Compiler
+stack and other buffer sizes are unchanged.
+
+For an emit-stage assembly-text capacity failure with arena headroom, use a
+separate budget rather than blindly growing the arena, for example:
+
+```
+python tools/build.py --profile expanded --arena-kib 4096 --memory-mib 16 --asm-kib 512 --app xhccn
+```
+
+This example configures 524288 assembly bytes; it does not itself establish that
+a particular TU compiles or that the full runtime memory budget is sufficient.
+For a confirmed machine-code output capacity failure, the next isolated probe
+can add `--code-kib 256` to that command, keeping arena and linear memory fixed.
+Assembly-text and machine-code capacities are separate limits; successful emit
+alone does not prove that assembly fits. The object transport buffer is not
+changed by this option, and standard ELF output uses its own checked allocation.
+Configured `code_bytes` is recorded alongside `asm_bytes` in plan/build metadata.
+Actual assembly success and output validation must be measured after building;
+parameter tests alone do not prove that a large translation unit compiles.
+The no-Python Makefile buffer-budget interface is not changed in this phase.
 
 Expanded outputs live at `build/wasm/dev/expanded/<target>/<app>/<app>.wasm`.
 They are never copied over `build/wasm/<app>.wasm` or installed to SD. Native
 builds use the analogous `build/native/dev/expanded` path. The planned artifact
-JSON reports exact paths, budgets, effective profile and publication status
+JSON reports exact paths, budgets (`arena_bytes`, `asm_bytes`, `memory_bytes`), effective profile and publication status
 without compiling or creating cache entries.
 
 Each completed build writes `build-config.json` next to its artifact, including

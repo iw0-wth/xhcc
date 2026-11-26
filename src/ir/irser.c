@@ -238,6 +238,10 @@ int ir_serialize(IrProgram *p, unsigned char *buf, int cap, const char *who)
     w_u32(&w, (unsigned)tt.n);
     for (i = 0; i < tt.n; i++) {
         Type *t = tt.v[i];
+        if (t->is_zero_array) {
+            diag_tool(DIAG_SEV_ERROR, who, "private IR cannot encode GNU zero-length array types; use standard ELF objects",0,0,0,0,0,0);
+            return -1;
+        }
         StructField *fd;
         int nf = 0, np = t->param_count, ne = 0;
         EnumConst *ec;
@@ -703,6 +707,7 @@ IrProgram *ir_deserialize(const unsigned char *buf, int len, const char *who)
         t->tag = (char *)r_str(&r);
         t->is_packed = r_i32(&r);
         t->align_override = r_i32(&r);
+        t->is_zero_array = 0; /* v1/v2 predate explicit GNU [0]. */
         t->is_vla = r_i32(&r);
         t->is_volatile = r_i32(&r);
         t->is_const = r_i32(&r);

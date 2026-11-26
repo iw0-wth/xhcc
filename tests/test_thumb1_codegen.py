@@ -78,7 +78,7 @@ class Thumb1Codegen(unittest.TestCase):
         cls.env['PATH'] = os.pathsep.join([str(pd), str(pd / 'Library/bin'), cls.env.get('PATH', '')])
         harness = cls.out / 'harness.c'
         harness.write_text(HARNESS)
-        sources = ['src/ir/ir.c', 'src/ir/ir_contract_legacy.c', 'src/ir/ir_contract.c',
+        sources = ['src/ir/ir.c', 'src/ir/stack_depth.c', 'src/ir/ir_contract_legacy.c', 'src/ir/ir_contract.c',
                    'src/frontend/c/type.c', 'src/frontend/c/agginit.c', 'src/core/codegen_common.c',
                    'src/backend/arm/backend_arm.c', 'src/backend/arm/thumb1.c', 'src/backend/rules/arm_rules.c',
                    'src/backend/rules/template.c', 'src/backend/rules/semantic.c', 'src/backend/rules/abi.c',

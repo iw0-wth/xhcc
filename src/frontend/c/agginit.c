@@ -5,10 +5,13 @@
  * from counting commas, so nesting and padding fall out of the declaration.
  */
 #include "agginit.h"
+#include "memory.h"
 
 typedef struct {
     const char *s;      /* cursor into the initialiser text */
     int         ok;
+    Type *measure_tail;
+    int measure_off, measure_count;
     /* Asked about an element that is not an integer constant (see
      * ark_agg_fill_ex): 1 means the caller places that address itself. */
     int       (*addr_hook)(void *ud, int off, Type *t);
@@ -22,6 +25,7 @@ static void aga_ws(ArkAgg *c) {
 
 static void aga_store(unsigned char *buf, int off, int sz, long long v) {
     int i;
+    if (!buf) return;
     for (i = 0; i < sz; i++)
         buf[off + i] = (unsigned char)((unsigned long long)v >> (8 * i));
 }
@@ -102,7 +106,7 @@ static int aga_string(ArkAgg *c, unsigned char *buf, int gsz, int off, int n) {
             else if (ch == '\\') ch = '\\';
             else if (ch == '"') ch = '"';
         }
-        if (i < n && off + i < gsz) buf[off + i] = (unsigned char)ch;
+        if (buf && i < n && off + i < gsz) buf[off + i] = (unsigned char)ch;
         i++;
         c->s++;
     }
@@ -132,6 +136,7 @@ static int aga_hexval(char ch) {
  * rounded exactly once. */
 static void aga_store_float(unsigned char *buf, int off, int sz, double d) {
     int i;
+    if (!buf) return;
     if (sz == 8) {
         union { double d; unsigned long long u; } v;
         v.d = d;
@@ -230,6 +235,7 @@ static void aga_set_bits(unsigned char *buf, int off, int unit_sz, int bit_off,
                          int width, unsigned long long v) {
     unsigned long long unit = 0, mask;
     int i;
+    if (!buf) return;
     if (unit_sz <= 0 || unit_sz > 8 || width <= 0 || bit_off < 0) return;
     for (i = 0; i < unit_sz; i++)
         unit |= (unsigned long long)buf[off + i] << (8 * i);
@@ -275,6 +281,7 @@ static int ark_agg_flat(ArkAgg *c, Type *t, unsigned char *buf, int gsz, int off
         int es = t->base ? type_size(t->base) : 4;
         int n = t->size;
         int cur = 0;
+        if (t == c->measure_tail && off == c->measure_off && es > 0) n = (2147483647 - off) / es;
         if (es <= 0 || n <= 0) return -1;
         if (*c->s == '"') return ark_agg_value(c, t, buf, gsz, off);
         for (;;) {
@@ -288,6 +295,7 @@ static int ark_agg_flat(ArkAgg *c, Type *t, unsigned char *buf, int gsz, int off
             if (ark_agg_object(c, t->base, buf, gsz, off + cur * es) < 0)
                 return -1;
             cur++;
+            if (t == c->measure_tail && off == c->measure_off && cur > c->measure_count) c->measure_count = cur;
         }
     }
     case TYPE_STRUCT: {
@@ -349,12 +357,15 @@ static int ark_agg_value(ArkAgg *c, Type *t, unsigned char *buf, int gsz, int of
         int n = t->size;
         int cur;
         if (es <= 0) return -1;
+        if (t == c->measure_tail && off == c->measure_off) n = (2147483647 - off) / es;
         if (*c->s == '"') {
             /* A string may stand for a char array of any rank: for `char s[6]`
              * it fills the array, and for `char m[2][6]` it fills one row. */
             int cap = (es == 1) ? n * es : es;
             if (cap <= 0) return -1;
-            return aga_string(c, buf, gsz, off, cap);
+            { int end = aga_string(c, buf, gsz, off, cap);
+              if (end >= 0 && t == c->measure_tail && off == c->measure_off && end - off + 1 > c->measure_count) c->measure_count = end - off + 1;
+              return end; }
         }
         if (*c->s != '{') return -1;
         c->s++;
@@ -384,6 +395,7 @@ static int ark_agg_value(ArkAgg *c, Type *t, unsigned char *buf, int gsz, int of
             if (ark_agg_object(c, t->base, buf, gsz, off + cur * es) < 0)
                 return -1;
             cur++;
+            if (t == c->measure_tail && off == c->measure_off && cur > c->measure_count) c->measure_count = cur;
         }
     }
     case TYPE_STRUCT: {
@@ -527,6 +539,54 @@ static int ark_agg_value(ArkAgg *c, Type *t, unsigned char *buf, int gsz, int of
     }
 }
 
+static int aga_measure_address(void *ud, int off, Type *t) {
+    (void)ud; (void)off; (void)t; return 1;
+}
+
+/* A storage-only completed view. The nominal shared Type is never changed.
+ * Old private IR already carries initializer text, so readers derive this same
+ * extent without an added global wire field. Only a top-level struct tail []
+ * qualifies; nested/non-tail incomplete arrays and explicit GNU [0] do not. */
+Type *ark_agg_storage_type(Type *t, const char *text) {
+    StructField *f, *head = 0, *last = 0;
+    Type *view, *arr;
+    ArkAgg c;
+    int extent, nominal, stride;
+    if (!t || t->kind != TYPE_STRUCT || !text) return t;
+    for (f = t->fields; f && f->next; f = f->next) {}
+    if (!f || !f->type || f->type->kind != TYPE_ARRAY ||
+        f->type->size != 0 || f->type->is_zero_array || f->type->is_vla) return t;
+    stride = type_size(f->type->base);
+    if (stride <= 0 || f->offset < 0) return 0;
+    c.s = text; c.ok = 1; c.addr_hook = 0; c.addr_ud = 0;
+    c.measure_tail = f->type; c.measure_off = f->offset; c.measure_count = 0;
+    /* Addresses are skipped only while measuring, never during actual fill. */
+    c.addr_hook = aga_measure_address;
+    if (ark_agg_value(&c, t, 0, 2147483647, 0) < 0) return 0;
+    aga_ws(&c); if (*c.s) return 0;
+    if (c.measure_count == 0) return t;
+    if (c.measure_count > (2147483647 - f->offset) / stride) return 0;
+    extent = f->offset + c.measure_count * stride;
+    nominal = type_size(t); if (extent < nominal) extent = nominal;
+    view = mem_pool_alloc(sizeof(*view)); arr = mem_pool_alloc(sizeof(*arr));
+    if (!view || !arr) return 0;
+    *view = *t; *arr = *f->type; arr->size = c.measure_count;
+    for (f = t->fields; f; f = f->next) {
+        StructField *copy = mem_pool_alloc(sizeof(*copy));
+        if (!copy) return 0;
+        *copy = *f; copy->next = 0;
+        if (last) last->next = copy; else head = copy;
+        last = copy;
+    }
+    last->type = arr; view->fields = head; view->size = extent;
+    return view;
+}
+
+int ark_agg_storage_size(Type *t, const char *text) {
+    Type *view = ark_agg_storage_type(t, text);
+    return view ? (view != t ? view->size : type_size(view)) : -1;
+}
+
 int ark_agg_fill(Type *t, const char *text, unsigned char *buf, int bufsz) {
     return ark_agg_fill_ex(t, text, buf, bufsz, 0, 0);
 }
@@ -534,7 +594,11 @@ int ark_agg_fill(Type *t, const char *text, unsigned char *buf, int bufsz) {
 int ark_agg_fill_ex(Type *t, const char *text, unsigned char *buf, int bufsz,
                     int (*addr_hook)(void *ud, int off, Type *t), void *ud) {
     ArkAgg c;
+    Type *nominal = t;
     if (!text || !buf || bufsz <= 0) return -1;
+    t = ark_agg_storage_type(t, text);
+    if (!t || (t != nominal ? t->size : type_size(t)) > bufsz) return -1;
+    c.measure_tail = 0; c.measure_off = 0; c.measure_count = 0;
     c.s = text;
     c.ok = 1;
     c.addr_hook = addr_hook;

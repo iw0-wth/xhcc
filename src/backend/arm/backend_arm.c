@@ -20,6 +20,7 @@
 #include "xh_arm_rules.h"
 #include "xh_arm_thumb1.h"
 #include "xh_ir_legacy_adapter.h"
+#include "xh_ir_stack.h"
 #include "xh_rules.h"
 #include "xh_template.h"
 #include "xh_relocation.h"
@@ -5375,7 +5376,7 @@ static void gvar_assign(IrProgram *prog) {
         IrGlobal *g = prog->globals[gi];
         int esz;
         if (!g->is_extern || !g->name) continue;
-        esz = g->type ? type_size(g->type) : 4;
+        esz = g->type ? ark_agg_storage_size(g->type, g->init_aggregate) : 4;
         if (esz <= 0) esz = 4;
         gvar_note_extern(g->name, esz);
     }
@@ -5397,7 +5398,7 @@ static void gvar_assign(IrProgram *prog) {
         if (!g->has_init) continue;  /* skip .bss for now */
         /* Zero-initialized scalars go to .bss */
         if (!g->init_aggregate && !g->init_str && !g->init_sym && !g->is_float && g->init_int == 0) continue;
-        sz = g->type ? type_size(g->type) : 4;
+        sz = g->type ? ark_agg_storage_size(g->type, g->init_aggregate) : 4;
         if (sz <= 0) sz = abi->scalar32_size;
         /* SCT-1/SCT-3: custom section globals get their address from the
          * scatter exec region rather than the default .data pool. */
@@ -5447,7 +5448,7 @@ static void gvar_assign(IrProgram *prog) {
             /* __at variables: add to lookup table with their absolute address */
             g_gvar_names[g_gvar_count] = g->name;
             g_gvar_addrs[g_gvar_count] = g->at_addr;
-            g_gvar_sizes[g_gvar_count] = g->type ? type_size(g->type) : 4;  /* #6 FIX */
+            g_gvar_sizes[g_gvar_count] = g->type ? ark_agg_storage_size(g->type, g->init_aggregate) : 4;  /* #6 FIX */
             g_gvar_count++;
             continue;
         }
@@ -5461,7 +5462,7 @@ static void gvar_assign(IrProgram *prog) {
                 continue;  /* already assigned in .data */
             }
         }
-        sz = g->type ? type_size(g->type) : 4;
+        sz = g->type ? ark_agg_storage_size(g->type, g->init_aggregate) : 4;
         if (sz <= 0) sz = abi->scalar32_size;
         /* SCT-1/SCT-3: custom section globals get their address from the
          * scatter exec region rather than the default .bss pool. */
@@ -5873,6 +5874,59 @@ static void arm_put_escaped_str(AsmBuffer *b, const char *s) {
 #ifdef XHCC
 #include "arm_listing.inc"
 #endif
+/* Exact ARM32 word effects, enabled only for dynamic-allocation functions.
+ * Unknown effects are errors; no one-slot approximation for complex or ASM. */
+static int arm_alloca_effect(void*ctx,const IrFunc*f,int index,XhStackEffect*e){
+    IrProgram*prog=(IrProgram*)ctx;const IrInst*I=&f->code[index];int w=1,width=I->aux&255;
+    e->pop=e->push=e->taken_pop=e->taken_push=0;e->flow=XH_STACK_NEXT;
+    switch(I->op){
+    case IR_FUNC_BEGIN:case IR_FUNC_END:case IR_GETARG:case IR_LABEL:case IR_LABEL_NAMED:return 0;
+    case IR_PUSH_INT:case IR_PUSH_ADDR:case IR_PUSH_STR:case IR_PUSH_FUNC:case IR_PUSH_GLOBAL_ADDR:e->push=1;return 0;
+    case IR_PUSH_VAR:case IR_STORE:
+        if(I->aux&~(255|0x100|IR_AUX_VOLATILE))return -1;
+        if(width!=0&&width!=1&&width!=2&&width!=4&&width!=8&&width!=16)return -1;
+        w=width>4?width/4:1;if(I->op==IR_PUSH_VAR)e->push=w;else e->pop=w;return 0;
+    case IR_PUSH_GLOBAL:case IR_STORE_GLOBAL:
+        if(I->aux&IR_AUX_COMPLEX)return -1;w=gvar_find_size(I->name);w=w>4?(w+3)/4:1;if(w>4)return -1;
+        if(I->op==IR_PUSH_GLOBAL)e->push=w;else e->pop=w;return 0;
+    case IR_BINARY:if(xh_ir_legacy_binary(I)==XH_IR_BIN_INVALID||(I->aux&IR_AUX_SLOT64))return -1;e->pop=2;e->push=1;return 0;
+    case IR_DIV:case IR_MOD:if(I->aux!=0&&I->aux!=1)return -1;e->pop=2;e->push=1;return 0;
+    case IR_UNARY:if(I->val||I->aux&IR_AUX_COMPLEX)return -1;e->pop=e->push=1;return 0;
+    case IR_POP:e->pop=1;return 0;
+    case IR_DUP:w=I->val?(int)I->val:1;if(w<1||w>4)return -1;e->pop=w;e->push=2*w;return 0;
+    case IR_SWAP:e->pop=e->push=2;return 0;
+    case IR_TRUNC:case IR_LOAD_FLD:e->pop=e->push=1;return 0;
+    case IR_STORE_FLD:case IR_MEMCPY:e->pop=2;return 0;
+    case IR_LOAD_IDX:case IR_STORE_IDX:
+        if(I->aux&~(255|0x100|IR_AUX_VOLATILE))return -1;
+        width=(int)I->val;if(width!=1&&width!=2&&width!=4&&width!=8&&width!=16)return -1;
+        w=width>4?width/4:1;e->pop=I->op==IR_LOAD_IDX?2:1+w;e->push=w;return 0;
+    case IR_ALLOCA:if(I->aux||I->val)return -1;e->pop=e->push=1;return 0;
+    case IR_JMP:case IR_JMP_NAMED:e->flow=XH_STACK_JUMP;return 0;
+    case IR_JZ:case IR_JNZ:e->pop=e->taken_pop=1;e->flow=XH_STACK_BRANCH;return 0;
+    case IR_CMP_JMP_EQ:e->pop=e->taken_pop=1;e->flow=XH_STACK_BRANCH;return 0;
+    case IR_RETURN:if(f->ret_type&&ARK_IS_CX(f->ret_type))return -1;e->pop=ret_is_two_words(f->ret_type)?2:1;e->flow=XH_STACK_STOP;return 0;
+    case IR_CALL:{
+        int n=(int)I->val,ind=I->name&&I->name[0]=='?',real=n-ind,k,slots=ind,found=0;
+        unsigned long long flags=(unsigned long long)I->val>>32;
+        if(n<0||n>64||real<0||!I->name||(flags&~31ULL)||((flags>>2)&3)||I->abi_plan)return -1;
+        if(!ind&&(!strncmp(I->name,"__",2)))return -1;
+        for(k=0;k<real;k++){
+            int bytes;
+            if(I->aux2>0){int ix=I->aux2-1;if(ix>prog->argbytes_count||real>prog->argbytes_count-ix)return -1;bytes=prog->argbytes[ix+k];if(bytes&IR_ARG_BYVALUE_ADDRESS)return -1;bytes&=65535;if(bytes<4)bytes=4;}
+            else {if(k>=16)return -1;bytes=((unsigned)I->aux>>(2*k+1)&1)?8:4;}
+            slots+=(bytes+3)/4;
+        }
+        e->pop=slots;e->push=flags&1?2:1;if(flags&16)e->push=1;
+        else if(ind){if(flags&2)return -1;}
+        else {for(k=0;k<prog->func_count;k++)if(ark_streq(prog->funcs[k]->name,I->name)){
+            Type*rt=prog->funcs[k]->ret_type;if(rt&&ARK_IS_CX(rt))return -1;e->push=ret_is_two_words(rt)?2:(rt&&rt->kind==TYPE_VOID?0:1);found=1;break;}
+            if(!found&&flags&2)e->push=0;}
+        return 0;
+    }
+    default:return -1;
+    }
+}
 static const char *arm_fp_semantic_mode(int is_dbl){
 #if ARKCC_FEATURE_FPU_HW
     if(g_config.enable_fpu_hw&&(!is_dbl||g_arm_fpu_dp))return "hard";
@@ -6094,6 +6148,20 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
 
     for (fi = 0; fi < prog->func_count; fi++) {
         IrFunc *f = prog->funcs[fi];
+        int has_alloca=0,ai;int*alloca_state=0;XhStackWorkspace alloca_ws={0};XhStackError alloca_error;
+        for(ai=0;ai<f->code_count;ai++)if(f->code[ai].op==IR_ALLOCA){has_alloca=1;break;}
+        if(has_alloca){
+            if(xh_arm_thumb1_enabled()||f->is_naked||f->is_irq||f->code_count<1||f->code_count>65536){
+                diag_tool(DIAG_SEV_ERROR,"ARM alloca","unsupported dynamic-stack function contract",0,0,0,0,0,0);buf.failed=1;break;
+            }
+            alloca_state=(int*)malloc((size_t)f->code_count*3*sizeof(int));
+            if(!alloca_state){diag_tool(DIAG_SEV_ERROR,"ARM alloca","dynamic-stack verification workspace exhausted",0,0,0,0,0,0);buf.failed=1;break;}
+            alloca_ws.depth=alloca_state;alloca_ws.queue=alloca_state+f->code_count;alloca_ws.target=alloca_state+2*f->code_count;alloca_ws.capacity=f->code_count;alloca_ws.max_words=4096;
+            if(xh_ir_stack_validate(f,arm_alloca_effect,prog,&alloca_ws,&alloca_error)!=XH_STACK_OK){
+                char index[24];snprintf(index,sizeof index,"%d",alloca_error.instruction);diag_tool(DIAG_SEV_ERROR,"ARM alloca","unverified value-stack effect or CFG at instruction %s",index,0,0,0,0,0);free(alloca_state);buf.failed=1;break;
+            }
+        }
+
         /* Names the function whose code is being emitted, for the diagnostics
          * that are raised deep inside the instruction switch (a reference to
          * _ark_va_ptr outside a variadic function, for instance). */
@@ -6544,7 +6612,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
                 }
             }
 #endif
-            if (ark_top_enabled() && ark_top_try(&buf, I, &rtop, &rtop_ret))
+            if (!has_alloca && ark_top_enabled() && ark_top_try(&buf, I, &rtop, &rtop_ret))
                 continue;
             switch (I->op) {
                 case IR_FUNC_BEGIN:
@@ -7718,7 +7786,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
 #if ARKCC_FEATURE_TAILCALL
                     int tail_call_ok = 0;
                     int tail_call_skip = 0;   /* instructions after the call to suppress */
-                    if (g_config.enable_tailcall &&
+                    if (!has_alloca && g_config.enable_tailcall &&
                         !is_indirect && !is_sret_call && cplx_ret == 0 &&
                         !f->is_naked && !f->is_irq && !f->is_variadic &&
                         g_va_epilogue_pad == 0) {
@@ -8446,22 +8514,12 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
                     }
                     break;
                 case IR_ALLOCA: {
-                    /* Bug S6 FIX (verified): VLA dynamic stack allocation.
-                     * Pop byte count, align UP to 8 bytes (ADD+BIC rounds up,
-                     * not down), subtract from sp, push the start address.
-                     * irgen emits exactly: PUSH(size_expr); PUSH_INT(elem_sz);
-                     * BINARY(MUL); IR_ALLOCA; IR_STORE. The ALLOCA pops 1 value
-                     * (byte count) and pushes 1 value (start address) - balanced.
-                     * The previously-reported extra PUSH {r0} + ADD sp,#4 does
-                     * not exist in the current code; the bug was already fixed. */
-                    emit_pop_r0(&buf);                  /* r0 = byte count */
-                    xh_arm_rule(&buf, "text.0363");
-                    xh_arm_rule(&buf, "text.0364");  /* align up to 8 (clear low 3 bits) */
-                    xh_arm_rule(&buf, "text.0365");  /* allocate on stack */
-                    xh_arm_rule(&buf, "text.0366");      /* r0 = start address */
-                    emit_push_r0(&buf);                 /* push start address */
-                    break;
+                    int words=xh_ir_stack_alloca_live_words(f,&alloca_ws,i);char live[24],label[48];const char*args[2];
+                    if(words<0){if(alloca_ws.depth[i]<0)break;buf.failed=1;break;}
+                    snprintf(live,sizeof live,"%d",words*4);snprintf(label,sizeof label,".L_alloca_%d_%d",fi,i);args[0]=live;args[1]=label;
+                    xh_arm_semantic_args(&buf,"stack","alloca",32,"v","live",1,1,args,2);break;
                 }
+
                 /* === 0.7.0: SIMD parallel ops (Cortex-M4/M7 DSP instructions) ===
                  * Stack semantics: pop r1 (right operand), pop r0 (left operand),
                  * perform the parallel op and push r0 back. SADD16/SSUB16/SADD8/SSUB8
@@ -8510,7 +8568,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
 #endif
         }
         asmbuf_putc(&buf, '\n');
-        { int ai,has_asm=0;for(ai=0;ai<f->code_count;ai++)if(f->code[ai].op==IR_ASM){has_asm=1;break;}if(!has_asm){
+        { int ai,has_asm=0;for(ai=0;ai<f->code_count;ai++)if(f->code[ai].op==IR_ASM){has_asm=1;break;}if(!has_asm&&!has_alloca){
 #if ARKCC_FEATURE_OPT_VSTACK
         /* Keep the value stack in r5/r7 instead of memory.  Runs first, so the
          * slot rewriter below sees the already shortened function. */
@@ -8555,6 +8613,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
         /* Correctness, not an option: a frame slot beyond 4095 bytes cannot be
          * reached by "[r6, #off]" at all. */
         ark_fix_far_offset(&buf, fstart);
+        if(alloca_state)free(alloca_state);
 
         /* __attribute__((constructor/destructor)): register the function address in .init_array/.fini_array;
          * the C runtime startup code iterates and calls them before/after main.
@@ -8598,7 +8657,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
             if (!g->init_aggregate && !g->init_str && !g->init_sym && !g->is_float && g->init_int == 0) continue;
             addr = gvar_find(g->name);
             if (addr == 0) continue;
-            sz = g->type ? type_size(g->type) : 4;
+            sz = g->type ? ark_agg_storage_size(g->type, g->init_aggregate) : 4;
             if (sz <= 0) sz = abi->scalar32_size;
 
             if (g->is_float) {
@@ -8997,7 +9056,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
                 asmbuf_putc(&buf, '\n');
                 continue;
             }
-            sz = g->type ? type_size(g->type) : 4;
+            sz = g->type ? ark_agg_storage_size(g->type, g->init_aggregate) : 4;
             if (sz <= 0) sz = abi->scalar32_size;
             /* Choose section: custom section > no-init (.bss) > const (.rodata) > .data */
             if (g->section) {

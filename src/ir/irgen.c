@@ -9,6 +9,8 @@
  *   - Globals are referenced through IR_PUSH_GLOBAL / IR_STORE_GLOBAL.
  */
 #include "irgen.h"
+#include "agginit.h"
+#include "xh_const_int.h"
 #include "parser.h"
 #include "symtab.h"
 #include "memory.h"
@@ -32,6 +34,8 @@ int g_irgen_armcc_asm = 1;
 int g_irgen_native_asm = 1;
 int g_irgen_no_builtin = 0;
 int g_irgen_arm_asm_immediates = 1;
+static int g_irgen_dynamic_stack_target;
+void irgen_set_dynamic_stack_target(int supported){g_irgen_dynamic_stack_target=supported!=0;}
 
 /* See include/ir.h.  0 by default, so every target except ARM Thumb-2 rejects
  * a >8-byte composite through `...` instead of emitting code that reads the
@@ -740,10 +744,12 @@ static int irgen_init_has_str_addr(Type *t, AstNode *n) {
  * turn the initialiser into data", which does not say what to fix. */
 static void irgen_try_agg_addr_init(IrGlobal *g, AstNode *init) {
     int found = 0;
+    Type *storage;
     if (!g || !g->type || !init) return;
+    storage = ark_agg_storage_type(g->type, g->init_aggregate);
     g->init_refs = 0;
     g->init_ref_count = 0;
-    if (!irgen_agg_addr_walk(g->type, init, 0, g, &found)) {
+    if (!storage || !irgen_agg_addr_walk(storage, init, 0, g, &found)) {
         if (found || irgen_init_has_addr(init) ||
             irgen_init_has_str_addr(g->type, init)) {
             diag_tool(DIAG_SEV_ERROR, "arkcc",
@@ -763,7 +769,24 @@ static void irgen_try_agg_addr_init(IrGlobal *g, AstNode *init) {
 
 /* Append an AST expression to sb as C source; only constant expressions and simple operators are supported. */
 static void serialize_const_expr(StrBuf *b, AstNode *n) {
+    XhConstInt folded;
+    int fold;
     if (!n) { sb_puts(b, "0"); return; }
+    fold = xh_const_int_eval(n, &folded);
+    if (fold < 0) {
+        diag_tool(DIAG_SEV_ERROR, "arkcc", "invalid integer arithmetic in static initializer",0,0,0,0,0,0);
+        g_irgen_errors++; g_ser_unknown = 1; return;
+    }
+    if (fold > 0) {
+        if (folded.type && folded.type->is_unsigned && (folded.bits >> 63)) {
+            const char *hex = "0123456789abcdef";
+            int digit;
+            sb_puts(b, "0x");
+            for (digit = 15; digit >= 0; digit--) sb_putc(b, hex[(folded.bits >> (digit * 4)) & 15]);
+            sb_puts(b, "ULL");
+        } else sb_putd(b, xh_const_int_signed(folded));
+        return;
+    }
     switch (n->kind) {
         case AST_NUM:
             if (n->type && (n->type->kind == TYPE_FLOAT || n->type->kind == TYPE_DOUBLE)) {
@@ -1474,6 +1497,13 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
                 IrGlobal *eg = ir_program_find_global(out, d->u.var.name);
                 if (eg) {
                     eg->is_extern = 0;
+                    /* A prior extern can retain an opaque tagged-type node.
+                     * The definition carries the completed layout; use it for
+                     * nominal size, initializer fields and flexible storage. */
+                    if (d->u.var.var_type) {
+                        eg->type = d->u.var.var_type;
+                        existing->type = d->u.var.var_type;
+                    }
                     eg->is_const  = d->u.var.is_const;
                     eg->section   = d->u.var.section;
                     /* #3 FIX: Process initializer when definition follows extern.
@@ -1645,6 +1675,10 @@ static IrProgram *irgen_program_impl(AstNode *prog, IrProgram *out) {
                         IrGlobal *eg = ir_program_find_global(out, c->u.var.name);
                         if (eg) {
                             eg->is_extern = 0;
+                            if (c->u.var.var_type) {
+                                eg->type = c->u.var.var_type;
+                                existing_c->type = c->u.var.var_type;
+                            }
                             eg->is_const  = c->u.var.is_const;
                             eg->section   = c->u.var.section;
                             /* #3 FIX: Process initializer for block-level globals too */
@@ -5474,6 +5508,10 @@ static void irgen_expr(IrGen *g, AstNode *node) {
             if (!is_indirect && !node->u.call.callee &&
                 ark_streq(node->u.call.name, "__builtin_alloca")) {
                 DiagLoc loc;
+                if(g_irgen_dynamic_stack_target){
+                    irgen_expr(g,node->u.call.args[0]);
+                    ir_emit(g->fn,IR_ALLOCA,0,0,0);break;
+                }
                 loc.file = 0;
                 loc.line = node->line;
                 loc.col = node->col;

@@ -101,6 +101,9 @@ typedef struct Type {
     BfBreak     *bf_breaks;
     /* Frontend-only VLA bound; consumed by sizeof lowering, never serialized. */
     struct AstNode *vla_bound;
+    /* GNU constant [0] struct tail, distinct from an incomplete/flexible [].
+     * Private IR rejects this extension; standard objects carry layout. */
+    int          is_zero_array;
 } Type;
 
 /* ARK_IS_CX(t): does `t` name a _Complex type?  Spelled as a literal 0 in a
