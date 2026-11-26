@@ -4892,13 +4892,21 @@ static void arm_scatter_load(void) {
 static const char *g_ext_names[ARM_MAX_GVARS];
 static int         g_ext_sizes[ARM_MAX_GVARS];
 static int         g_ext_count = 0;
+/* Borrowed only for the active codegen invocation; extern cache is optional. */
+static IrProgram *g_gvar_program;
+static IrGlobal *gvar_declaration(const char*name){
+    int i;if(!g_gvar_program||!name)return 0;
+    for(i=0;i<g_gvar_program->global_count;i++){
+        IrGlobal*g=g_gvar_program->globals[i];if(g->name&&ark_streq(g->name,name))return g;
+    }return 0;
+}
 
 static void gvar_note_extern(const char *name, int size) {
     int i;
     if (!name || !name[0]) return;
     for (i = 0; i < g_ext_count; i++)
         if (ark_streq(g_ext_names[i], name)) return;   /* first declaration wins */
-    if (g_ext_count >= ARM_MAX_GVARS) return;          /* reported by the caller */
+    if (g_ext_count >= ARM_MAX_GVARS) return; /* full declaration lookup handles misses */
     g_ext_names[g_ext_count] = name;
     g_ext_sizes[g_ext_count] = size;
     g_ext_count++;
@@ -4934,7 +4942,8 @@ static int gvar_find_size(const char *name) {
      * 64-bit extern read as one word is a wrong answer, not a small one. */
     for (i = 0; i < g_ext_count; i++)
         if (ark_streq(g_ext_names[i], name)) return g_ext_sizes[i];
-    return 4;  /* default 4 bytes */
+    {IrGlobal*g=gvar_declaration(name);if(g&&g->is_extern){int size=g->type?ark_agg_storage_size(g->type,g->init_aggregate):4;return size>0?size:4;}}
+    return 4;  /* unknown size is diagnosed by address materialization */
 }
 
 #if ARKCC_FEATURE_OPT_IMM
@@ -4977,9 +4986,17 @@ static int gvar_kind(const char *name, unsigned *addr, int *size) {
             return 1;
         }
     }
+    {IrGlobal*g=gvar_declaration(name);if(g&&g->is_extern&&g->has_at){if(addr)*addr=g->at_addr;if(size)*size=g->type?type_size(g->type):4;return 1;}}
     for (i = 0; i < g_ext_count; i++) {
         if (ark_streq(g_ext_names[i], name)) {
             if (size) *size = g_ext_sizes[i];
+            return 2;
+        }
+    }
+    {IrGlobal*g=gvar_declaration(name);
+        if(g&&g->is_extern){
+            if(size){int n=g->type?ark_agg_storage_size(g->type,g->init_aggregate):4;*size=n>0?n:4;}
+            if(g->has_at){if(addr)*addr=g->at_addr;return 1;}
             return 2;
         }
     }
@@ -5010,6 +5027,10 @@ static void emit_gvar_addr32(AsmBuffer *b, int rd, const char *name) {
         return;
     }
 #endif
+    if(!kind){
+        diag_tool(DIAG_SEV_ERROR,"ARM codegen","global address '%s' has no declaration or assigned storage",name,0,0,0,0,0);
+        b->failed=1;return;
+    }
     if (kind != 2) {
         emit_mov_addr32(b, rd, addr, addr_in_own_data(addr));
         return;
@@ -5350,7 +5371,7 @@ static void gvar_assign(IrProgram *prog) {
     unsigned data_sram = g_data_base;   /* .data origin (scatter +RW or 0x20000000) */
     unsigned bss_sram;                  /* .bss origin (computed below) */
     int gi;
-    g_gvar_count = 0;
+    g_gvar_count = 0;g_ext_count=0;g_gvar_program=prog;
     /* Both passes below stop at ARM_MAX_GVARS, and a global without an address
      * is worse than a failure: the emit path either reports something obscure
      * or uses a stale address.  Count first, refuse once, name the macro. */
@@ -9286,6 +9307,7 @@ static char *codegen_arm(IrProgram *prog,char*storage,int capacity,int*buffer_fa
     if (g_xhcc_elf_mode && g_xhcc_listing_mode) xh_listing_data(&buf, prog);
 #endif
     *buffer_failed=asmbuf_failed(&buf);
+    g_gvar_program=0;
     return buf.buf;
 }
 
@@ -13137,7 +13159,7 @@ static int arm_emit(IrProgram *m, char *out, int cap) {
     char *text;
     int fi,ii,buffer_failed=0;
     if(!out||cap<1)return -1;
-    xh_arm_rules_reset();
+    xh_arm_rules_reset();g_gvar_program=0;g_ext_count=0;g_gvar_count=0;
     if(xh_arm_thumb1_enabled()&&m->global_count){diag_tool(DIAG_SEV_ERROR,"Thumb-1 legalizer","global objects are outside initial scalar subset",0,0,0,0,0,0);if(cap>0)out[0]=0;return -1;}
     for(fi=0;fi<m->func_count;fi++)for(ii=0;ii<m->funcs[fi]->code_count;ii++){
         const IrInst*inst=&m->funcs[fi]->code[ii];

@@ -171,6 +171,10 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 最重要的执行边界：独立 Unicorn 从原 vector Reset 启动，仅六条指令后在 Reset+0xe 的 `str r0,[r6]` 写地址零失败，裸 C 路径没有建立所需 frame；data copy、BSS zero、MMIO 和 main 均未到达。没有 ROM patch 或造寄存器值来绕过，也没有板上验收。因而本批只证明真实 ELF/BIN 文件结构与布局成功，不是可运行 MicroPython 固件、更不是 REPL 成功。后续必须继续修复真实启动路径并重跑原 vector，而不是将 linker exit 0、section 结构或 main 单函数 probe 当作目标完成；未归属的旁路报告也不作实现证据。
 
+新启动成熟批次修复 ARM extern cache 达 128 条后静默遗漏：保留固定表，并以完整 program lookup fallback 查询，不增静态表；未知符号直接诊断，129/257 外部符号和私有 270-TU/clear 用例通过。默认四应用 991763/1026619/926520/299562 字节（4 MiB linear/1 MiB arena）完整回归与 SD 七项通过。SD 启动副本采用可审阅的四文件 profile 适配：basic ASM trampoline 只设置 SP/分支到普通 C 的 volatile data copy/BSS zero，再进入 `_start`；默认原 profile 和原仓只读状态保留。这不是通用 naked C 混合语句支持；新 140-TU manifest 明确允许这四个变更，不冒用旧 219 输入摘要声称完全相同。xhcc/GNU 各 fresh 140/140 成功，startup 七个符号引用无缺失。
+
+148 输入 link5 的 LD make 与 size 均返回 0，requested heap=2735016/4194304B，产生 1351124B ELF 和实际 xhlinker 527728B BIN；PT_LOAD flatten 逐字节一致。GNU objcopy 为 527724B，严格全等仍为 false，尾四字节为动态 ALIGN 零填充，保留不截断。新 ELF 从真实 vector Reset 到 main 的 Unicorn probe 通过（128853 hooks、7.533 秒）：不造 r6、不预先复制 data、不 patch ROM；8016B data 都有 CPU write 覆盖且与 Flash/LMA 逐字节一致，2512B BSS 都由 CPU 写入并全零，真实 `_start`/stm32/gpio 路径只使用精确 MMIO 白名单的零读写模型。到 main 时 PC=134709536、SP=0x2001ffd0、r0=r1=0。此证据完成该适配 profile 的 host 编译链接与启动到 main 阶段，不等于 REPL 行为、真实外设或板上验收。下一步仍须验证基础 REPL，再优化总 RAM 至 5–6 MiB，不能将阶段成功标为整体目标完成。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。
