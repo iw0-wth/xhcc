@@ -10314,6 +10314,45 @@ static int parse_reglist_a(ArmAsm *a, const char **p, int *has_lr, int *has_pc);
 /* Forward declaration: pass 1 records branch targets for -fopt-branch. */
 static int read_label_name_a(const char **p, char *buf, int cap);
 
+/* Shared decoding contract for both layout and emission. Hex escapes consume
+ * at most two digits, matching the established assembler byte writer. Unknown
+ * escapes retain their escaped character; an empty \x retains byte zero. */
+static int arm_asm_hex_digit(int c){
+    if(c>='0'&&c<='9')return c-'0';
+    if(c>='a'&&c<='f')return c-'a'+10;
+    if(c>='A'&&c<='F')return c-'A'+10;return -1;
+}
+static int arm_asm_string_byte(const char**cursor,unsigned char*byte){
+    const char*p=*cursor;unsigned c;int h,k;
+    if(!*p||*p=='\n'||*p=='\r')return -1;
+    if(*p=='"'){*cursor=p+1;return 0;}
+    c=(unsigned char)*p++;
+    if(c=='\\'){
+        if(!*p||*p=='\n'||*p=='\r')return -1;
+        c=(unsigned char)*p++;
+        switch(c){
+        case 'n':c='\n';break;case 't':c='\t';break;case 'r':c='\r';break;
+        case '0':c=0;break;
+        case 'x':c=0;for(k=0;k<2&&(h=arm_asm_hex_digit((unsigned char)*p))>=0;k++){c=c*16+(unsigned)h;p++;}break;
+        default:break;
+        }
+    }
+    *byte=(unsigned char)c;*cursor=p;return 1;
+}
+static int arm_asm_string(ArmAsm*a,const char**cursor,int emit,int nul,int*bytes){
+    const char*p=*cursor;unsigned char c;int status,n=0;
+    skip_space_a(&p);
+    if(*p!='"')goto malformed;p++;
+    while((status=arm_asm_string_byte(&p,&c))>0){
+        if(n==2147483647)goto malformed;n++;
+        if(emit){out8(a,c);if(a->overflow)return -1;}
+    }
+    if(status<0)goto malformed;
+    if(nul){n++;if(emit){out8(a,0);if(a->overflow)return -1;}}
+    *bytes=n;*cursor=p;return 0;
+    malformed:diag_tool(DIAG_SEV_ERROR,"ARM assembler","unterminated or malformed assembly string literal",0,0,0,0,0,0);a->hard_errors++;return -1;
+}
+
 static void pass1_a(ArmAsm *a) {
     a->pass2 = 0;
     const char *p = a->src;
@@ -10399,34 +10438,10 @@ static void pass1_a(ArmAsm *a) {
                 const char *scan = p;
                 while (*scan && *scan != '\n') { if (*scan == ',') count++; scan++; }
                 pc += count;
-            } else if (strieq_a(first, ".asciz")) {
-                /* .asciz "string" - string length + NUL, aligned to 2 */
-                int slen = 0;
-                skip_space_a(&p);
-                if (*p == '"') {
-                    p++;
-                    while (*p && *p != '"' && *p != '\n') {
-                        if (*p == '\\') { slen++; p++; if (*p) p++; }
-                        else { slen++; p++; }
-                    }
-                    if (*p == '"') p++;
-                }
-                slen++;  /* NUL terminator */
-                if (slen & 1) slen++;  /* align to 2 */
-                pc += slen;
-            } else if (strieq_a(first, ".ascii")) {
-                int slen = 0;
-                skip_space_a(&p);
-                if (*p == '"') {
-                    p++;
-                    while (*p && *p != '"' && *p != '\n') {
-                        if (*p == '\\') { slen++; p++; if (*p) p++; }
-                        else { slen++; p++; }
-                    }
-                    if (*p == '"') p++;
-                }
-                if (slen & 1) slen++;
-                pc += slen;
+            } else if (strieq_a(first,".asciz")||strieq_a(first,".ascii")){
+                int bytes=0;
+                if(arm_asm_string(a,&p,0,strieq_a(first,".asciz"),&bytes)){a->planned_bytes=pc;return;}
+                pc+=bytes;if(pc&1)pc++;
             } else if (strieq_a(first, ".align") || strieq_a(first, ".balign")) {
                 /* Align to N bytes */
                 int align = 0;
@@ -11232,59 +11247,10 @@ static void pass2_a(ArmAsm *a) {
                     skip_space_a(&p);
                     if (*p == ',') p++;
                 }
-            } else if (strieq_a(first, ".asciz") || strieq_a(first, ".ascii")) {
-                int is_asciz = strieq_a(first, ".asciz");
-                skip_space_a(&p);
-                if (*p == '"') {
-                    p++;
-                    while (*p && *p != '"' && *p != '\n') {
-                        unsigned char c;
-                        if (*p == '\\') {
-                            p++;
-                            switch (*p) {
-                                case 'n': c = '\n'; break;
-                                case 't': c = '\t'; break;
-                                case 'r': c = '\r'; break;
-                                case '\\': c = '\\'; break;
-                                case '"': c = '"'; break;
-                                case '0': c = '\0'; break;
-                                case 'x': {
-                                    int hv = 0;
-                                    p++;
-                                    if (*p && ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
-                                        char ch = *p;
-                                        hv = (ch >= '0' && ch <= '9') ? ch - '0' :
-                                             (ch >= 'a' && ch <= 'f') ? ch - 'a' + 10 : ch - 'A' + 10;
-                                        p++;
-                                        if (*p && ((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F'))) {
-                                            ch = *p;
-                                            hv = hv * 16 + ((ch >= '0' && ch <= '9') ? ch - '0' :
-                                                 (ch >= 'a' && ch <= 'f') ? ch - 'a' + 10 : ch - 'A' + 10);
-                                            p++;
-                                        }
-                                    }
-                                    c = (unsigned char)hv;
-                                    p--;  /* compensate for p++ below */
-                                    break;
-                                }
-                                default: c = (unsigned char)*p; break;
-                            }
-                            p++;
-                        } else {
-                            c = (unsigned char)*p;
-                            p++;
-                        }
-                        out8(a,c);if(a->overflow)return;
-                    }
-                    if (*p == '"') p++;
-                }
-                if (is_asciz) {
-                    out8(a,0);if(a->overflow)return;
-                    /* Align to 2 to match pass1 */
-                    if (a->pc & 1) { out8(a,0);if(a->overflow)return; }
-                } else {
-                    if (a->pc & 1) { out8(a,0);if(a->overflow)return; }
-                }
+            } else if (strieq_a(first,".asciz")||strieq_a(first,".ascii")){
+                int bytes=0;
+                if(arm_asm_string(a,&p,1,strieq_a(first,".asciz"),&bytes))return;
+                if(a->pc&1){out8(a,0);if(a->overflow)return;}
             } else if (strieq_a(first, ".align") || strieq_a(first, ".balign")) {
                 int align = 0;
                 skip_space_a(&p);

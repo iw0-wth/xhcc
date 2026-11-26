@@ -167,6 +167,10 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 真实 link3 扫描 147 对象、2033 sections、22364 symbols，requested heap 峰值 2748435/4194304B，在唯一 pyexec 复制-helper 完成标签处拒绝：symbol value=5668，text size=5658，超出十字节，不是合法 end-label。私有布局审计已定位 `.asciz` 的 hex escape 在 pass1 长度规划与 pass2 解码不一致，修复当时尚未生产实施，不能声称标签已修。该链接仍无 ELF/BIN/固件；PREL31/runtime 独立通过不等于最终已重定位异常表完成验收。提交成熟阶段后继续尺寸一致性、真实链接与执行，不暂停目标，也不将工具链外部闭包替代目标 RAM 优化。
 
+字符串布局成熟批次以共享 decoder 统一 ARM pass1 长度规划与 pass2 字节生成，保持既有 escape 合同；GNU exact bytes/labels、容量阴性和分支 CPU=42 均通过。默认四应用 991331/1026187/926094/299562 字节（4 MiB linear/1 MiB arena）完整回归及 SD 七项通过。固定开发 compiler 926540 字节下 attempt9 fresh 139/139 CC 通过，8956 个 defined alloc symbols 全无越界，原 pyexec 完成标签变为 5654/text5658。相同 147 输入的 link4 实际 LD make 与 size 均 exit 0，首次产生 1360836B 标准 ARM ET_EXEC，vector/entry/`_sidata` 等结构布局通过；requested heap=2748435/4194304B。实际 xhlinker BIN=534168B，PT_LOAD flatten 逐字节一致；GNU objcopy=534164B，严格全等为 false，公共前缀一致，末尾四个零来自 `.data` PT_LOAD filesz=8016 含到 `_edata` 的 ALIGN padding，而 GNU section projection 不带。必须保留该差异，不能截 BIN 伪造 strict equal。
+
+最重要的执行边界：独立 Unicorn 从原 vector Reset 启动，仅六条指令后在 Reset+0xe 的 `str r0,[r6]` 写地址零失败，裸 C 路径没有建立所需 frame；data copy、BSS zero、MMIO 和 main 均未到达。没有 ROM patch 或造寄存器值来绕过，也没有板上验收。因而本批只证明真实 ELF/BIN 文件结构与布局成功，不是可运行 MicroPython 固件、更不是 REPL 成功。后续必须继续修复真实启动路径并重跑原 vector，而不是将 linker exit 0、section 结构或 main 单函数 probe 当作目标完成；未归属的旁路报告也不作实现证据。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。
