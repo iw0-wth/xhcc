@@ -3943,7 +3943,9 @@ static AstNode *parse_unary_expr(Parser *p) {
                     Symbol *fsym = sym_find(e->u.call.name);
                     /* Keep the intrinsic operand until sema so its argument
                      * constraints are checked even in this unevaluated context. */
-                    if (ark_streq(e->u.call.name, "__builtin_alloca"))
+                    if (ark_streq(e->u.call.name, "__builtin_alloca") ||
+                        ark_streq(e->u.call.name, "__builtin_clz") ||
+                        ark_streq(e->u.call.name, "__builtin_expect"))
                         return ast_sizeof_pending(e, line);
                     if (fsym && fsym->type) {
                         Type *ftype = fsym->type;

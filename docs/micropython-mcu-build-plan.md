@@ -66,7 +66,7 @@ SD 副本新增可选 `XHCC_MCU_ONLY=1` profile 关闭冻结，默认 profile �
 
 第六批全新构建已到 128/139；第七批修正真实 include guard 观察、宏注释、void/comma 栈平衡、暂定定义、聚合地址、reserved unreachable 和 GNU 警告/asm 输入后，**原 GNU make 的 139 个对象全部实际编译成功，make exit 0**。开发配置为 arena 8 MiB、linear 32 MiB、ASM 2 MiB、code buffer 1 MiB；最大单 TU arena 为 `compile.o` 的 6042144 字节，不代表总任务 RAM 已到 5～6 MiB。所有对象来自同一固定模块，未复用旧 xhcc 对象或混入 GNU 对象，源与生成头参考校验、包资源前后哈希均通过。
 
-独立 project linker 已读入该 139 对象集合：1948 sections、22284 symbols，请求 heap peak 1227839/4194304 字节。原 GNU 参数因 `-nostdlib` 被明确拒绝；声明 no-GC/no-map/no-cref 的 `-T` 适配后，首个真实链接缺口是原 STM32F405 脚本 `.data : AT(_sidata)`（line 38），尚无 firmware 输出。原脚本和对象顺序未改，未添加伪运行库或覆盖原仓。显式加载地址脚本语义已实现并通过 GNU oracle 与旧 ARM/RV 链接回归。第二次真实链接完整通过原脚本，进入符号解析，首错为 `__builtin_clz`，仍无固件。只读检查全部 alloc 重定位后的真实未解析集合为八个名字：`__builtin_clz`、`__builtin_expect` 和六个 ARM EABI 64 位辅助函数，共 41 个引用；不把未引用 extern 声明误报为缺口。下一步分别实现编译器内建和提供有来源、许可证及依赖闭包记录的真实目标运行库，再继续重定位和启动验证。
+独立 project linker 已读入该 139 对象集合：1948 sections、22284 symbols，请求 heap peak 1227839/4194304 字节。原 GNU 参数因 `-nostdlib` 被明确拒绝；声明 no-GC/no-map/no-cref 的 `-T` 适配后，首个真实链接缺口是原 STM32F405 脚本 `.data : AT(_sidata)`（line 38），尚无 firmware 输出。原脚本和对象顺序未改，未添加伪运行库或覆盖原仓。显式加载地址脚本语义已实现并通过 GNU oracle 与旧 ARM/RV 链接回归。第二次真实链接完整通过原脚本，进入符号解析，首错为 `__builtin_clz`，仍无固件。只读检查全部 alloc 重定位后的真实未解析集合为八个名字：`__builtin_clz`、`__builtin_expect` 和六个 ARM EABI 64 位辅助函数，共 41 个引用；不把未引用 extern 声明误报为缺口。`clz/expect` 已实现通用 IR 下沉并通过五目标及 ARM/C 执行专项；第八批全新 139/139 对象成功，实际 alloc 重定位中两个 builtin 外部引用为零，仅剩六个 EABI 名字。另提取准确 Cortex-M4 soft-float multilib 的八个真实 libgcc 成员形成闭包，保留许可证和来源限制，未冒充 xhcc 生成代码。PREL31 与受检 CANTUNWIND EXIDX 支持后，第三次链接使用 147 输入和独立、有 diff 的 SD 脚本配置，未删除异常元数据；实际首先拒绝 `pyexec.o` 中超出代码节 10 字节的本地标签。当前正在修对象生产端的一遍/二遍布局不一致，未放宽链接边界或手改 ELF，仍无 firmware。
 
 ## 下一批实施顺序
 

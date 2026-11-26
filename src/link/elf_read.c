@@ -144,6 +144,16 @@ int xh_elf_open_target(const unsigned char *data,size_t len,XhElfTarget target,X
             int rc=string_at(&v,&names,s.name_index,&name);
             if(rc) return rc;
         } else if(s.name_index) return XH_ELF_ERR_INDEX;
+        /* This bounded subset supports only ARM exception-index link ordering.
+         * Check association after every input section span has been validated. */
+        if(s.type==XH_ELF_SHT_ARM_EXIDX || (s.flags&XH_ELF_SHF_LINK_ORDER)) {
+            if(target!=XH_ELF_TARGET_ARM || s.type!=XH_ELF_SHT_ARM_EXIDX ||
+               s.flags!=(XH_ELF_SHF_ALLOC|XH_ELF_SHF_LINK_ORDER))return XH_ELF_ERR_UNSUPPORTED;
+            if(s.align<4u || s.size%8u || (s.entsize && s.entsize!=8u) || s.info)return XH_ELF_ERR_FORMAT;
+            if(!s.link || s.link>=v.shnum || s.link==i)return XH_ELF_ERR_INDEX;
+            section_raw(&v,s.link,&t);
+            if(t.type!=XH_ELF_SHT_PROGBITS || (t.flags&7u)!=6u || (t.flags&~7u))return XH_ELF_ERR_FORMAT;
+        }
         if(s.type==XH_ELF_SHT_SYMTAB) {
             if(s.entsize!=16 || s.size%16 || !s.size) return XH_ELF_ERR_FORMAT;
             if(s.size/16u>XH_ELF_MAX_RECORDS) return XH_ELF_ERR_UNSUPPORTED;

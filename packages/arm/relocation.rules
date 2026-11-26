@@ -420,6 +420,24 @@ write r0 0 2
 end
 
 # Standard ARM ELF32 REL rules: distinct from private target-PC-bias patches.
+# PREL31: signed low-31-bit addend; preserve the destination's nonrelocated bit31.
+rule ELF_PREL31 4
+set r0 S
+set r1 A
+add r0 r0 r1
+set r1 B
+or r0 r0 r1
+set r1 P
+sub r0 r0 r1
+range r0 31 signed
+const r1 0x7fffffff
+and r0 r0 r1
+read r2 0 4
+const r1 0x80000000
+and r2 r2 r1
+or r0 r0 r2
+write r0 0 4
+end
 rule ELF_ABS32 4
 set r0 S
 set r1 A

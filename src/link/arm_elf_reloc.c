@@ -10,6 +10,7 @@ int xh_arm_elf_rel_decode(unsigned type,const unsigned char*code,size_t length,s
     hi=u16(code+site);lo=u16(code+site+2);
     switch(type){
     case 2:a=signed_bits((uint32_t)hi|((uint32_t)lo<<16),32);break;
+    case 42:a=signed_bits(((uint32_t)hi|((uint32_t)lo<<16))&0x7fffffffu,31);break;
     case 10:case 30:{
         unsigned sign,i1,i2;
         if((site&1)||(hi&0xf800)!=0xf000||(lo&0xd000)!=(type==10?0xd000:0x9000))return -1;
@@ -34,7 +35,7 @@ int xh_arm_elf_rel_decode(unsigned type,const unsigned char*code,size_t length,s
 int xh_arm_elf_rel_apply(unsigned type,unsigned char*code,size_t length,size_t site,uint32_t symbol,uint32_t place,unsigned symbol_thumb){
     XhRelocContext ctx={0};int64_t addend;unsigned width;const char*key;
     if(symbol_thumb>1||xh_arm_elf_rel_decode(type,code,length,site,&addend,&width))return -1;
-    switch(type){case 2:key="ELF_ABS32";break;case 10:key="ELF_THM_CALL";break;case 30:key="ELF_THM_JUMP24";break;case 51:key="ELF_THM_JUMP19";break;case 47:key="ELF_MOVW_ABS_NC";break;case 48:key="ELF_MOVT_ABS";break;default:return -1;}
+    switch(type){case 2:key="ELF_ABS32";break;case 42:key="ELF_PREL31";break;case 10:key="ELF_THM_CALL";break;case 30:key="ELF_THM_JUMP24";break;case 51:key="ELF_THM_JUMP19";break;case 47:key="ELF_MOVW_ABS_NC";break;case 48:key="ELF_MOVT_ABS";break;default:return -1;}
     ctx.symbol=symbol_thumb?(symbol&~(uint32_t)1):symbol;
     ctx.addend=(uint64_t)addend;ctx.place=place;ctx.image_base=symbol_thumb;
     return xh_relocation_apply("arm",key,code,length,site,&ctx);

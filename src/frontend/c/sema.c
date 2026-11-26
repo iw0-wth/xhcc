@@ -1307,6 +1307,37 @@ static Type *sema_expr(AstNode *node) {
         case AST_FUNC_CALL: {
             Symbol *s = sym_find(node->u.call.name);
             int i;
+            /* Reserved GNU intrinsics remain intrinsics under -fno-builtin.
+             * Their parameter conversions are part of the builtin signature,
+             * not the argument's original width/signedness. */
+            if (!node->u.call.callee && node->u.call.name &&
+                (ark_streq(node->u.call.name, "__builtin_clz") ||
+                 ark_streq(node->u.call.name, "__builtin_expect"))) {
+                int is_clz = ark_streq(node->u.call.name, "__builtin_clz");
+                int argc = is_clz ? 1 : 2;
+                Type *param_type = is_clz ? type_uint() : type_long();
+                for (i = 0; i < node->u.call.arg_count; i++) {
+                    Type *at = sema_expr(node->u.call.args[i]);
+                    if (!type_is_integer(at)) {
+                        DiagLoc loc = loc_of(node->u.call.args[i]);
+                        diag_report_msg(DIAG_SEV_ERROR, &loc,
+                            "%s requires integer arguments", node->u.call.name, 0, 0);
+                        g_errors++;
+                    } else if (i < argc) {
+                        node->u.call.args[i] =
+                            sema_implicit_cast(node->u.call.args[i], param_type);
+                    }
+                }
+                if (node->u.call.arg_count != argc) {
+                    DiagLoc loc = loc_of(node);
+                    diag_report_msg(DIAG_SEV_ERROR, &loc,
+                        is_clz ? "__builtin_clz requires exactly one argument" :
+                                 "__builtin_expect requires exactly two arguments", 0, 0, 0);
+                    g_errors++;
+                }
+                node->type = is_clz ? type_int() : type_long();
+                return node->type;
+            }
             /* Reserved even under -fno-builtin; execution cannot return. */
             if (!node->u.call.callee && node->u.call.name &&
                 ark_streq(node->u.call.name, "__builtin_unreachable")) {

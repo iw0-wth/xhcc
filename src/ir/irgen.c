@@ -5528,6 +5528,50 @@ static void irgen_expr(IrGen *g, AstNode *node) {
                 break;
             }
 
+            /* Target-neutral clz(unsigned int), returning int. Keep all state
+             * in private frame locals: the operand is evaluated exactly once,
+             * nested calls/recursion are safe, and every branch has the same
+             * value-stack depth. GNU leaves zero undefined; this implementation
+             * happens to return 32, without granting an optimization promise. */
+            if (!is_indirect && !node->u.call.callee &&
+                ark_streq(node->u.call.name, "__builtin_clz")) {
+                int value = alloc_local(g, 4);
+                int count = alloc_local(g, 4);
+                int loop_l = alloc_label(g);
+                int end_l = alloc_label(g);
+                irgen_expr(g, node->u.call.args[0]);
+                ir_emit(g->fn, IR_STORE, value, 0, 4);
+                ir_emit(g->fn, IR_PUSH_INT, 32, 0, 0);
+                ir_emit(g->fn, IR_STORE, count, 0, 4);
+                ir_emit(g->fn, IR_LABEL, loop_l, 0, 0);
+                ir_emit(g->fn, IR_PUSH_VAR, value, 0, 4);
+                ir_emit(g->fn, IR_JZ, end_l, 0, 0);
+                ir_emit(g->fn, IR_PUSH_VAR, count, 0, 4);
+                ir_emit(g->fn, IR_PUSH_INT, 1, 0, 0);
+                ir_emit(g->fn, IR_BINARY, 0, 0, (int)TOK_MINUS);
+                ir_emit(g->fn, IR_STORE, count, 0, 4);
+                ir_emit(g->fn, IR_PUSH_VAR, value, 0, 4);
+                ir_emit(g->fn, IR_PUSH_INT, 1, 0, 0);
+                ir_emit(g->fn, IR_BINARY, 0, 0, (int)TOK_SHR | 0x100);
+                ir_emit(g->fn, IR_STORE, value, 0, 4);
+                ir_emit(g->fn, IR_JMP, loop_l, 0, 0);
+                ir_emit(g->fn, IR_LABEL, end_l, 0, 0);
+                ir_emit(g->fn, IR_PUSH_VAR, count, 0, 4);
+                break;
+            }
+
+            /* expect(long exp, long expected) is a value-preserving hint.
+             * GCC accepts a nonconstant expected operand and evaluates its side
+             * effects. Match ordinary call argument order (right to left),
+             * discarding with the target-aware scalar representation helper. */
+            if (!is_indirect && !node->u.call.callee &&
+                ark_streq(node->u.call.name, "__builtin_expect")) {
+                irgen_expr(g, node->u.call.args[1]);
+                irgen_discard_result(g, node->u.call.args[1]);
+                irgen_expr(g, node->u.call.args[0]);
+                break;
+            }
+
             /* The existing VLA lowering moves the physical value stack and
              * cannot preserve live operands in general call expressions.  Keep
              * this reserved intrinsic explicit until dynamic-stack lowering is

@@ -163,6 +163,10 @@ IR/LTO 验收必须包含真实重载后的正例执行，不能仅测 round-tri
 
 后续 AT 表达式小范围检查点已构建默认四应用 988656/1023505/925277/297724 字节（4 MiB linear/1 MiB arena），focused AT/parser/ARM/RV 共二十五项含 GNU oracle 通过，SD 七项与 247 managed resources 通过；本批没有重跑整套 tools，上一大批的完整回归证据应独立保留。regionless 输出仅验证非 alloc ARM attributes、不转发也不生成 PT_LOAD；explicit LMA 必须受 MEMORY 区域包含与非重叠约束。实际 link2 已用相同 139 对象/原脚本越过 `AT(_sidata)`，扫描 1948 sections/22284 symbols，requested heap 峰值 2594183/4194304B，仍 out=0 并在首个 undefined `__builtin_clz` 失败。原 `-nostdlib` 等 flags 拒绝与 `-T`/不提供 GC、map、cref 的适配调用须分别报告；入口阶段尚未触及，不能伪补 Reset_Handler 调用或声称入口已验证。真正 alloc 引用缺口为八个名称/四十一个引用（clz、expect 及六个 AEABI 名称），不是任意 libc/port 符号清单；内建实现与外部 GNU libgcc 对象/许可闭包此时尚未生产接入，不能假称已解决或混入项目 MIT 源码。该链接检查点没有固件，下一批须继续明确实现、外部 runtime 来源/许可及严格链接证据。
 
+内建/PREL31 成熟检查点的默认四应用 991511/1026367/926280/299562 字节（4 MiB linear/1 MiB arena）已通过完整回归及 SD 七项。builtin clz/expect 四项与 fresh 139/139 CC 通过，真实 alloc 引用中两内建归零、余六个 AEABI 名称/三十七个引用；PREL31 十项、EXIDX 五项 CANTUNWIND-only、reader 4950 检查及原回归均通过。SD 中八个 GNU 15.2.1 multilib 对象组成约 9 KiB 外部 runtime 闭包，不是 xhcc 生成对象或项目核心 MIT 代码；保留 GPLv3 与 GCC Runtime Library Exception、vendor 来源和提取记录，vendor 对应源码尚未核验，不得把来源记录误写成已履行所有分发义务。实际链接采用显式 EXIDX profile，保留原脚本差异和异常表，data 使用 AT>FLASH/LOADADDR，不删除段、造 stub 或混入 GNU 用户对象来隐藏缺口。
+
+真实 link3 扫描 147 对象、2033 sections、22364 symbols，requested heap 峰值 2748435/4194304B，在唯一 pyexec 复制-helper 完成标签处拒绝：symbol value=5668，text size=5658，超出十字节，不是合法 end-label。私有布局审计已定位 `.asciz` 的 hex escape 在 pass1 长度规划与 pass2 解码不一致，修复当时尚未生产实施，不能声称标签已修。该链接仍无 ELF/BIN/固件；PREL31/runtime 独立通过不等于最终已重定位异常表完成验收。提交成熟阶段后继续尺寸一致性、真实链接与执行，不暂停目标，也不将工具链外部闭包替代目标 RAM 优化。
+
 必须加入与本次变更匹配的 same-SHA 实验：对主 Wasm 做 SHA256；复制包，只改一条有效选择/编码/ABI/对象/补丁规则；用不变主模块生成代码；检查二进制/链接执行行为按预期改变；最后主模块 SHA 必须相同。至少一个坏规则应失败且不产有效输出。不能把规则记录数增加当作生效证据。
 
 对机器码用 GNU assembler/linker 或 LLVM 的对应目标作为独立 oracle，比较实际指令字节和标准 ELF header/sections/symbols/relocation；用 Unicorn 在有支持的目标上执行算术、分支、内存、调用和边界样例。Unicorn 不支持的新 ISA 使用独立模拟器/硬件，说明覆盖限制；不要为了得到绿色结果伪装执行。C 输出交给独立宿主 C 编译器并验证运行。浮点、64 位、聚合、varargs、跨 TU 混编要按声明能力单独覆盖。

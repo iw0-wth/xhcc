@@ -12,7 +12,7 @@
 #include <limits.h>
 
 typedef struct {
-    uint32_t type,flags,size,align,name,addr,off,lma;
+    uint32_t type,flags,size,align,name,addr,off,lma,link,entsize;
     uint16_t out,group;
 } Sec;
 typedef struct {
@@ -100,7 +100,22 @@ static int scan(Link *l,const char *path,Obj *o) {
         XhElfSection s;xh_elf_section(&v,i,&s);
         if(s.type==XH_ELF_SHT_SYMTAB) {if(o->tab){fail(l,"multiple SYMTAB sections unsupported");goto bad;}o->tab=i;o->ny=s.size/16u;}
         if(s.flags&2u) {
-            if((s.flags&~7u) || ((s.flags&5u)==5u) || (s.type!=1u && s.type!=8u && s.type!=14u && s.type!=15u) || (s.type==8u && !(s.flags&1u))) { fail(l,"unsupported alloc section flags/type: %s",s.name);goto bad; }
+            if(!(l->target->id==XH_ELF_TARGET_ARM && s.type==XH_ELF_SHT_ARM_EXIDX && s.flags==0x82u) &&
+               ((s.flags&~7u) || ((s.flags&5u)==5u) || (s.type!=1u && s.type!=8u && s.type!=14u && s.type!=15u) || (s.type==8u && !(s.flags&1u)))) { fail(l,"unsupported alloc section flags/type: %s",s.name);goto bad; }
+            if(l->target->id==XH_ELF_TARGET_ARM && !strncmp(s.name,".ARM.extab",10) && s.size) {fail(l,"nonempty ARM extab unsupported (CANTUNWIND-only)");goto bad;}
+            if(s.type==XH_ELF_SHT_ARM_EXIDX) {
+                uint32_t x;
+                for(x=0;x<s.size;x+=8u) {
+                    unsigned rs,matches=0;
+                    if(s.data[x+4]!=1u || s.data[x+5] || s.data[x+6] || s.data[x+7]) {fail(l,"ARM exidx supports CANTUNWIND records only");goto bad;}
+                    for(rs=1;rs<v.shnum;rs++) {
+                        XhElfSection rel;uint32_t z;xh_elf_section(&v,rs,&rel);
+                        if(rel.type!=XH_ELF_SHT_REL || rel.info!=i)continue;
+                        for(z=0;z<rel.size/8u;z++){XhElfRel r;xh_elf_rel(&v,rs,z,&r);if(r.offset==x && r.type==42u)matches++;}
+                    }
+                    if(matches!=1u){fail(l,"ARM exidx requires exactly one PREL31 per record");goto bad;}
+                }
+            }
         }
         names+=strlen(s.name)+1u;
         if(names>XH_ELF_LINK_MAX_NAMES){fail(l,"ELF name limit exceeded");goto bad;}
@@ -121,7 +136,7 @@ static int scan(Link *l,const char *path,Obj *o) {
     memset(o->sec,0,o->secbytes);names=0;
     for(i=1;i<o->ns;i++) {
         XhElfSection s;Sec *t=&o->sec[i];size_t z;xh_elf_section(&v,i,&s);
-        t->type=s.type;t->flags=s.flags;t->size=s.size;t->align=s.align?s.align:1u;t->name=(uint32_t)names;
+        t->type=s.type;t->flags=s.flags;t->size=s.size;t->align=s.align?s.align:1u;t->name=(uint32_t)names;t->link=s.link;t->entsize=s.entsize;
         z=strlen(s.name)+1u;memcpy(o->names+names,s.name,z);names+=z;
     }
     for(i=0;i<o->ny;i++) {
@@ -340,6 +355,36 @@ static void w32(unsigned char *p,uint32_t v){p[0]=(unsigned char)v;p[1]=(unsigne
 static void shdr(unsigned char *p,uint32_t name,uint32_t type,uint32_t flags,uint32_t addr,uint32_t off,uint32_t size,uint32_t link,uint32_t info,uint32_t align,uint32_t entsize) {
     w32(p,name);w32(p+4,type);w32(p+8,flags);w32(p+12,addr);w32(p+16,off);w32(p+20,size);w32(p+24,link);w32(p+28,info);w32(p+32,align);w32(p+36,entsize);
 }
+static uint32_t r32(const unsigned char *p) {return (uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
+/* Fail closed rather than reorder already-relocated entries. Tables must form
+ * one contiguous, function-address-ordered index; no GC or unwind synthesis. */
+static int validate_exidx(Link *l,unsigned n,const unsigned char *image) {
+    uint32_t end=0,last=0;unsigned have=0,visited=0,total=0,i,j;
+    for(i=0;i<n;i++)for(j=1;j<l->obj[i].ns;j++)if(l->obj[i].sec[j].type==XH_ELF_SHT_ARM_EXIDX && l->obj[i].sec[j].size)total++;
+    while(visited<total) {
+        Sec *best=0,*code=0;
+        for(i=0;i<n;i++)for(j=1;j<l->obj[i].ns;j++) {
+            Sec *s=&l->obj[i].sec[j];
+            if(s->type!=XH_ELF_SHT_ARM_EXIDX || !s->size || (have && s->addr<end))continue;
+            if(!best || s->addr<best->addr){best=s;code=&l->obj[i].sec[s->link];}
+        }
+        if(!best || !best->out || !code->out)return fail(l,"ARM exidx missing mapped associated code/table");
+        if(have && best->addr!=end)return fail(l,"ARM exidx tables must be contiguous");
+        for(j=0;j<best->size;j+=8u) {
+            uint32_t w=r32(image+best->off+j),address;int64_t delta=(int64_t)(w&0x7fffffffu);
+            if(w&0x40000000u)delta-=INT64_C(2147483648);
+            delta+=(int64_t)best->addr+j;
+            if((w&0x80000000u) || delta<0 || delta>UINT32_MAX || r32(image+best->off+j+4)!=1u)return fail(l,"invalid ARM CANTUNWIND index record");
+            address=(uint32_t)delta&~1u;
+            if(address<code->addr || (uint64_t)address>=(uint64_t)code->addr+code->size)return fail(l,"ARM exidx function outside associated code");
+            if(have && address<=last)return fail(l,"ARM exidx function addresses are not strictly increasing");
+            last=address;have=1;
+        }
+        if(plus(best->addr,best->size,&end))return fail(l,"ARM exidx address overflow");
+        visited++;
+    }
+    return 0;
+}
 static void phdr(unsigned char *p,uint32_t off,uint32_t vma,uint32_t lma,uint32_t filesz,uint32_t memsz,uint32_t flags) {
     w32(p,1);w32(p+4,off);w32(p+8,vma);w32(p+12,lma);w32(p+16,filesz);w32(p+20,memsz);w32(p+24,flags);w32(p+28,1);
 }
@@ -455,7 +500,8 @@ layout_ready:
                 XhElfRel rel;Sec *target=&o->sec[r.info];uint32_t value,place;unsigned thumb,weak;int64_t a;unsigned width;
                 xh_elf_rel(&v,j,k,&rel);
                 /* Unknown relocation types are rejected even in ignored debug sections. */
-                if(rel.type!=2u && rel.type!=10u && rel.type!=30u && rel.type!=51u && rel.type!=47u && rel.type!=48u){fail(&l,"unsupported ARM relocation %u",(unsigned)rel.type);goto object_bad;}
+                if(rel.type!=2u && rel.type!=10u && rel.type!=30u && rel.type!=51u && rel.type!=47u && rel.type!=48u && rel.type!=42u){fail(&l,"unsupported ARM relocation %u",(unsigned)rel.type);goto object_bad;}
+                if(target->type==XH_ELF_SHT_ARM_EXIDX && (rel.type!=42u || rel.offset%8u)) {fail(&l,"ARM exidx requires PREL31 at record start only");goto object_bad;}
                 if(!target->out)continue;
                 if(target->type==8u){fail(&l,"relocation into NOBITS unsupported");goto object_bad;}
                 if(resolve(&l,o->base+rel.symbol,&value,&thumb,&weak))goto object_bad;
@@ -466,6 +512,7 @@ layout_ready:
         drop(&l,p,(size_t)len+1u);continue;
 object_bad:drop(&l,p,(size_t)len+1u);goto done;
     }
+    if(l.target->id==XH_ELF_TARGET_ARM && validate_exidx(&l,n,image))goto done;
     if(l.script && opt->output_format==1u){total=flatlen;goto write_output;}
     /* ELF header and load segments. Segment alignment one is valid ELF and
        avoids padding the file by the MCU's address-space alignment. */
@@ -477,7 +524,7 @@ object_bad:drop(&l,p,(size_t)len+1u);goto done;
         for(i=0;i<n;i++)for(j=1;j<l.obj[i].ns;j++) {
             Obj *o=&l.obj[i];Sec *s=&o->sec[j];size_t z;if(!s->out)continue;
             z=strlen(o->names+s->name)+1u;memcpy(image+stroff+cursor,o->names+s->name,z);
-            shdr(image+shoff+s->out*40u,cursor,s->type,s->flags,s->addr,s->off,s->size,0,0,s->align,(s->type==14u || s->type==15u)?4u:0u);cursor+=(uint32_t)z;
+            shdr(image+shoff+s->out*40u,cursor,s->type,s->flags,s->addr,s->off,s->size,s->type==XH_ELF_SHT_ARM_EXIDX?o->sec[s->link].out:0u,0,s->align,s->type==XH_ELF_SHT_ARM_EXIDX?s->entsize:((s->type==14u || s->type==15u)?4u:0u));cursor+=(uint32_t)z;
         }
         commonname=cursor;memcpy(image+stroff+cursor,".common",8);cursor+=8;
         symnameoff=cursor;memcpy(image+stroff+cursor,".symtab",8);cursor+=8;

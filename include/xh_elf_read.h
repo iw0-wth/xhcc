@@ -16,6 +16,8 @@
 #define XH_ELF_SHT_NOBITS 8u
 #define XH_ELF_SHT_REL 9u
 #define XH_ELF_SHT_RELA 4u
+#define XH_ELF_SHT_ARM_EXIDX 0x70000001u
+#define XH_ELF_SHF_LINK_ORDER 0x80u
 typedef enum { XH_ELF_TARGET_ARM=0, XH_ELF_TARGET_RISCV32=1 } XhElfTarget;
 #define XH_ELF_SHN_UNDEF 0u
 #define XH_ELF_SHN_ABS 0xfff1u
